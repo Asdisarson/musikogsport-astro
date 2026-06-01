@@ -1,0 +1,34 @@
+---
+import type { WooProduct } from '../lib/types';
+import { formatISK } from '../lib/format';
+import { sanitizeHtml } from '../lib/sanitize';
+
+interface Props {
+  product: Pick<WooProduct, 'type' | 'price' | 'regular_price' | 'sale_price' | 'on_sale' | 'price_html'>;
+  class?: string;
+}
+const { product, class: className = '' } = Astro.props;
+
+const priceNum = Number(product.price);
+const hasPrice = product.price !== '' && Number.isFinite(priceNum);
+const onSale = Boolean(product.on_sale) && product.sale_price !== '' && product.regular_price !== '';
+// Variable products show the lowest variation price → prefix with "frá" (from).
+const isFrom = product.type === 'variable';
+---
+
+{
+  !hasPrice && product.price_html ? (
+    <span class={`price price__html ${className}`} set:html={sanitizeHtml(product.price_html)} />
+  ) : onSale ? (
+    <span class={`price price--sale ${className}`}>
+      {isFrom && <span class="price__from">frá </span>}
+      {formatISK(product.sale_price)}
+      <span class="price__was">{formatISK(product.regular_price)}</span>
+    </span>
+  ) : (
+    <span class={`price ${className}`}>
+      {isFrom && <span class="price__from">frá </span>}
+      {formatISK(product.price)}
+    </span>
+  )
+}

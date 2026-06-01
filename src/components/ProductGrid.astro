@@ -1,0 +1,24 @@
+---
+import type { WooProduct } from '../lib/types';
+import ProductCard from './ProductCard.astro';
+
+interface Props {
+  products: WooProduct[];
+  empty?: string;
+}
+const { products, empty = 'Engar vörur fundust.' } = Astro.props;
+---
+
+{
+  products.length === 0 ? (
+    <p class="empty">{empty}</p>
+  ) : (
+    <ul class="product-grid">
+      {products.map((p) => (
+        <li>
+          <ProductCard product={p} />
+        </li>
+      ))}
+    </ul>
+  )
+}

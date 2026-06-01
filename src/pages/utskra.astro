@@ -1,0 +1,15 @@
+---
+import Base from '../layouts/Base.astro';
+import Breadcrumbs from '../components/Breadcrumbs.astro';
+import CheckoutForm from '../components/CheckoutForm.tsx';
+
+export const prerender = false;
+---
+
+<Base title="Greiðsla">
+  <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Karfa', href: '/karfa' }, { label: 'Greiðsla' }]} />
+  <div class="container">
+    <h1>Greiðsla</h1>
+    <CheckoutForm client:load />
+  </div>
+</Base>

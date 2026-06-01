@@ -1,0 +1,15 @@
+---
+import Base from '../layouts/Base.astro';
+import Breadcrumbs from '../components/Breadcrumbs.astro';
+import CartView from '../components/CartView.tsx';
+
+export const prerender = false;
+---
+
+<Base title="Karfa">
+  <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Karfa' }]} />
+  <div class="container">
+    <h1>Karfa</h1>
+    <CartView client:load />
+  </div>
+</Base>

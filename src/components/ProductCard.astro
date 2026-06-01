@@ -1,0 +1,26 @@
+---
+import type { WooProduct } from '../lib/types';
+import { productImage } from '../lib/img';
+import { decodeEntities } from '../lib/decode';
+import ProductImage from './ProductImage.astro';
+import PriceTag from './PriceTag.astro';
+
+interface Props {
+  product: WooProduct;
+}
+const { product } = Astro.props;
+const img = productImage(product);
+const out = product.stock_status === 'outofstock';
+---
+
+<a class="product-card" href={`/vara/${product.slug}`}>
+  <div class="product-card__media">
+    <ProductImage src={img.src} alt={img.alt} />
+    {out && <span class="badge badge--muted">Uppselt</span>}
+    {!out && product.on_sale && <span class="badge badge--sale">Tilboð</span>}
+  </div>
+  <div class="product-card__body">
+    <h3 class="product-card__title">{decodeEntities(product.name)}</h3>
+    <PriceTag product={product} />
+  </div>
+</a>

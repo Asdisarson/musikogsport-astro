@@ -1,0 +1,118 @@
+---
+import Base from '../../layouts/Base.astro';
+import Breadcrumbs from '../../components/Breadcrumbs.astro';
+import ProductImage from '../../components/ProductImage.astro';
+import PriceTag from '../../components/PriceTag.astro';
+import NotFound from '../../components/NotFound.astro';
+import ProductPurchase from '../../components/ProductPurchase.tsx';
+import { getProductBySlug, getVariations } from '../../lib/woo';
+import { productImage } from '../../lib/img';
+import { decodeEntities, stripShortcodes } from '../../lib/decode';
+import { sanitizeHtml } from '../../lib/sanitize';
+
+export const prerender = false;
+
+const slug = Astro.params.slug ?? '';
+const product = slug ? await getProductBySlug(slug).catch(() => null) : null;
+if (!product) {
+  Astro.response.status = 404;
+}
+
+let variationAttrs: { name: string; options: string[] }[] = [];
+let variationsFailed = false;
+let variations: {
+  id: number;
+  attributes: { name: string; option: string }[];
+  price: string;
+  regular_price: string;
+  sale_price: string;
+  on_sale: boolean;
+  stock_status: string;
+}[] = [];
+
+if (product && product.type === 'variable') {
+  variationAttrs = (product.attributes ?? [])
+    .filter((a) => a.variation)
+    .map((a) => ({ name: a.name, options: a.options }));
+  const raw = await getVariations(product.id).catch(() => {
+    variationsFailed = true;
+    return [];
+  });
+  variations = raw.map((v) => ({
+    id: v.id,
+    attributes: v.attributes.map((a) => ({ name: a.name, option: a.option })),
+    price: v.price,
+    regular_price: v.regular_price,
+    sale_price: v.sale_price,
+    on_sale: v.on_sale,
+    stock_status: v.stock_status,
+  }));
+}
+
+const name = product ? decodeEntities(product.name) : '';
+const img = product ? productImage(product) : { src: '', alt: '' };
+const inStock = product?.stock_status === 'instock';
+const cat = product?.categories?.[0];
+
+const crumbs: { label: string; href?: string }[] = [
+  { label: 'Forsíða', href: '/' },
+  { label: 'Verslun', href: '/verslun' },
+];
+if (cat) crumbs.push({ label: decodeEntities(cat.name), href: `/verslun/${cat.slug}` });
+if (product) crumbs.push({ label: name });
+---
+
+{
+  product ? (
+    <Base title={name} description={decodeEntities((product.short_description ?? '').replace(/<[^>]*>/g, '').slice(0, 150))}>
+      <Breadcrumbs items={crumbs} />
+      <div class="container pdp">
+        <div class="pdp__gallery">
+          <div class="main-image">
+            <ProductImage src={img.src} alt={img.alt} loading="eager" />
+          </div>
+          {product.images.length > 1 && (
+            <div class="pdp__thumbs">
+              {product.images.slice(0, 6).map((i) => (
+                <ProductImage src={i.src} alt={i.alt || name} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <h1 class="pdp__title">{name}</h1>
+          {product.type !== 'variable' && (
+            <div class="pdp__price">
+              <PriceTag product={product} />
+            </div>
+          )}
+
+          <ProductPurchase
+            client:load
+            productId={product.id}
+            type={product.type}
+            inStock={inStock}
+            variationAttrs={variationAttrs}
+            variations={variations}
+            variationsFailed={variationsFailed}
+          />
+
+          {product.short_description && (
+            <div class="form-note" style="margin-top:1.5rem;" set:html={sanitizeHtml(stripShortcodes(product.short_description))} />
+          )}
+        </div>
+      </div>
+
+      {product.description && (
+        <div class="container">
+          <div class="pdp__desc" set:html={sanitizeHtml(stripShortcodes(product.description))} />
+        </div>
+      )}
+    </Base>
+  ) : (
+    <Base title="Vara fannst ekki">
+      <NotFound title="Vara fannst ekki" message="Þessi vara er ekki til eða hefur verið fjarlægð." />
+    </Base>
+  )
+}

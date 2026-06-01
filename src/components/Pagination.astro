@@ -1,0 +1,51 @@
+---
+interface Props {
+  page: number;
+  totalPages: number;
+  /** Build the href for a given page number (preserves existing query params). */
+  hrefFor: (page: number) => string;
+}
+const { page, totalPages, hrefFor } = Astro.props;
+
+function pageList(cur: number, total: number): (number | '…')[] {
+  const keep = new Set<number>([1, total]);
+  for (let i = cur - 1; i <= cur + 1; i++) if (i >= 1 && i <= total) keep.add(i);
+  const sorted = [...keep].sort((a, b) => a - b);
+  const out: (number | '…')[] = [];
+  let prev = 0;
+  for (const n of sorted) {
+    if (prev && n - prev > 1) out.push('…');
+    out.push(n);
+    prev = n;
+  }
+  return out;
+}
+
+const items = totalPages > 1 ? pageList(page, totalPages) : [];
+---
+
+{
+  totalPages > 1 && (
+    <nav class="pagination" aria-label="Síður">
+      {page > 1 ? (
+        <a href={hrefFor(page - 1)} rel="prev" aria-label="Fyrri síða">‹</a>
+      ) : (
+        <span class="is-disabled" aria-hidden="true">‹</span>
+      )}
+      {items.map((it) =>
+        it === '…' ? (
+          <span class="gap">…</span>
+        ) : it === page ? (
+          <span class="is-current" aria-current="page">{it}</span>
+        ) : (
+          <a href={hrefFor(it)}>{it}</a>
+        ),
+      )}
+      {page < totalPages ? (
+        <a href={hrefFor(page + 1)} rel="next" aria-label="Næsta síða">›</a>
+      ) : (
+        <span class="is-disabled" aria-hidden="true">›</span>
+      )}
+    </nav>
+  )
+}

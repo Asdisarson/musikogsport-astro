@@ -1,0 +1,45 @@
+---
+import { listTopCategories } from '../lib/woo';
+import { decodeEntities } from '../lib/decode';
+import type { WooCategory } from '../lib/types';
+
+let cats: WooCategory[] = [];
+try {
+  cats = (await listTopCategories()).slice(0, 6);
+} catch {
+  cats = [];
+}
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+  <div class="site-footer__cols">
+    <div class="site-footer__brand">
+      <h3>Músík og Sport</h3>
+      <p>Hljóðfæri, hljómtækni, íþróttavörur</p>
+      <p>Faxafen 14<br />108 Reykjavík</p>
+      <p>
+        <a href="tel:+3545528090">552 8090</a><br />
+        <a href="mailto:musikogsport@musikogsport.is">musikogsport@musikogsport.is</a>
+      </p>
+    </div>
+    <div>
+      <h3>Verslun</h3>
+      <ul>
+        <li><a href="/verslun">Allar vörur</a></li>
+        {cats.map((c) => (<li><a href={`/verslun/${c.slug}`}>{decodeEntities(c.name)}</a></li>))}
+      </ul>
+    </div>
+    <div>
+      <h3>Þjónusta</h3>
+      <ul>
+        <li><a href="/leita">Leit</a></li>
+        <li><a href="/karfa">Karfa</a></li>
+        <li><a href="/utskra">Greiðsla</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="site-footer__bottom">
+    © Músík og Sport {year} · Greitt með Visa · Mastercard · Apple Pay
+  </div>
+</footer>

@@ -1,0 +1,27 @@
+---
+import { mediaUrl, PLACEHOLDER } from '../lib/img';
+
+interface Props {
+  src?: string | null;
+  alt?: string;
+  width?: number;
+  height?: number;
+  loading?: 'lazy' | 'eager';
+  class?: string;
+}
+const { src, alt = '', width, height, loading = 'lazy', class: className } = Astro.props;
+const finalSrc = mediaUrl(src) || PLACEHOLDER;
+// Most local media files 404; swap to the placeholder on error (guarded against loops).
+const onerror = `if(this.src.indexOf('${PLACEHOLDER}')===-1){this.src='${PLACEHOLDER}';this.onerror=null;}`;
+---
+
+<img
+  src={finalSrc}
+  alt={alt}
+  width={width}
+  height={height}
+  loading={loading}
+  decoding="async"
+  class={className}
+  onerror={onerror}
+/>

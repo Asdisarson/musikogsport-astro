@@ -1,0 +1,20 @@
+---
+interface Props {
+  title?: string;
+  message?: string;
+}
+const {
+  title = 'Síða fannst ekki',
+  message = 'Síðan sem þú leitar að er ekki til eða hefur verið fjarlægð.',
+} = Astro.props;
+---
+
+<section class="section container" style="text-align:center; padding:4rem 1rem;">
+  <p class="eyebrow">404</p>
+  <h1>{title}</h1>
+  <p class="muted">{message}</p>
+  <div class="hero__cta" style="justify-content:center;">
+    <a class="btn btn--primary" href="/">Heim</a>
+    <a class="btn" href="/verslun">Verslun</a>
+  </div>
+</section>

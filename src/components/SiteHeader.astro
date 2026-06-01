@@ -1,0 +1,56 @@
+---
+import { listTopCategories } from '../lib/woo';
+import { decodeEntities } from '../lib/decode';
+import type { WooCategory } from '../lib/types';
+import CartButton from './CartButton.tsx';
+
+let cats: WooCategory[] = [];
+try {
+  cats = await listTopCategories();
+} catch {
+  cats = [];
+}
+const path = Astro.url.pathname;
+---
+
+<div class="topbar">
+  <div class="container">
+    <span>Frí sending á höfuðborgarsvæðinu yfir 15.000 kr.</span>
+    <span>IS · ISK</span>
+  </div>
+</div>
+
+<header class="site-header">
+  <div class="site-header__bar">
+    <a class="brand" href="/">Músík og Sport</a>
+
+    <nav class="main-nav" aria-label="Aðalvalmynd">
+      <ul>
+        <li>
+          <a href="/verslun" aria-current={path === '/verslun' ? 'page' : undefined}>Verslun</a>
+        </li>
+        {
+          cats.map((c) => (
+            <li class={c.slug === 'sale' ? 'nav-sale' : undefined}>
+              <a
+                href={`/verslun/${c.slug}`}
+                aria-current={path === `/verslun/${c.slug}` ? 'page' : undefined}
+              >
+                {decodeEntities(c.name)}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <div class="header-actions">
+      <form class="search-form" action="/leita" method="get" role="search">
+        <input type="search" name="q" placeholder="Leita…" aria-label="Leita að vörum" />
+        <button type="submit" aria-label="Leita">Leita</button>
+      </form>
+      <CartButton client:load />
+      <noscript><a class="cart-link" href="/karfa">Karfa</a></noscript>
+    </div>
+  </div>
+</header>

@@ -1,0 +1,38 @@
+---
+import Base from '../layouts/Base.astro';
+import ProductGrid from '../components/ProductGrid.astro';
+import Pagination from '../components/Pagination.astro';
+import Breadcrumbs from '../components/Breadcrumbs.astro';
+import { searchProducts } from '../lib/woo';
+import { pageHref } from '../lib/query';
+import type { Paged, WooProduct } from '../lib/types';
+
+export const prerender = false;
+
+const params = Astro.url.searchParams;
+const q = (params.get('q') ?? '').trim();
+const page = Math.max(1, Number(params.get('page')) || 1);
+
+const empty: Paged<WooProduct> = { items: [], total: 0, totalPages: 0, page };
+const result = q ? await searchProducts(q, page).catch(() => empty) : empty;
+
+const baseParams = new URLSearchParams();
+if (q) baseParams.set('q', q);
+const hrefFor = (n: number) => pageHref('/leita', baseParams, n);
+---
+
+<Base title={q ? `Leit: ${q}` : 'Leit'}>
+  <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Leit' }]} />
+  <div class="container">
+    <h1>{q ? `Leitarniðurstöður fyrir „${q}“` : 'Leita að vörum'}</h1>
+    <form class="search-form" action="/leita" method="get" role="search" style="max-width:24rem; margin:1rem 0;">
+      <input type="search" name="q" value={q} placeholder="Leita…" aria-label="Leita að vörum" />
+      <button type="submit">Leita</button>
+    </form>
+    {q && <p class="muted">{result.total.toLocaleString('is-IS')} vörur fundust.</p>}
+  </div>
+  <div class="section container">
+    <ProductGrid products={result.items} empty={q ? 'Engar vörur fundust.' : 'Sláðu inn leitarorð hér að ofan.'} />
+  </div>
+  <Pagination page={result.page} totalPages={result.totalPages} hrefFor={hrefFor} />
+</Base>
