@@ -1,5 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
+import Icon from '../../components/Icon.astro';
 
 export const prerender = false;
 
@@ -8,17 +9,23 @@ const order = Astro.url.searchParams.get('order') ?? Astro.url.searchParams.get(
 
 <Base title="Takk fyrir pöntunina">
   <div class="container confirm">
-    <p class="confirm__check">✓</p>
+    <div class="confirm__check"><Icon name="check" size={32} stroke-width={2.2} /></div>
+    <p class="eyebrow eyebrow--plain" style="justify-content:center;color:var(--accent)">Pöntun móttekin</p>
     <h1>Takk fyrir pöntunina!</h1>
-    {order && <p>Pöntunarnúmer: <strong>{order}</strong></p>}
-    <p class="muted">Við höfum tekið við pöntun þinni. Staðfesting og greiðsluupplýsingar verða sendar í tölvupósti.</p>
+    {order && <p class="lead">Pöntunarnúmer: <strong>{order}</strong></p>}
+    <p class="muted">
+      Við höfum tekið við pöntun þinni. Staðfesting og greiðsluupplýsingar verða sendar í tölvupósti.
+    </p>
     <div class="bank-box">
       <strong>Bankamillifærsla</strong>
-      <p class="muted" style="margin:0.5rem 0 0;">
-        Vinsamlegast greiddu fyrir pöntuninni með millifærslu samkvæmt upplýsingum í staðfestingarpóstinum.
-        Pöntunin er afgreidd um leið og greiðsla hefur borist.
+      <p class="muted" style="margin:0.6rem 0 0;">
+        Vinsamlegast greiddu fyrir pöntuninni með millifærslu samkvæmt upplýsingum í
+        staðfestingarpóstinum. Pöntunin er afgreidd um leið og greiðsla hefur borist.
       </p>
     </div>
-    <a class="btn btn--primary" href="/verslun">Halda áfram að versla</a>
+    <div class="cluster" style="justify-content:center">
+      <a class="btn btn--primary" href="/verslun">Halda áfram að versla <Icon name="arrow-right" size={18} /></a>
+      <a class="btn btn--ghost" href="/">Forsíða</a>
+    </div>
   </div>
 </Base>

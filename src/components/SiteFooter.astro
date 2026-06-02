@@ -2,6 +2,7 @@
 import { listTopCategories } from '../lib/woo';
 import { decodeEntities } from '../lib/decode';
 import type { WooCategory } from '../lib/types';
+import Icon from './Icon.astro';
 
 let cats: WooCategory[] = [];
 try {
@@ -13,16 +14,19 @@ const year = new Date().getFullYear();
 ---
 
 <footer class="site-footer">
-  <div class="site-footer__cols">
+  <div class="site-footer__top">
     <div class="site-footer__brand">
-      <h3>Músík og Sport</h3>
-      <p>Hljóðfæri, hljómtækni, íþróttavörur</p>
-      <p>Faxafen 14<br />108 Reykjavík</p>
-      <p>
-        <a href="tel:+3545528090">552 8090</a><br />
-        <a href="mailto:musikogsport@musikogsport.is">musikogsport@musikogsport.is</a>
+      <a class="brand" href="/">
+        <span class="brand__mark"><Icon name="mountain" size={18} stroke-width={1.9} /></span>
+        <span class="brand__text">Músík og Sport</span>
+      </a>
+      <p>Íþróttavörur, hlaupaskór, fatnaður og útivist frá fagfólki — yfir 30 ára reynsla og persónuleg þjónusta.</p>
+      <p class="muted" style="margin-top:1rem">
+        <Icon name="phone" size={15} style="display:inline;vertical-align:-2px" /> <a href="tel:+3545528090">552 8090</a><br />
+        <Icon name="mail" size={15} style="display:inline;vertical-align:-2px" /> <a href="mailto:musikogsport@musikogsport.is">musikogsport@musikogsport.is</a>
       </p>
     </div>
+
     <div>
       <h3>Verslun</h3>
       <ul>
@@ -30,16 +34,37 @@ const year = new Date().getFullYear();
         {cats.map((c) => (<li><a href={`/verslun/${c.slug}`}>{decodeEntities(c.name)}</a></li>))}
       </ul>
     </div>
+
     <div>
       <h3>Þjónusta</h3>
       <ul>
         <li><a href="/leita">Leit</a></li>
         <li><a href="/karfa">Karfa</a></li>
         <li><a href="/utskra">Greiðsla</a></li>
+        <li><a href="/verslun/sale">Útsala</a></li>
       </ul>
     </div>
+
+    <div class="site-footer__hours">
+      <h3>Heimsóttu okkur</h3>
+      <p class="muted">
+        Faxafen 14<br />108 Reykjavík
+      </p>
+      <p class="muted" style="margin-top:0.75rem">
+        Virka daga 11–18<br />Laugardaga 11–16
+      </p>
+      <a class="btn btn--ghost btn--sm" href="/verslun" style="margin-top:1rem">
+        Skoða vörur <Icon name="arrow-right" size={16} />
+      </a>
+    </div>
   </div>
+
   <div class="site-footer__bottom">
-    © Músík og Sport {year} · Greitt með Visa · Mastercard · Apple Pay
+    <div class="container container--wide">
+      <span>© Músík og Sport {year}</span>
+      <span class="site-footer__pay">
+        <span>Visa</span><span>Mastercard</span><span>Apple Pay</span>
+      </span>
+    </div>
   </div>
 </footer>

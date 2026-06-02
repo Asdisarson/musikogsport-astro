@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { cart, cartLoading, ensureLoaded, resetCart, selectShipping, setCustomer } from '../lib/cartStore';
+import { droppoint, rateNeedsPostbox } from '../lib/droppointStore';
 import { formatStoreMoney } from '../lib/format';
 import { decodeEntities } from '../lib/decode';
+import DroppointSelect from './DroppointSelect';
 
 interface FormState {
   firstName: string;
@@ -27,6 +29,7 @@ const EMPTY: FormState = {
 export default function CheckoutForm() {
   const $cart = useStore(cart);
   const loading = useStore(cartLoading);
+  const $droppoint = useStore(droppoint);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [addressDone, setAddressDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +44,9 @@ export default function CheckoutForm() {
   const needsShipping = $cart?.needs_shipping ?? false;
   const rates = $cart?.shipping_rates?.[0]?.shipping_rates ?? [];
   const selectedRate = rates.find((r) => r.selected) ?? null;
+  const cartPostcode = $cart?.shipping_address?.postcode ?? '';
+  const needsPostbox = rateNeedsPostbox(selectedRate?.rate_id);
+  const postboxChosen = needsPostbox && $droppoint != null && $droppoint.postcode === cartPostcode;
 
   function update<K extends keyof FormState>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -91,6 +97,20 @@ export default function CheckoutForm() {
       setError('Karfan er orðin tóm.');
       return;
     }
+    // Pósturinn "Pakki Póstbox" requires a chosen locker + phone number.
+    const extra: Record<string, string> = {};
+    if (needsPostbox) {
+      if (!postboxChosen || !$droppoint) {
+        setError('Veldu póstbox fyrir sendinguna.');
+        return;
+      }
+      if (!form.phone.trim()) {
+        setError('Símanúmer er nauðsynlegt fyrir afhendingu í póstbox.');
+        return;
+      }
+      extra.postis_dpo_postbox = $droppoint.id;
+      extra.postis_dpo_phonenumber = form.phone.trim();
+    }
     setPlacing(true);
     setError(null);
     try {
@@ -102,6 +122,7 @@ export default function CheckoutForm() {
           shipping_address: addressObj(),
           payment_method: 'bacs',
           payment_data: [],
+          ...extra,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -119,13 +140,18 @@ export default function CheckoutForm() {
   if ($cart && items.length === 0 && !placing) {
     return (
       <div className="panel" style={{ textAlign: 'center', marginTop: '1rem' }}>
-        <p className="muted">Karfan þín er tóm.</p>
-        <a className="btn btn--primary" href="/verslun">Skoða vörur</a>
+        <p className="muted" style={{ marginBottom: '1rem' }}>Karfan þín er tóm.</p>
+        <a className="btn btn--accent" href="/verslun">Skoða vörur</a>
       </div>
     );
   }
 
-  const canPlace = addressDone && (!needsShipping || Boolean(selectedRate)) && !placing && items.length > 0;
+  const canPlace =
+    addressDone &&
+    (!needsShipping || Boolean(selectedRate)) &&
+    (!needsPostbox || (postboxChosen && form.phone.trim() !== '')) &&
+    !placing &&
+    items.length > 0;
 
   return (
     <div className="layout-2col" style={{ marginTop: '1rem' }}>
@@ -205,6 +231,7 @@ export default function CheckoutForm() {
                 </label>
               ))
             )}
+            {needsPostbox && cartPostcode && <DroppointSelect postcode={cartPostcode} />}
           </div>
         )}
 
@@ -222,9 +249,9 @@ export default function CheckoutForm() {
             <label className="radio-card is-disabled">
               <input type="radio" name="payment" disabled />
               <span>
-                Straumur (kort)
+                Kortagreiðsla
                 <br />
-                <small>Virkar ekki í prófunarumhverfi.</small>
+                <small>Væntanleg — ekki í boði sem stendur.</small>
               </span>
             </label>
           </div>
@@ -261,7 +288,7 @@ export default function CheckoutForm() {
             </div>
           </>
         )}
-        <button type="button" className="btn btn--primary btn--block" style={{ marginTop: '1rem' }} disabled={!canPlace} onClick={handlePlaceOrder}>
+        <button type="button" className="btn btn--accent btn--block btn--lg" style={{ marginTop: '1rem' }} disabled={!canPlace} onClick={handlePlaceOrder}>
           {placing ? 'Geng frá pöntun…' : 'Staðfesta pöntun'}
         </button>
         {!addressDone && <p className="form-note" style={{ marginTop: '0.5rem' }}>Fylltu út afhendingarupplýsingar og reiknaðu sendingu.</p>}

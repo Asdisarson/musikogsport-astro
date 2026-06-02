@@ -8,8 +8,9 @@ interface Props {
   height?: number;
   loading?: 'lazy' | 'eager';
   class?: string;
+  id?: string;
 }
-const { src, alt = '', width, height, loading = 'lazy', class: className } = Astro.props;
+const { src, alt = '', width, height, loading = 'lazy', class: className, id } = Astro.props;
 const finalSrc = mediaUrl(src) || PLACEHOLDER;
 // Most local media files 404; swap to the placeholder on error (guarded against loops).
 const onerror = `if(this.src.indexOf('${PLACEHOLDER}')===-1){this.src='${PLACEHOLDER}';this.onerror=null;}`;
@@ -23,5 +24,6 @@ const onerror = `if(this.src.indexOf('${PLACEHOLDER}')===-1){this.src='${PLACEHO
   loading={loading}
   decoding="async"
   class={className}
+  id={id}
   onerror={onerror}
 />

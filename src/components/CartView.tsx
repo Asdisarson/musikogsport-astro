@@ -4,6 +4,7 @@ import { cart, cartError, ensureLoaded, removeLine, updateQty } from '../lib/car
 import { formatStoreMoney } from '../lib/format';
 import { mediaUrl, PLACEHOLDER } from '../lib/img';
 import { decodeEntities } from '../lib/decode';
+import ShippingEstimator from './ShippingEstimator';
 
 function slugFromPermalink(permalink?: string): string | null {
   if (!permalink) return null;
@@ -24,14 +25,16 @@ export default function CartView() {
   const items = $cart.items;
   if (items.length === 0) {
     return (
-      <div className="panel" style={{ textAlign: 'center' }}>
-        <p className="muted">Karfan þín er tóm.</p>
-        <a className="btn btn--primary" href="/verslun">Skoða vörur</a>
+      <div className="panel" style={{ textAlign: 'center', padding: '3rem 1.5rem' }}>
+        <p className="muted" style={{ marginBottom: '1rem' }}>Karfan þín er tóm.</p>
+        <a className="btn btn--accent" href="/verslun">Skoða vörur</a>
       </div>
     );
   }
 
   const t = $cart.totals;
+  const rates = $cart.shipping_rates?.[0]?.shipping_rates ?? [];
+  const hasShipping = rates.some((r) => r.selected);
   return (
     <div className="layout-2col">
       <div className="panel">
@@ -74,19 +77,31 @@ export default function CartView() {
       </div>
 
       <aside className="panel summary">
-        <h2>Samantekt</h2>
+        <h2 className="panel__title">Samantekt</h2>
+        {$cart.needs_shipping && (
+          <>
+            <ShippingEstimator />
+            <hr className="summary__sep" />
+          </>
+        )}
         <div className="summary__row">
           <span>Vörur ({$cart.items_count})</span>
-          <span>{formatStoreMoney(t.total_items, t.currency_minor_unit)}</span>
+          <strong>{formatStoreMoney(t.total_items, t.currency_minor_unit)}</strong>
         </div>
+        {hasShipping && (
+          <div className="summary__row">
+            <span>Sending</span>
+            <strong>{formatStoreMoney(t.total_shipping ?? '0', t.currency_minor_unit)}</strong>
+          </div>
+        )}
         <div className="summary__row summary__row--total">
           <span>Samtals</span>
           <span>{formatStoreMoney(t.total_price, t.currency_minor_unit)}</span>
         </div>
-        <a className="btn btn--primary btn--block" href="/utskra" style={{ marginTop: '1rem' }}>
+        <a className="btn btn--accent btn--block btn--lg" href="/utskra" style={{ marginTop: '1.25rem' }}>
           Ganga frá pöntun
         </a>
-        <p className="form-note" style={{ marginTop: '0.5rem' }}>Sending reiknuð í greiðsluferli.</p>
+        <p className="form-note" style={{ marginTop: '0.5rem' }}>Áætlað verð — staðfest í greiðsluferli.</p>
       </aside>
     </div>
   );

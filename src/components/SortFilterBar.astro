@@ -17,8 +17,8 @@ const options: [string, string][] = [
 ];
 ---
 
-<div class="toolbar container">
-  <span class="toolbar__count">{total.toLocaleString('is-IS')} vörur</span>
+<div class="toolbar container container--wide">
+  <span class="toolbar__count"><strong>{total.toLocaleString('is-IS')}</strong> vörur</span>
   <form method="get">
     {
       showSaleFilter && (
@@ -32,10 +32,10 @@ const options: [string, string][] = [
     </label>
     <label>
       Raða:
-      <select name="sort" onchange="this.form.submit()">
+      <select class="select" name="sort" onchange="this.form.submit()">
         {options.map(([v, l]) => (<option value={v} selected={sort === v}>{l}</option>))}
       </select>
     </label>
-    <button class="btn" type="submit">Sía</button>
+    <button class="btn btn--ghost btn--sm" type="submit">Sía</button>
   </form>
 </div>

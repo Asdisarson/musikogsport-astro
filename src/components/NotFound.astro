@@ -1,20 +1,23 @@
 ---
+import Icon from './Icon.astro';
 interface Props {
   title?: string;
   message?: string;
+  code?: string;
 }
 const {
   title = 'Síða fannst ekki',
   message = 'Síðan sem þú leitar að er ekki til eða hefur verið fjarlægð.',
+  code = '404',
 } = Astro.props;
 ---
 
-<section class="section container" style="text-align:center; padding:4rem 1rem;">
-  <p class="eyebrow">404</p>
+<section class="container notfound">
+  <p class="notfound__code">{code}</p>
   <h1>{title}</h1>
-  <p class="muted">{message}</p>
-  <div class="hero__cta" style="justify-content:center;">
-    <a class="btn btn--primary" href="/">Heim</a>
-    <a class="btn" href="/verslun">Verslun</a>
+  <p class="lead" style="max-width:46ch;margin-inline:auto">{message}</p>
+  <div class="cluster" style="justify-content:center;margin-top:1.75rem">
+    <a class="btn btn--primary" href="/">Á forsíðu <Icon name="arrow-right" size={18} /></a>
+    <a class="btn btn--ghost" href="/verslun">Skoða verslun</a>
   </div>
 </section>

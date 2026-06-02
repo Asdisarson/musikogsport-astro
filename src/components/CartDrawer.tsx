@@ -4,6 +4,7 @@ import { cart, cartError, closeCart, ensureLoaded, isCartOpen, removeLine, updat
 import { formatStoreMoney } from '../lib/format';
 import { mediaUrl, PLACEHOLDER } from '../lib/img';
 import { decodeEntities } from '../lib/decode';
+import ShippingEstimator from './ShippingEstimator';
 
 function slugFromPermalink(permalink?: string): string | null {
   if (!permalink) return null;
@@ -16,6 +17,7 @@ export default function CartDrawer() {
   const open = useStore(isCartOpen);
   const err = useStore(cartError);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     ensureLoaded();
@@ -30,7 +32,26 @@ export default function CartDrawer() {
     document.body.style.overflow = 'hidden';
     closeRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeCart();
+      if (e.key === 'Escape') {
+        closeCart();
+        return;
+      }
+      // trap Tab focus inside the dialog
+      if (e.key === 'Tab' && drawerRef.current) {
+        const f = drawerRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input, [tabindex]:not([tabindex="-1"])',
+        );
+        if (f.length === 0) return;
+        const first = f[0];
+        const last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => {
@@ -44,14 +65,20 @@ export default function CartDrawer() {
 
   const items = $cart?.items ?? [];
   const totals = $cart?.totals;
+  const rates = $cart?.shipping_rates?.[0]?.shipping_rates ?? [];
+  const hasShipping = rates.some((r) => r.selected);
 
   return (
     <>
       <div className="drawer-overlay" onClick={closeCart} />
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label="Karfa">
+      <aside ref={drawerRef} className="drawer" role="dialog" aria-modal="true" aria-label="Karfa">
         <div className="drawer__head">
           <h2>Karfa</h2>
-          <button ref={closeRef} type="button" className="icon-btn" onClick={closeCart} aria-label="Loka körfu">×</button>
+          <button ref={closeRef} type="button" className="icon-btn" onClick={closeCart} aria-label="Loka körfu">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
         </div>
 
         <div className="drawer__body">
@@ -95,16 +122,27 @@ export default function CartDrawer() {
               );
             })
           )}
+          {items.length > 0 && $cart?.needs_shipping && (
+            <div className="drawer__ship">
+              <ShippingEstimator />
+            </div>
+          )}
         </div>
 
         {items.length > 0 && totals && (
           <div className="drawer__foot">
+            {hasShipping && (
+              <div className="drawer__subline">
+                <span>Sending</span>
+                <span>{formatStoreMoney(totals.total_shipping ?? '0', totals.currency_minor_unit)}</span>
+              </div>
+            )}
             <div className="cart-totals">
               <span>Samtals</span>
               <span>{formatStoreMoney(totals.total_price, totals.currency_minor_unit)}</span>
             </div>
-            <a className="btn" href="/karfa" onClick={closeCart}>Skoða körfu</a>
-            <a className="btn btn--primary" href="/utskra" onClick={closeCart}>Ganga frá pöntun</a>
+            <a className="btn btn--ghost btn--block" href="/karfa" onClick={closeCart}>Skoða körfu</a>
+            <a className="btn btn--accent btn--block" href="/utskra" onClick={closeCart}>Ganga frá pöntun</a>
           </div>
         )}
       </aside>

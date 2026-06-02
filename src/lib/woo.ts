@@ -21,7 +21,11 @@ async function wooGet<T>(path: string, params: Params = {}): Promise<{ data: T; 
     if (v === undefined || v === null || v === '') continue;
     usp.set(k, Array.isArray(v) ? v.join(',') : String(v));
   }
-  const res = await fetch(`${BASE}${path}?${usp.toString()}`, { headers: { Accept: 'application/json' } });
+  // Hard timeout so a hung Woo backend can't pin the SSR worker (callers .catch() it).
+  const res = await fetch(`${BASE}${path}?${usp.toString()}`, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(5000),
+  });
   if (!res.ok) throw new Error(`WooCommerce GET ${path} -> ${res.status} ${res.statusText}`);
   const data = (await res.json()) as T;
   return {

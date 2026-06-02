@@ -130,12 +130,13 @@ export default function ProductPurchase({
             <input value={qty} readOnly aria-label="Fjöldi" />
             <button type="button" onClick={() => setQty((q) => q + 1)} aria-label="Fjölga">+</button>
           </div>
-          <button type="button" className="btn btn--primary" disabled={!canAdd} onClick={handleAdd}>
+          <button type="button" className="btn btn--accent btn--lg" disabled={!canAdd} onClick={handleAdd}>
             {adding ? 'Bæti við…' : justAdded ? 'Bætt í körfu ✓' : 'Setja í körfu'}
           </button>
         </div>
       )}
 
+      <p className="visually-hidden" role="status" aria-live="polite">{justAdded ? 'Vara sett í körfu.' : ''}</p>
       {err && <p className="form-error">{err}</p>}
     </div>
   );

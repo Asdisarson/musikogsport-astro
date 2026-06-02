@@ -7,9 +7,12 @@ export const prerender = false;
 ---
 
 <Base title="Greiðsla">
-  <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Karfa', href: '/karfa' }, { label: 'Greiðsla' }]} />
-  <div class="container">
-    <h1>Greiðsla</h1>
+  <div class="container container--wide">
+    <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Karfa', href: '/karfa' }, { label: 'Greiðsla' }]} />
+    <div class="page-head">
+      <p class="eyebrow">Ganga frá pöntun</p>
+      <h1>Greiðsla</h1>
+    </div>
     <CheckoutForm client:load />
   </div>
 </Base>

@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css';
+import { ClientRouter } from 'astro:transitions';
 import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
 import CartDrawer from '../components/CartDrawer.tsx';
@@ -9,7 +10,10 @@ interface Props {
   description?: string;
 }
 const { title, description } = Astro.props;
-const fullTitle = title ? `${title} — Músík og Sport` : 'Músík og Sport — Hljóðfæri og íþróttavörur';
+const fullTitle = title ? `${title} — Músík og Sport` : 'Músík og Sport — Íþróttavörur frá fagfólki';
+const desc =
+  description ??
+  'Íþróttavörur, hlaupaskór, fatnaður og útivist frá fagfólki. Yfir 30 ára reynsla, vönduð vörumerki og persónuleg þjónusta.';
 ---
 
 <!doctype html>
@@ -19,8 +23,27 @@ const fullTitle = title ? `${title} — Músík og Sport` : 'Músík og Sport �
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="generator" content={Astro.generator} />
     <title>{fullTitle}</title>
-    {description && <meta name="description" content={description} />}
+    <meta name="description" content={desc} />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141714" media="(prefers-color-scheme: dark)" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- preload the two hero faces to avoid FOUT on the headline -->
+    <link rel="preload" href="/fonts/schibsted-grotesk-700-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/hanken-grotesk-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+
+    <!-- no-flash theme: apply stored choice before first paint (light is primary) -->
+    <script is:inline>
+      (() => {
+        // mark JS available so reveal-animations engage (no-JS shows content as-is)
+        document.documentElement.classList.add('js');
+        try {
+          document.documentElement.dataset.theme = localStorage.getItem('mos-theme') || 'light';
+        } catch (e) {}
+      })();
+    </script>
+
+    <ClientRouter />
   </head>
   <body>
     <a class="skip-link" href="#main">Beint í aðalefni</a>
@@ -30,5 +53,88 @@ const fullTitle = title ? `${title} — Músík og Sport` : 'Músík og Sport �
     </main>
     <SiteFooter />
     <CartDrawer client:idle />
+
+    <!-- behaviour: theme toggle · sticky header · mobile nav · scroll-reveal -->
+    <script>
+      // One-time, document-level wiring (survives view transitions).
+      const root = document.documentElement;
+
+      function setTheme(theme: string) {
+        root.dataset.theme = theme;
+        try {
+          localStorage.setItem('mos-theme', theme);
+        } catch (e) {}
+        document
+          .querySelectorAll<HTMLElement>('[data-theme-toggle]')
+          .forEach((b) => b.setAttribute('aria-pressed', String(theme === 'dark')));
+      }
+
+      document.addEventListener('click', (e) => {
+        const t = e.target as HTMLElement;
+        const themeBtn = t.closest('[data-theme-toggle]');
+        if (themeBtn) {
+          setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark');
+          return;
+        }
+        const navBtn = t.closest('[data-nav-toggle]');
+        if (navBtn) {
+          const nav = document.querySelector<HTMLElement>('.main-nav');
+          const open = nav?.dataset.open === 'true';
+          if (nav) nav.dataset.open = String(!open);
+          navBtn.setAttribute('aria-expanded', String(!open));
+          return;
+        }
+        // PDP gallery: swap the main image when a thumbnail is clicked.
+        const thumb = t.closest<HTMLElement>('.pdp__thumb');
+        if (thumb) {
+          const main = document.getElementById('pdp-main') as HTMLImageElement | null;
+          const full = thumb.dataset.full;
+          if (main && full) {
+            main.src = full;
+            if (thumb.dataset.alt) main.alt = thumb.dataset.alt;
+            document.querySelectorAll('.pdp__thumb').forEach((o) => o.removeAttribute('aria-current'));
+            thumb.setAttribute('aria-current', 'true');
+          }
+        }
+      });
+
+      // Sticky-header shadow on scroll.
+      const onScroll = () => {
+        const header = document.querySelector<HTMLElement>('.site-header');
+        if (header) header.dataset.stuck = String(window.scrollY > 4);
+      };
+      window.addEventListener('scroll', onScroll, { passive: true });
+
+      // Scroll-reveal — re-init for each page (initial load + view transitions).
+      let observer: IntersectionObserver | null = null;
+      function initReveal() {
+        observer?.disconnect();
+        const els = document.querySelectorAll('[data-reveal]');
+        if (!els.length) return;
+        observer = new IntersectionObserver(
+          (entries) => {
+            for (const en of entries) {
+              if (en.isIntersecting) {
+                en.target.classList.add('is-in');
+                observer!.unobserve(en.target);
+              }
+            }
+          },
+          { rootMargin: '0px 0px -8% 0px', threshold: 0.05 },
+        );
+        els.forEach((el) => observer!.observe(el));
+      }
+
+      function onPage() {
+        // close mobile nav after navigation
+        const nav = document.querySelector<HTMLElement>('.main-nav');
+        if (nav) nav.dataset.open = 'false';
+        onScroll();
+        initReveal();
+      }
+
+      document.addEventListener('astro:page-load', onPage);
+      onPage();
+    </script>
   </body>
 </html>

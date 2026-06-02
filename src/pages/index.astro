@@ -2,8 +2,10 @@
 import Base from '../layouts/Base.astro';
 import ProductGrid from '../components/ProductGrid.astro';
 import ProductImage from '../components/ProductImage.astro';
+import Icon from '../components/Icon.astro';
 import { listProducts, listTopCategories } from '../lib/woo';
 import { productImage } from '../lib/img';
+import { splitBrand } from '../lib/brand';
 import { decodeEntities } from '../lib/decode';
 import type { Paged, WooProduct } from '../lib/types';
 
@@ -11,34 +13,48 @@ const EMPTY: Paged<WooProduct> = { items: [], total: 0, totalPages: 0, page: 1 }
 
 const [topCats, newest, popular, onSale] = await Promise.all([
   listTopCategories().catch(() => []),
-  listProducts({ orderby: 'date', per_page: 10 }).catch(() => EMPTY),
-  listProducts({ orderby: 'popularity', per_page: 10 }).catch(() => EMPTY),
-  listProducts({ on_sale: true, per_page: 5, orderby: 'popularity' }).catch(() => EMPTY),
+  listProducts({ orderby: 'date', per_page: 8 }).catch(() => EMPTY),
+  listProducts({ orderby: 'popularity', per_page: 8 }).catch(() => EMPTY),
+  listProducts({ on_sale: true, per_page: 4, orderby: 'popularity' }).catch(() => EMPTY),
 ]);
 
 const heroProducts = newest.items.slice(0, 4);
-const tiles = topCats.slice(0, 8);
+const featureCats = topCats.filter((c) => c.slug !== 'oflokkad').slice(0, 6);
+const brands = ['ASICS', 'Adidas', 'Nike', 'Speedo', 'Didriksons', 'Puma', 'New Balance', 'Hummel', 'Salomon', 'Craft', 'Select', 'Errea'];
 ---
 
-<Base description="Hljóðfæri, hljómtækni og íþróttavörur frá fagfólki. Yfir 30 ára reynsla, vönduð vörumerki og persónuleg þjónusta.">
+<Base>
+  <!-- ───────────────── HERO ───────────────── -->
   <section class="hero">
+    <div class="hero__bg"></div>
     <div class="hero__inner">
-      <div>
-        <p class="eyebrow">Vor 2026</p>
-        <h1>Hljóðfæri og íþróttavörur frá fagfólki</h1>
-        <p>Yfir 30 ára reynsla. Vönduð vörumerki. Persónuleg þjónusta.</p>
-        <div class="hero__cta">
-          <a class="btn btn--primary" href="/verslun">Skoða allar vörur</a>
-          <a class="btn" href="/verslun/sale">Útsala</a>
+      <div class="hero__copy">
+        <p class="eyebrow hero__eyebrow" data-reveal>Íþróttavörur frá fagfólki</p>
+        <h1 data-reveal data-reveal-delay="1">Búnaður fyrir<br /><em>alla hreyfingu</em>.</h1>
+        <p class="hero__lead" data-reveal data-reveal-delay="2">
+          Hlaupaskór, fatnaður, útivist og æfingavörur frá fremstu vörumerkjum heims —
+          valið af fólki með yfir 30 ára reynslu.
+        </p>
+        <div class="hero__cta" data-reveal data-reveal-delay="2">
+          <a class="btn btn--primary btn--lg" href="/verslun">Skoða allar vörur <Icon name="arrow-right" size={18} /></a>
+          <a class="btn btn--ghost btn--lg" href="/verslun/sale">Útsala</a>
+        </div>
+        <div class="hero__stats" data-reveal data-reveal-delay="3">
+          <div class="hero__stat"><strong>30+</strong><span>ára reynsla</span></div>
+          <div class="hero__stat"><strong>1–2</strong><span>daga afhending</span></div>
+          <div class="hero__stat"><strong>100%</strong><span>örugg greiðsla</span></div>
         </div>
       </div>
-      <div class="hero__media">
+
+      <div class="hero__media" data-reveal data-reveal-delay="1" aria-hidden={heroProducts.length === 0 ? 'true' : undefined}>
         {
-          heroProducts.map((p) => {
+          heroProducts.map((p, i) => {
             const img = productImage(p);
+            const { brand } = splitBrand(p.name);
             return (
-              <a href={`/vara/${p.slug}`} aria-label={decodeEntities(p.name)}>
+              <a class="hero__tile" href={`/vara/${p.slug}`} aria-label={decodeEntities(p.name)}>
                 <ProductImage src={img.src} alt={img.alt} loading="eager" />
+                <span class="hero__badge">{i === 0 ? 'Nýtt' : brand || 'Nýtt'}</span>
               </a>
             );
           })
@@ -47,21 +63,32 @@ const tiles = topCats.slice(0, 8);
     </div>
   </section>
 
+  <!-- ───────────────── BRAND MARQUEE ───────────────── -->
+  <div class="marquee" role="presentation">
+    <div class="marquee__track">
+      {brands.map((b) => <span class="marquee__item">{b}</span>)}
+      {brands.map((b) => <span class="marquee__item" aria-hidden="true">{b}</span>)}
+    </div>
+  </div>
+
+  <!-- ───────────────── CATEGORY SHOWCASE ───────────────── -->
   {
-    tiles.length > 0 && (
-      <section class="section container">
-        <div class="section__head">
+    featureCats.length > 0 && (
+      <section class="section container container--wide">
+        <div class="section__head" data-reveal>
           <div>
             <p class="eyebrow">Flokkar</p>
-            <h2>Verslaðu eftir flokki</h2>
+            <h2>Verslaðu eftir íþrótt</h2>
           </div>
+          <a class="section__link" href="/verslun">Allir flokkar <Icon name="arrow-right" size={16} /></a>
         </div>
-        <ul class="tiles">
-          {tiles.map((c) => (
+        <ul class="tiles tiles--feature" data-reveal>
+          {featureCats.map((c) => (
             <li>
               <a class="tile" href={`/verslun/${c.slug}`}>
-                {decodeEntities(c.name)}
-                <small>{c.count.toLocaleString('is-IS')} vörur</small>
+                <span class="tile__arrow"><Icon name="arrow-up-right" size={16} /></span>
+                <span class="tile__name">{decodeEntities(c.name)}</span>
+                <span class="tile__count">{c.count.toLocaleString('is-IS')} vörur</span>
               </a>
             </li>
           ))}
@@ -70,40 +97,88 @@ const tiles = topCats.slice(0, 8);
     )
   }
 
-  <section class="section container">
-    <div class="section__head">
+  <!-- ───────────────── NEWEST ───────────────── -->
+  <section class="section container container--wide">
+    <div class="section__head" data-reveal>
       <div>
         <p class="eyebrow">Nýtt í verslun</p>
         <h2>Nýjustu vörurnar</h2>
       </div>
-      <a href="/verslun?sort=date">Sjá allt</a>
+      <a class="section__link" href="/verslun?sort=date">Sjá allt <Icon name="arrow-right" size={16} /></a>
     </div>
-    <ProductGrid products={newest.items} />
+    <div data-reveal><ProductGrid products={newest.items} /></div>
   </section>
 
+  <!-- ───────────────── SALE ───────────────── -->
   {
     onSale.items.length > 0 && (
-      <section class="section container">
-        <div class="section__head">
+      <section class="section--tight container container--wide">
+        <div class="section__head" data-reveal>
           <div>
             <p class="eyebrow">Tilboð</p>
             <h2>Á útsölu núna</h2>
           </div>
-          <a href="/verslun/sale">Sjá allt</a>
+          <a class="section__link" href="/verslun/sale">Sjá öll tilboð <Icon name="arrow-right" size={16} /></a>
         </div>
-        <ProductGrid products={onSale.items} />
+        <div data-reveal><ProductGrid products={onSale.items} /></div>
       </section>
     )
   }
 
-  <section class="section container">
-    <div class="section__head">
+  <!-- ───────────────── HERITAGE BAND ───────────────── -->
+  <section class="section container container--wide">
+    <div class="band" data-reveal>
+      <div class="band__inner">
+        <div>
+          <p class="eyebrow eyebrow--plain" style="color:var(--accent-on-pine)">Um Músík og Sport</p>
+          <h2>Áratuga reynsla í þágu íþróttafólks</h2>
+          <p>
+            Frá hlaupaskóm og keppnisfatnaði til útivistar og félagabúninga — við veljum
+            aðeins búnað sem stenst kröfur fagfólks. Komdu við í Faxafeni eða verslaðu á netinu.
+          </p>
+          <a class="btn btn--accent" href="/verslun">Skoða úrvalið <Icon name="arrow-right" size={18} /></a>
+        </div>
+        <div class="band__stats">
+          <div class="band__stat"><strong>30+</strong><span>ára reynsla á markaði</span></div>
+          <div class="band__stat"><strong>Faxafen 14</strong><span>verslun í Reykjavík</span></div>
+          <div class="band__stat"><strong>50+</strong><span>vörumerki</span></div>
+          <div class="band__stat"><strong>Frí</strong><span>sending yfir 15.000 kr.</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────── POPULAR ───────────────── -->
+  <section class="section--tight container container--wide">
+    <div class="section__head" data-reveal>
       <div>
         <p class="eyebrow">Vinsælast</p>
         <h2>Það sem aðrir eru að skoða</h2>
       </div>
-      <a href="/verslun?sort=popularity">Sjá allt</a>
+      <a class="section__link" href="/verslun?sort=popularity">Sjá allt <Icon name="arrow-right" size={16} /></a>
     </div>
-    <ProductGrid products={popular.items} />
+    <div data-reveal><ProductGrid products={popular.items} /></div>
+  </section>
+
+  <!-- ───────────────── TRUST ROW ───────────────── -->
+  <section class="section container container--wide">
+    <ul class="features" data-reveal style="list-style:none;margin:0;padding:0">
+      <li class="feature">
+        <span class="feature__icon"><Icon name="truck" /></span>
+        <div><h3>Frí heimsending</h3><p>Á höfuðborgarsvæðinu yfir 15.000 kr.</p></div>
+      </li>
+      <li class="feature">
+        <span class="feature__icon"><Icon name="refresh" /></span>
+        <div><h3>30 daga skil</h3><p>Einföld skil og skipti á vörum.</p></div>
+      </li>
+      <li class="feature">
+        <span class="feature__icon"><Icon name="shield" /></span>
+        <div><h3>Öruggar greiðslur</h3><p>Visa, Mastercard og Apple Pay.</p></div>
+      </li>
+      <li class="feature">
+        <span class="feature__icon"><Icon name="spark" /></span>
+        <div><h3>Fagleg þjónusta</h3><p>Ráðgjöf frá reyndu íþróttafólki.</p></div>
+      </li>
+    </ul>
   </section>
 </Base>

@@ -27,6 +27,10 @@ async function storeFetch<T>(
     method: opts.method ?? 'GET',
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    // Generous backstop only — this path is request-scoped (/api/* routes, never page SSR),
+    // and shipping calc + order placement call Pósturinn's external rate API which can take
+    // several seconds (some postcodes ~4s warm). A tight timeout would abort valid checkouts.
+    signal: AbortSignal.timeout(25000),
   });
 
   const cartToken = res.headers.get('Cart-Token');

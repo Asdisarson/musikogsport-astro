@@ -5,8 +5,10 @@ import ProductCard from './ProductCard.astro';
 interface Props {
   products: WooProduct[];
   empty?: string;
+  /** Eager-load (no lazy) the first N cards — set on listing pages so the LCP image isn't deferred. */
+  eagerCount?: number;
 }
-const { products, empty = 'Engar vörur fundust.' } = Astro.props;
+const { products, empty = 'Engar vörur fundust.', eagerCount = 0 } = Astro.props;
 ---
 
 {
@@ -14,9 +16,9 @@ const { products, empty = 'Engar vörur fundust.' } = Astro.props;
     <p class="empty">{empty}</p>
   ) : (
     <ul class="product-grid">
-      {products.map((p) => (
+      {products.map((p, i) => (
         <li>
-          <ProductCard product={p} />
+          <ProductCard product={p} eager={i < eagerCount} />
         </li>
       ))}
     </ul>

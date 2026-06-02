@@ -7,6 +7,7 @@ import Breadcrumbs from '../../components/Breadcrumbs.astro';
 import NotFound from '../../components/NotFound.astro';
 import { getCategoryBySlug, listProducts } from '../../lib/woo';
 import { decodeEntities } from '../../lib/decode';
+import { sanitizeHtml } from '../../lib/sanitize';
 import { parseSort, pageHref } from '../../lib/query';
 import type { Paged, WooProduct } from '../../lib/types';
 
@@ -48,19 +49,27 @@ const name = cat ? decodeEntities(cat.name) : '';
 {
   cat ? (
     <Base title={name} description={`${name} — vörur í vefverslun Músík og Sport.`}>
-      <Breadcrumbs
-        items={[
-          { label: 'Forsíða', href: '/' },
-          { label: 'Verslun', href: '/verslun' },
-          { label: name },
-        ]}
-      />
-      <div class="container"><h1>{name}</h1></div>
-      <SortFilterBar total={result.total} sort={sort} onSale={onSale} inStock={inStock} />
-      <div class="section container">
-        <ProductGrid products={result.items} />
+      <div class="container container--wide">
+        <Breadcrumbs
+          items={[
+            { label: 'Forsíða', href: '/' },
+            { label: 'Verslun', href: '/verslun' },
+            { label: name },
+          ]}
+        />
+        <div class="page-head">
+          <p class="eyebrow">Flokkur</p>
+          <h1>{name}</h1>
+          {cat.description && <p set:html={sanitizeHtml(cat.description)} />}
+        </div>
       </div>
-      <Pagination page={result.page} totalPages={result.totalPages} hrefFor={hrefFor} />
+      <SortFilterBar total={result.total} sort={sort} onSale={onSale} inStock={inStock} />
+      <div class="section--tight container container--wide">
+        <ProductGrid products={result.items} eagerCount={4} />
+      </div>
+      <div class="container container--wide">
+        <Pagination page={result.page} totalPages={result.totalPages} hrefFor={hrefFor} />
+      </div>
     </Base>
   ) : (
     <Base title="Flokkur fannst ekki">

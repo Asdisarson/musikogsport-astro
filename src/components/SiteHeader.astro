@@ -3,6 +3,7 @@ import { listTopCategories } from '../lib/woo';
 import { decodeEntities } from '../lib/decode';
 import type { WooCategory } from '../lib/types';
 import CartButton from './CartButton.tsx';
+import Icon from './Icon.astro';
 
 let cats: WooCategory[] = [];
 try {
@@ -14,25 +15,46 @@ const path = Astro.url.pathname;
 ---
 
 <div class="topbar">
-  <div class="container">
-    <span>Frí sending á höfuðborgarsvæðinu yfir 15.000 kr.</span>
-    <span>IS · ISK</span>
+  <div class="container container--wide">
+    <div class="topbar__list">
+      <span class="topbar__item"><Icon name="truck" size={15} /> Frí sending á höfuðborgarsvæðinu yfir 15.000 kr.</span>
+      <span class="topbar__item topbar__item--hide"><Icon name="refresh" size={15} /> 30 daga skilaréttur</span>
+    </div>
+    <div class="topbar__list">
+      <a class="topbar__item" href="tel:+3545528090"><Icon name="phone" size={15} /> 552 8090</a>
+      <span class="topbar__item topbar__item--hide">IS · ISK</span>
+    </div>
   </div>
 </div>
 
 <header class="site-header">
   <div class="site-header__bar">
-    <a class="brand" href="/">Músík og Sport</a>
+    <button
+      class="icon-btn nav-toggle"
+      type="button"
+      data-nav-toggle
+      aria-label="Opna valmynd"
+      aria-expanded="false"
+      aria-controls="main-nav"
+    >
+      <Icon name="menu" />
+    </button>
 
-    <nav class="main-nav" aria-label="Aðalvalmynd">
-      <ul>
+    <a class="brand" href="/" aria-label="Músík og Sport — forsíða">
+      <span class="brand__mark"><Icon name="mountain" size={18} stroke-width={1.9} /></span>
+      <span class="brand__text">Músík og Sport<small>Íþróttavörur</small></span>
+    </a>
+
+    <nav class="main-nav" id="main-nav" aria-label="Aðalvalmynd">
+      <ul class="main-nav__list">
         <li>
-          <a href="/verslun" aria-current={path === '/verslun' ? 'page' : undefined}>Verslun</a>
+          <a class="main-nav__link" href="/verslun" aria-current={path === '/verslun' ? 'page' : undefined}>Verslun</a>
         </li>
         {
           cats.map((c) => (
-            <li class={c.slug === 'sale' ? 'nav-sale' : undefined}>
+            <li>
               <a
+                class:list={['main-nav__link', c.slug === 'sale' && 'main-nav__link--sale']}
                 href={`/verslun/${c.slug}`}
                 aria-current={path === `/verslun/${c.slug}` ? 'page' : undefined}
               >
@@ -46,11 +68,22 @@ const path = Astro.url.pathname;
 
     <div class="header-actions">
       <form class="search-form" action="/leita" method="get" role="search">
-        <input type="search" name="q" placeholder="Leita…" aria-label="Leita að vörum" />
-        <button type="submit" aria-label="Leita">Leita</button>
+        <div class="search-inline">
+          <Icon name="search" />
+          <input type="search" name="q" placeholder="Leita að vörum…" aria-label="Leita að vörum" />
+          <button type="submit" aria-label="Leita"><Icon name="arrow-right" size={18} /></button>
+        </div>
       </form>
+
+      <a class="icon-btn search-mobile" href="/leita" aria-label="Leita"><Icon name="search" /></a>
+
+      <button class="icon-btn theme-toggle" type="button" data-theme-toggle aria-label="Skipta um þema" aria-pressed="false">
+        <Icon name="moon" class="theme-ic theme-ic--moon" />
+        <Icon name="sun" class="theme-ic theme-ic--sun" />
+      </button>
+
       <CartButton client:load />
-      <noscript><a class="cart-link" href="/karfa">Karfa</a></noscript>
+      <noscript><a class="icon-btn cart-link" href="/karfa" aria-label="Karfa"><Icon name="cart" /></a></noscript>
     </div>
   </div>
 </header>

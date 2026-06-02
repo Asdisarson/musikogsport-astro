@@ -5,8 +5,11 @@ import ProductImage from '../../components/ProductImage.astro';
 import PriceTag from '../../components/PriceTag.astro';
 import NotFound from '../../components/NotFound.astro';
 import ProductPurchase from '../../components/ProductPurchase.tsx';
+import Icon from '../../components/Icon.astro';
 import { getProductBySlug, getVariations } from '../../lib/woo';
 import { productImage } from '../../lib/img';
+import { mediaUrl } from '../../lib/img';
+import { splitBrand } from '../../lib/brand';
 import { decodeEntities, stripShortcodes } from '../../lib/decode';
 import { sanitizeHtml } from '../../lib/sanitize';
 
@@ -50,9 +53,11 @@ if (product && product.type === 'variable') {
 }
 
 const name = product ? decodeEntities(product.name) : '';
+const { brand, rest } = product ? splitBrand(product.name) : { brand: undefined, rest: '' };
 const img = product ? productImage(product) : { src: '', alt: '' };
 const inStock = product?.stock_status === 'instock';
 const cat = product?.categories?.[0];
+const gallery = product ? product.images.slice(0, 6) : [];
 
 const crumbs: { label: string; href?: string }[] = [
   { label: 'Forsíða', href: '/' },
@@ -65,23 +70,35 @@ if (product) crumbs.push({ label: name });
 {
   product ? (
     <Base title={name} description={decodeEntities((product.short_description ?? '').replace(/<[^>]*>/g, '').slice(0, 150))}>
-      <Breadcrumbs items={crumbs} />
-      <div class="container pdp">
+      <div class="container container--wide">
+        <Breadcrumbs items={crumbs} />
+      </div>
+      <div class="container container--wide pdp">
         <div class="pdp__gallery">
-          <div class="main-image">
-            <ProductImage src={img.src} alt={img.alt} loading="eager" />
+          <div class="pdp__main">
+            <ProductImage id="pdp-main" src={img.src} alt={img.alt} loading="eager" />
           </div>
-          {product.images.length > 1 && (
+          {gallery.length > 1 && (
             <div class="pdp__thumbs">
-              {product.images.slice(0, 6).map((i) => (
-                <ProductImage src={i.src} alt={i.alt || name} />
+              {gallery.map((im, idx) => (
+                <button
+                  class="pdp__thumb"
+                  type="button"
+                  data-full={mediaUrl(im.src) || img.src}
+                  data-alt={im.alt || name}
+                  aria-current={idx === 0 ? 'true' : undefined}
+                  aria-label={`Mynd ${idx + 1} af ${name}`}
+                >
+                  <ProductImage src={im.src} alt="" />
+                </button>
               ))}
             </div>
           )}
         </div>
 
-        <div>
-          <h1 class="pdp__title">{name}</h1>
+        <div class="pdp__info">
+          {brand && <p class="pdp__brand">{brand}</p>}
+          <h1 class="pdp__title">{brand ? rest : name}</h1>
           {product.type !== 'variable' && (
             <div class="pdp__price">
               <PriceTag product={product} />
@@ -101,11 +118,17 @@ if (product) crumbs.push({ label: name });
           {product.short_description && (
             <div class="form-note" style="margin-top:1.5rem;" set:html={sanitizeHtml(stripShortcodes(product.short_description))} />
           )}
+
+          <ul class="pdp__trust">
+            <li><Icon name="truck" /> Frí sending á höfuðborgarsvæðinu yfir 15.000 kr.</li>
+            <li><Icon name="refresh" /> 30 daga skilaréttur — einföld skil og skipti.</li>
+            <li><Icon name="shield" /> Öruggar greiðslur með Visa, Mastercard og Apple Pay.</li>
+          </ul>
         </div>
       </div>
 
       {product.description && (
-        <div class="container">
+        <div class="container container--wide">
           <div class="pdp__desc" set:html={sanitizeHtml(stripShortcodes(product.description))} />
         </div>
       )}

@@ -3,6 +3,7 @@ import Base from '../layouts/Base.astro';
 import ProductGrid from '../components/ProductGrid.astro';
 import Pagination from '../components/Pagination.astro';
 import Breadcrumbs from '../components/Breadcrumbs.astro';
+import Icon from '../components/Icon.astro';
 import { searchProducts } from '../lib/woo';
 import { pageHref } from '../lib/query';
 import type { Paged, WooProduct } from '../lib/types';
@@ -22,17 +23,25 @@ const hrefFor = (n: number) => pageHref('/leita', baseParams, n);
 ---
 
 <Base title={q ? `Leit: ${q}` : 'Leit'}>
-  <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Leit' }]} />
-  <div class="container">
-    <h1>{q ? `Leitarniðurstöður fyrir „${q}“` : 'Leita að vörum'}</h1>
-    <form class="search-form" action="/leita" method="get" role="search" style="max-width:24rem; margin:1rem 0;">
-      <input type="search" name="q" value={q} placeholder="Leita…" aria-label="Leita að vörum" />
-      <button type="submit">Leita</button>
-    </form>
-    {q && <p class="muted">{result.total.toLocaleString('is-IS')} vörur fundust.</p>}
+  <div class="container container--wide">
+    <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Leit' }]} />
+    <div class="page-head">
+      <p class="eyebrow">Leit</p>
+      <h1>{q ? `„${q}“` : 'Leita að vörum'}</h1>
+      <form class="search-page" action="/leita" method="get" role="search">
+        <div class="search-inline">
+          <Icon name="search" />
+          <input type="search" name="q" value={q} placeholder="Leita að vörum…" aria-label="Leita að vörum" autofocus={!q} />
+        </div>
+        <button class="btn btn--accent" type="submit">Leita</button>
+      </form>
+      {q && <p class="muted" style="margin-top:1rem">{result.total.toLocaleString('is-IS')} vörur fundust.</p>}
+    </div>
   </div>
-  <div class="section container">
-    <ProductGrid products={result.items} empty={q ? 'Engar vörur fundust.' : 'Sláðu inn leitarorð hér að ofan.'} />
+  <div class="section--tight container container--wide">
+    <ProductGrid products={result.items} eagerCount={4} empty={q ? 'Engar vörur fundust — prófaðu annað leitarorð.' : 'Sláðu inn leitarorð hér að ofan.'} />
   </div>
-  <Pagination page={result.page} totalPages={result.totalPages} hrefFor={hrefFor} />
+  <div class="container container--wide">
+    <Pagination page={result.page} totalPages={result.totalPages} hrefFor={hrefFor} />
+  </div>
 </Base>

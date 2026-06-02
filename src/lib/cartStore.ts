@@ -18,6 +18,7 @@ async function call(path: string, body?: unknown): Promise<Cart> {
       method: body !== undefined ? 'POST' : 'GET',
       headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15000),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) {

@@ -33,11 +33,19 @@ const hrefFor = (n: number) => pageHref('/verslun', baseParams, n);
 ---
 
 <Base title="Verslun" description="Allar vörur í vefverslun Músík og Sport.">
-  <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Verslun' }]} />
-  <div class="container"><h1>Verslun</h1></div>
-  <SortFilterBar total={result.total} sort={sort} onSale={onSale} inStock={inStock} />
-  <div class="section container">
-    <ProductGrid products={result.items} />
+  <div class="container container--wide">
+    <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Verslun' }]} />
+    <div class="page-head">
+      <p class="eyebrow">Vefverslun</p>
+      <h1>Allar vörur</h1>
+      <p>Hlaupaskór, fatnaður, útivist, æfingavörur og félagabúningar frá fremstu vörumerkjum.</p>
+    </div>
   </div>
-  <Pagination page={result.page} totalPages={result.totalPages} hrefFor={hrefFor} />
+  <SortFilterBar total={result.total} sort={sort} onSale={onSale} inStock={inStock} />
+  <div class="section--tight container container--wide">
+    <ProductGrid products={result.items} eagerCount={4} />
+  </div>
+  <div class="container container--wide">
+    <Pagination page={result.page} totalPages={result.totalPages} hrefFor={hrefFor} />
+  </div>
 </Base>
