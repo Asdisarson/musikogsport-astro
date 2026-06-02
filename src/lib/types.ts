@@ -33,6 +33,7 @@ export interface WooProduct {
   type: ProductType;
   status?: string;
   permalink?: string;
+  sku?: string;
   description?: string;
   short_description?: string;
   price: string; // whole-ISK string, e.g. "37990" ("" on variable parents)
@@ -165,6 +166,15 @@ export interface CartTotals extends StoreCurrency {
   total_discount?: string;
 }
 
+export interface CartCoupon {
+  code: string;
+  discount_type?: string;
+  totals?: Partial<StoreCurrency> & {
+    total_discount: string;
+    total_discount_tax?: string;
+  };
+}
+
 export interface Address {
   first_name: string;
   last_name: string;
@@ -182,7 +192,7 @@ export interface Address {
 export interface Cart {
   items: CartItem[];
   items_count: number;
-  coupons: unknown[];
+  coupons: CartCoupon[];
   needs_payment: boolean;
   needs_shipping: boolean;
   has_calculated_shipping: boolean;

@@ -1,0 +1,61 @@
+---
+import Base from '../layouts/Base.astro';
+import Breadcrumbs from '../components/Breadcrumbs.astro';
+import Icon from '../components/Icon.astro';
+
+export const prerender = true;
+
+const mapsUrl = 'https://www.google.com/maps/search/?api=1&query=Dalshraun+10,+220+Hafnarfj%C3%B6r%C3%B0ur';
+---
+
+<Base
+  title="Hafa samband"
+  description="Hafðu samband við Músík og Sport — sími, netfang, staðsetning og opnunartími verslunarinnar í Hafnarfirði."
+>
+  <div class="container">
+    <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Hafa samband' }]} />
+    <div class="page-head">
+      <p class="eyebrow">Hafa samband</p>
+      <h1>Hafðu samband</h1>
+      <p>Við erum til staðar til að aðstoða þig — hringdu, sendu okkur línu eða líttu við í versluninni.</p>
+    </div>
+  </div>
+
+  <section class="section--tight container">
+    <div class="prose">
+      <div class="prose__contact">
+        <div>
+          <h3>Viltu spjalla?</h3>
+          <p>
+            Sími: <a href="tel:+3545552887">555 2887</a><br />
+            <a href="mailto:musikogsport@musikogsport.is">musikogsport@musikogsport.is</a>
+          </p>
+        </div>
+        <div>
+          <h3>Komdu til okkar</h3>
+          <p>
+            Dalshraun 10<br />220 Hafnarfjörður<br />
+            <a href={mapsUrl} rel="noopener noreferrer" target="_blank">Leiðarvísir</a>
+          </p>
+        </div>
+        <div>
+          <h3>Opnunartími</h3>
+          <p>
+            Virka daga 11–18<br />Laugardaga 11–16
+          </p>
+        </div>
+      </div>
+
+      <h3>Upplýsingar um fyrirtækið</h3>
+      <p>
+        Músík og Sport ehf.<br />
+        Kennitala: 710303-2310<br />
+        VSK-númer: 47789
+      </p>
+
+      <p>
+        <a class="btn btn--accent" href="/verslun">Skoða vörur <Icon name="arrow-right" size={16} /></a>
+      </p>
+    </div>
+  </section>
+</Base>

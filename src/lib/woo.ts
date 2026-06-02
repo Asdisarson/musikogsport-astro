@@ -105,3 +105,52 @@ export async function resolveCategoryId(slug: string): Promise<number | null> {
 export async function searchProducts(query: string, page = 1): Promise<Paged<WooProduct>> {
   return listProducts({ search: query, page, orderby: 'date' });
 }
+
+// ---------- sitemap helpers (cached per server process) ----------
+
+const SITEMAP_TTL = 10 * 60 * 1000;
+const MAX_PAGES = 200; // safety cap (~20k products at per_page=100)
+
+interface ProductSlug {
+  slug: string;
+  modified?: string;
+}
+let productSlugCache: { at: number; entries: ProductSlug[] } | null = null;
+let allCatCache: { at: number; slugs: string[] } | null = null;
+
+/** All published product slugs (+ lastmod) for the sitemap. Cached 10 min. */
+export async function listAllProductSlugs(): Promise<ProductSlug[]> {
+  if (productSlugCache && Date.now() - productSlugCache.at < SITEMAP_TTL) return productSlugCache.entries;
+  const entries: ProductSlug[] = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const { data, totalPages } = await wooGet<ProductSlug[]>('/products', {
+      status: 'publish',
+      _fields: 'slug,modified',
+      per_page: 100,
+      page,
+      orderby: 'id',
+      order: 'asc',
+    });
+    for (const p of data) if (p.slug) entries.push({ slug: p.slug, modified: p.modified });
+    if (page >= totalPages || data.length === 0) break;
+  }
+  productSlugCache = { at: Date.now(), entries };
+  return entries;
+}
+
+/** All product-category slugs that have products, for the sitemap. Cached 10 min. */
+export async function listAllCategorySlugs(): Promise<string[]> {
+  if (allCatCache && Date.now() - allCatCache.at < SITEMAP_TTL) return allCatCache.slugs;
+  const slugs: string[] = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const { data, totalPages } = await wooGet<{ slug: string; count: number }[]>('/products/categories', {
+      _fields: 'slug,count',
+      per_page: 100,
+      page,
+    });
+    for (const c of data) if (c.count > 0 && !NAV_EXCLUDE.has(c.slug)) slugs.push(c.slug);
+    if (page >= totalPages || data.length === 0) break;
+  }
+  allCatCache = { at: Date.now(), slugs };
+  return slugs;
+}

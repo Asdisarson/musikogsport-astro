@@ -6,6 +6,8 @@ import react from '@astrojs/react';
 // Headless WooCommerce storefront — SSR on-demand by default.
 // Static pages opt out per-route with `export const prerender = true`.
 export default defineConfig({
+  // Production origin — drives canonical links, OG/Twitter absolute URLs, and the sitemap.
+  site: 'https://musikogsport.is',
   output: 'server',
   adapter: node({ mode: 'standalone' }),
   integrations: [react()],

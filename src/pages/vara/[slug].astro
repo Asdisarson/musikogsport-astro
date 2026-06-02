@@ -12,6 +12,7 @@ import { mediaUrl } from '../../lib/img';
 import { splitBrand } from '../../lib/brand';
 import { decodeEntities, stripShortcodes } from '../../lib/decode';
 import { sanitizeHtml } from '../../lib/sanitize';
+import { ld, productLd, breadcrumbList } from '../../lib/jsonld';
 
 export const prerender = false;
 
@@ -65,11 +66,46 @@ const crumbs: { label: string; href?: string }[] = [
 ];
 if (cat) crumbs.push({ label: decodeEntities(cat.name), href: `/verslun/${cat.slug}` });
 if (product) crumbs.push({ label: name });
+
+// Structured data for the product detail page.
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? 'https://musikogsport.is/').href;
+let productLdObj: ReturnType<typeof productLd> | null = null;
+let breadcrumbLdObj: ReturnType<typeof breadcrumbList> | null = null;
+if (product) {
+  const images = (gallery.length ? gallery.map((im) => mediaUrl(im.src) || im.src) : [img.src]).filter(Boolean);
+  const plainDesc = decodeEntities((product.short_description || product.description || '').replace(/<[^>]*>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 500);
+  const varPrices = variations.map((v) => Number(v.price)).filter((n) => n > 0);
+  productLdObj = productLd({
+    name,
+    url: canonicalUrl,
+    images,
+    description: plainDesc || undefined,
+    sku: product.sku,
+    brand,
+    inStock,
+    price: product.price,
+    priceRange:
+      product.type === 'variable' && varPrices.length
+        ? { low: Math.min(...varPrices), high: Math.max(...varPrices), count: varPrices.length }
+        : undefined,
+  });
+  breadcrumbLdObj = breadcrumbList(crumbs, Astro.site?.href ?? 'https://musikogsport.is/', canonicalUrl);
+}
 ---
 
 {
   product ? (
-    <Base title={name} description={decodeEntities((product.short_description ?? '').replace(/<[^>]*>/g, '').slice(0, 150))}>
+    <Base
+      title={name}
+      description={decodeEntities((product.short_description ?? '').replace(/<[^>]*>/g, '').slice(0, 150))}
+      image={img.src}
+      ogType="product"
+    >
+      {productLdObj && <script type="application/ld+json" is:inline slot="head" set:html={ld(productLdObj)} />}
+      {breadcrumbLdObj && <script type="application/ld+json" is:inline slot="head" set:html={ld(breadcrumbLdObj)} />}
       <div class="container container--wide">
         <Breadcrumbs items={crumbs} />
       </div>
@@ -115,13 +151,15 @@ if (product) crumbs.push({ label: name });
             variationsFailed={variationsFailed}
           />
 
+          <a class="pdp__sizeguide" href="/staerdir">Sjá stærðartöflu</a>
+
           {product.short_description && (
             <div class="form-note" style="margin-top:1.5rem;" set:html={sanitizeHtml(stripShortcodes(product.short_description))} />
           )}
 
           <ul class="pdp__trust">
             <li><Icon name="truck" /> Frí sending á höfuðborgarsvæðinu yfir 15.000 kr.</li>
-            <li><Icon name="refresh" /> 30 daga skilaréttur — einföld skil og skipti.</li>
+            <li><Icon name="refresh" /> <a href="/skilmalar">30 daga skilaréttur</a> — einföld skil og skipti.</li>
             <li><Icon name="shield" /> Öruggar greiðslur með Visa, Mastercard og Apple Pay.</li>
           </ul>
         </div>

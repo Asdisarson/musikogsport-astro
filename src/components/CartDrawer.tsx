@@ -5,6 +5,7 @@ import { formatStoreMoney } from '../lib/format';
 import { mediaUrl, PLACEHOLDER } from '../lib/img';
 import { decodeEntities } from '../lib/decode';
 import ShippingEstimator from './ShippingEstimator';
+import CouponField from './CouponField';
 
 function slugFromPermalink(permalink?: string): string | null {
   if (!permalink) return null;
@@ -131,10 +132,17 @@ export default function CartDrawer() {
 
         {items.length > 0 && totals && (
           <div className="drawer__foot">
+            <CouponField compact />
             {hasShipping && (
               <div className="drawer__subline">
                 <span>Sending</span>
                 <span>{formatStoreMoney(totals.total_shipping ?? '0', totals.currency_minor_unit)}</span>
+              </div>
+            )}
+            {totals.total_discount && totals.total_discount !== '0' && (
+              <div className="drawer__subline">
+                <span>Afsláttur</span>
+                <span>−{formatStoreMoney(totals.total_discount, totals.currency_minor_unit)}</span>
               </div>
             )}
             <div className="cart-totals">

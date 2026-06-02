@@ -6,6 +6,7 @@ import Pagination from '../../components/Pagination.astro';
 import Breadcrumbs from '../../components/Breadcrumbs.astro';
 import { listProducts } from '../../lib/woo';
 import { parseSort, pageHref } from '../../lib/query';
+import { ld, breadcrumbList } from '../../lib/jsonld';
 import type { Paged, WooProduct } from '../../lib/types';
 
 export const prerender = false;
@@ -30,11 +31,16 @@ const result = await listProducts({
 const baseParams = new URLSearchParams(params);
 baseParams.delete('page');
 const hrefFor = (n: number) => pageHref('/verslun', baseParams, n);
+
+const crumbs = [{ label: 'Forsíða', href: '/' }, { label: 'Verslun' }];
+const siteHref = Astro.site?.href ?? 'https://musikogsport.is/';
+const breadcrumbLdObj = breadcrumbList(crumbs, siteHref, new URL('/verslun', siteHref).href);
 ---
 
 <Base title="Verslun" description="Allar vörur í vefverslun Músík og Sport.">
+  <script type="application/ld+json" is:inline slot="head" set:html={ld(breadcrumbLdObj)} />
   <div class="container container--wide">
-    <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Verslun' }]} />
+    <Breadcrumbs items={crumbs} />
     <div class="page-head">
       <p class="eyebrow">Vefverslun</p>
       <h1>Allar vörur</h1>

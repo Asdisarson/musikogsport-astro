@@ -5,6 +5,7 @@ import { droppoint, rateNeedsPostbox } from '../lib/droppointStore';
 import { formatStoreMoney } from '../lib/format';
 import { decodeEntities } from '../lib/decode';
 import DroppointSelect from './DroppointSelect';
+import CouponField from './CouponField';
 
 interface FormState {
   firstName: string;
@@ -282,12 +283,19 @@ export default function CheckoutForm() {
                 <span>{selectedRate ? formatStoreMoney(totals.total_shipping ?? '0', totals.currency_minor_unit) : '—'}</span>
               </div>
             )}
+            {totals.total_discount && totals.total_discount !== '0' && (
+              <div className="summary__row summary__row--discount">
+                <span>Afsláttur</span>
+                <span>−{formatStoreMoney(totals.total_discount, totals.currency_minor_unit)}</span>
+              </div>
+            )}
             <div className="summary__row summary__row--total">
               <span>Samtals</span>
               <span>{formatStoreMoney(totals.total_price, totals.currency_minor_unit)}</span>
             </div>
           </>
         )}
+        <CouponField />
         <button type="button" className="btn btn--accent btn--block btn--lg" style={{ marginTop: '1rem' }} disabled={!canPlace} onClick={handlePlaceOrder}>
           {placing ? 'Geng frá pöntun…' : 'Staðfesta pöntun'}
         </button>

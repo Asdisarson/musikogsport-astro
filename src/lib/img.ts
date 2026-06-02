@@ -15,6 +15,11 @@ export function mediaUrl(src: string | null | undefined): string {
   return src.replace(/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i, MEDIA_BASE_URL);
 }
 
+/** Rewrite every local Woo media host inside an HTML blob (e.g. a WP page body). */
+export function rewriteMediaHosts(html: string): string {
+  return html.replace(/https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/gi, MEDIA_BASE_URL);
+}
+
 interface HasImages {
   images?: WooImage[];
   name?: string;

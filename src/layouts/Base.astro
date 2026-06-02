@@ -4,16 +4,57 @@ import { ClientRouter } from 'astro:transitions';
 import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
 import CartDrawer from '../components/CartDrawer.tsx';
+import { ld } from '../lib/jsonld';
 
 interface Props {
   title?: string;
   description?: string;
+  /** Absolute (or root-relative) image URL for og:image / twitter:image. */
+  image?: string;
+  /** Open Graph type — 'website' (default) or 'product' on PDPs. */
+  ogType?: string;
+  /** Emit a noindex robots meta (cart/checkout/transient pages). */
+  noindex?: boolean;
 }
-const { title, description } = Astro.props;
+const { title, description, image, ogType = 'website', noindex = false } = Astro.props;
 const fullTitle = title ? `${title} — Músík og Sport` : 'Músík og Sport — Íþróttavörur frá fagfólki';
 const desc =
   description ??
   'Íþróttavörur, hlaupaskór, fatnaður og útivist frá fagfólki. Yfir 30 ára reynsla, vönduð vörumerki og persónuleg þjónusta.';
+
+// Absolute URLs for canonical + social tags (Astro.site = https://musikogsport.is).
+const siteUrl = Astro.site?.href ?? 'https://musikogsport.is/';
+const canonical = new URL(Astro.url.pathname, siteUrl).href;
+const ogImage = image ? new URL(image, siteUrl).href : undefined;
+
+// Site-wide structured data (identical on every page).
+const orgLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  name: 'Músík og Sport ehf.',
+  url: siteUrl,
+  logo: new URL('/favicon.svg', siteUrl).href,
+  email: 'musikogsport@musikogsport.is',
+  telephone: '+354 555 2887',
+  address: {
+    '@type': 'PostalAddress',
+    streetAddress: 'Dalshraun 10',
+    postalCode: '220',
+    addressLocality: 'Hafnarfjörður',
+    addressCountry: 'IS',
+  },
+};
+const websiteLd = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: 'Músík og Sport',
+  url: siteUrl,
+  potentialAction: {
+    '@type': 'SearchAction',
+    target: `${siteUrl}leita?q={search_term_string}`,
+    'query-input': 'required name=search_term_string',
+  },
+};
 ---
 
 <!doctype html>
@@ -24,9 +65,28 @@ const desc =
     <meta name="generator" content={Astro.generator} />
     <title>{fullTitle}</title>
     <meta name="description" content={desc} />
+    {noindex && <meta name="robots" content="noindex,nofollow" />}
+    <link rel="canonical" href={canonical} />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#141714" media="(prefers-color-scheme: dark)" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Open Graph / Twitter -->
+    <meta property="og:type" content={ogType} />
+    <meta property="og:site_name" content="Músík og Sport" />
+    <meta property="og:locale" content="is_IS" />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={desc} />
+    <meta property="og:url" content={canonical} />
+    {ogImage && <meta property="og:image" content={ogImage} />}
+    <meta name="twitter:card" content={ogImage ? 'summary_large_image' : 'summary'} />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={desc} />
+    {ogImage && <meta name="twitter:image" content={ogImage} />}
+
+    <!-- Site-wide structured data -->
+    <script type="application/ld+json" is:inline set:html={ld(orgLd)} />
+    <script type="application/ld+json" is:inline set:html={ld(websiteLd)} />
 
     <!-- preload the two hero faces to avoid FOUT on the headline -->
     <link rel="preload" href="/fonts/schibsted-grotesk-700-latin.woff2" as="font" type="font/woff2" crossorigin />
@@ -42,6 +102,9 @@ const desc =
         } catch (e) {}
       })();
     </script>
+
+    <!-- Per-page <head> injection (canonical overrides, Product/BreadcrumbList JSON-LD). -->
+    <slot name="head" />
 
     <ClientRouter />
   </head>

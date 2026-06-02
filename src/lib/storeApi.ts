@@ -70,5 +70,8 @@ export const updateCustomer = (
 export const applyCoupon = (body: { code: string }, token?: string | null) =>
   storeFetch<Cart>('/cart/apply-coupon', { method: 'POST', body, cartToken: token });
 
+export const removeCoupon = (body: { code: string }, token?: string | null) =>
+  storeFetch<Cart>('/cart/remove-coupon', { method: 'POST', body, cartToken: token });
+
 export const checkout = (body: CheckoutPayload, token?: string | null) =>
   storeFetch<OrderResult>('/checkout', { method: 'POST', body, cartToken: token });

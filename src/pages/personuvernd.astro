@@ -1,0 +1,83 @@
+---
+import Base from '../layouts/Base.astro';
+import Breadcrumbs from '../components/Breadcrumbs.astro';
+
+export const prerender = true;
+---
+
+<Base
+  title="Persónuverndarstefna"
+  description="Hvernig Músík og Sport ehf. safnar, notar og verndar persónuupplýsingar viðskiptavina."
+>
+  <div class="container">
+    <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Persónuvernd' }]} />
+    <div class="page-head">
+      <p class="eyebrow">Persónuvernd</p>
+      <h1>Persónuverndarstefna</h1>
+      <p>Við berum virðingu fyrir persónuupplýsingum þínum og förum með þær í samræmi við gildandi lög.</p>
+    </div>
+  </div>
+
+  <section class="section--tight container">
+    <div class="prose">
+      <h2>Ábyrgðaraðili</h2>
+      <p>
+        Ábyrgðaraðili vinnslu persónuupplýsinga er <strong>Músík og Sport ehf.</strong>, kennitala 710303-2310, Dalshraun
+        10, 220 Hafnarfjörður. Fyrirspurnir um persónuvernd má senda á
+        <a href="mailto:musikogsport@musikogsport.is">musikogsport@musikogsport.is</a> eða í síma
+        <a href="tel:+3545552887">555 2887</a>.
+      </p>
+
+      <h2>Hvaða upplýsingum söfnum við?</h2>
+      <ul>
+        <li>
+          <strong>Við pöntun:</strong> nafn, heimilisfang, netfang og símanúmer, ásamt upplýsingum um pöntunina. Greiðslu­kortaupplýsingar
+          eru meðhöndlaðar af greiðsluþjónustu okkar (Straumi) og berast okkur ekki.
+        </li>
+        <li><strong>Á póstlista og biðlista:</strong> netfang sem þú skráir sjálf/ur.</li>
+        <li>
+          <strong>Sjálfvirkt:</strong> tæknilegar upplýsingar og vefkökur sem nauðsynlegar eru til að vefverslunin virki
+          (sjá að neðan).
+        </li>
+      </ul>
+
+      <h2>Tilgangur og lagagrundvöllur</h2>
+      <ul>
+        <li>Að afgreiða pantanir og veita þjónustu — grundvöllur: framkvæmd samnings.</li>
+        <li>Að senda fréttabréf eða tilkynningar um vörur á lager — grundvöllur: samþykki þitt, sem þú getur dregið til baka hvenær sem er.</li>
+        <li>Að reka og bæta vefverslunina og tryggja öryggi hennar — grundvöllur: lögmætir hagsmunir.</li>
+      </ul>
+
+      <h2>Vefkökur</h2>
+      <p>
+        Við notum nauðsynlega vefköku (<code>Cart-Token</code>) til að halda utan um innkaupakörfuna þína á meðan þú
+        verslar. Auk þess geymum við í vafranum þínum val um þema og afhendingarstað. Þessar upplýsingar eru ekki notaðar
+        til auglýsinga og ekki deilt með þriðja aðila.
+      </p>
+
+      <h2>Miðlun til þriðja aðila</h2>
+      <p>
+        Við seljum aldrei persónuupplýsingar þínar. Við deilum aðeins nauðsynlegum upplýsingum með þjónustuaðilum okkar
+        svo þeir geti veitt þjónustuna — t.d. heimilisfang til flutningsaðila (Pósturinn) og greiðsluupplýsingum til
+        greiðsluþjónustu (Straumur). Þessir aðilar mega aðeins nota upplýsingarnar í þeim tilgangi.
+      </p>
+
+      <h2>Varðveislutími</h2>
+      <p>
+        Við geymum upplýsingar um pantanir eins lengi og nauðsynlegt er vegna bókhalds og lagaskyldna, og að öðru leyti
+        ekki lengur en þörf krefur miðað við tilgang vinnslunnar.
+      </p>
+
+      <h2>Réttindi þín</h2>
+      <p>Þú átt rétt á að:</p>
+      <ul>
+        <li>fá aðgang að persónuupplýsingum sem við geymum um þig,</li>
+        <li>fá rangar upplýsingar leiðréttar eða þeim eytt,</li>
+        <li>andmæla eða takmarka vinnslu og draga samþykki til baka,</li>
+        <li>leggja fram kvörtun hjá Persónuvernd (<a href="https://www.personuvernd.is" rel="noopener noreferrer" target="_blank">personuvernd.is</a>).</li>
+      </ul>
+
+      <p class="muted">Persónuverndarstefna síðast uppfærð 2. júní 2026.</p>
+    </div>
+  </section>
+</Base>

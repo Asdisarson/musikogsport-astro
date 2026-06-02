@@ -55,6 +55,8 @@ export const setCustomer = (body: {
   shipping_address?: Record<string, unknown>;
 }) => call('/api/cart/customer', body);
 export const selectShipping = (rate_id: string) => call('/api/cart/select-shipping', { rate_id });
+export const applyCoupon = (code: string) => call('/api/cart/coupon', { code });
+export const removeCoupon = (code: string) => call('/api/cart/remove-coupon', { code });
 
 export const openCart = () => isCartOpen.set(true);
 export const closeCart = () => isCartOpen.set(false);

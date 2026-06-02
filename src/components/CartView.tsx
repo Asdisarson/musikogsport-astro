@@ -5,6 +5,7 @@ import { formatStoreMoney } from '../lib/format';
 import { mediaUrl, PLACEHOLDER } from '../lib/img';
 import { decodeEntities } from '../lib/decode';
 import ShippingEstimator from './ShippingEstimator';
+import CouponField from './CouponField';
 
 function slugFromPermalink(permalink?: string): string | null {
   if (!permalink) return null;
@@ -84,6 +85,8 @@ export default function CartView() {
             <hr className="summary__sep" />
           </>
         )}
+        <CouponField />
+        <hr className="summary__sep" />
         <div className="summary__row">
           <span>Vörur ({$cart.items_count})</span>
           <strong>{formatStoreMoney(t.total_items, t.currency_minor_unit)}</strong>
@@ -92,6 +95,12 @@ export default function CartView() {
           <div className="summary__row">
             <span>Sending</span>
             <strong>{formatStoreMoney(t.total_shipping ?? '0', t.currency_minor_unit)}</strong>
+          </div>
+        )}
+        {t.total_discount && t.total_discount !== '0' && (
+          <div className="summary__row summary__row--discount">
+            <span>Afsláttur</span>
+            <strong>−{formatStoreMoney(t.total_discount, t.currency_minor_unit)}</strong>
           </div>
         )}
         <div className="summary__row summary__row--total">

@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /karfa
+Disallow: /utskra
+Disallow: /api/
+Disallow: /leita
+
+Sitemap: https://musikogsport.is/sitemap.xml

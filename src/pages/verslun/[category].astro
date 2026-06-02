@@ -9,6 +9,7 @@ import { getCategoryBySlug, listProducts } from '../../lib/woo';
 import { decodeEntities } from '../../lib/decode';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { parseSort, pageHref } from '../../lib/query';
+import { ld, breadcrumbList } from '../../lib/jsonld';
 import type { Paged, WooProduct } from '../../lib/types';
 
 export const prerender = false;
@@ -44,19 +45,23 @@ const baseParams = new URLSearchParams(params);
 baseParams.delete('page');
 const hrefFor = (n: number) => pageHref(`/verslun/${slug}`, baseParams, n);
 const name = cat ? decodeEntities(cat.name) : '';
+
+const crumbs = [
+  { label: 'Forsíða', href: '/' },
+  { label: 'Verslun', href: '/verslun' },
+  { label: name },
+];
+const siteHref = Astro.site?.href ?? 'https://musikogsport.is/';
+const canonicalUrl = new URL(Astro.url.pathname, siteHref).href;
+const breadcrumbLdObj = cat ? breadcrumbList(crumbs, siteHref, canonicalUrl) : null;
 ---
 
 {
   cat ? (
     <Base title={name} description={`${name} — vörur í vefverslun Músík og Sport.`}>
+      {breadcrumbLdObj && <script type="application/ld+json" is:inline slot="head" set:html={ld(breadcrumbLdObj)} />}
       <div class="container container--wide">
-        <Breadcrumbs
-          items={[
-            { label: 'Forsíða', href: '/' },
-            { label: 'Verslun', href: '/verslun' },
-            { label: name },
-          ]}
-        />
+        <Breadcrumbs items={crumbs} />
         <div class="page-head">
           <p class="eyebrow">Flokkur</p>
           <h1>{name}</h1>

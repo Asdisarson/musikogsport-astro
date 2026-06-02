@@ -7,7 +7,7 @@ export const prerender = false;
 const order = Astro.url.searchParams.get('order') ?? Astro.url.searchParams.get('order_id') ?? '';
 ---
 
-<Base title="Takk fyrir pöntunina">
+<Base title="Takk fyrir pöntunina" noindex>
   <div class="container confirm">
     <div class="confirm__check"><Icon name="check" size={32} stroke-width={2.2} /></div>
     <p class="eyebrow eyebrow--plain" style="justify-content:center;color:var(--accent)">Pöntun móttekin</p>
