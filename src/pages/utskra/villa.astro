@@ -1,0 +1,46 @@
+---
+import Base from '../../layouts/Base.astro';
+import Icon from '../../components/Icon.astro';
+
+export const prerender = false;
+
+// Target of the headless-bridge cancel/fail redirect (?straumurStatus=canceled|failed|error).
+const status = Astro.url.searchParams.get('straumurStatus') ?? '';
+const canceled = status === 'canceled';
+const heading = canceled ? 'Hætt við greiðslu' : 'Greiðsla tókst ekki';
+---
+
+<Base title={heading} noindex>
+  <div class="container confirm">
+    <div class="confirm__x"><Icon name="close" size={30} stroke-width={2.2} /></div>
+    <p class="eyebrow eyebrow--plain" style="justify-content:center">Greiðsla</p>
+    <h1>{heading}</h1>
+    <p class="muted">
+      {canceled
+        ? 'Hætt var við greiðsluna og engin greiðsla fór fram. Þú getur fundið vörurnar í versluninni og klárað pöntunina á ný.'
+        : 'Greiðslan náði ekki að klárast og engin greiðsla fór fram. Þú getur fundið vörurnar í versluninni og reynt aftur, eða valið annan greiðslumáta.'}
+    </p>
+    <div class="cluster" style="justify-content:center">
+      <a class="btn btn--accent" href="/verslun">Skoða vörur <Icon name="arrow-right" size={18} /></a>
+      <a class="btn btn--ghost" href="/">Forsíða</a>
+    </div>
+  </div>
+</Base>
+
+<style>
+  .confirm__x {
+    width: 4rem;
+    height: 4rem;
+    margin: 0 auto 1.5rem;
+    border-radius: var(--r-pill);
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--line-strong);
+    display: grid;
+    place-items: center;
+  }
+  .confirm__x svg {
+    width: 2rem;
+    height: 2rem;
+  }
+</style>

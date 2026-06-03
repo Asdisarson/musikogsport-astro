@@ -66,6 +66,70 @@ export async function getVariations(productId: number): Promise<WooVariation[]> 
   return data;
 }
 
+// ---------- single order lookup (order-status / thank-you page) ----------
+
+/** Non-PII order summary returned to the storefront. */
+export interface OrderSummary {
+  order_number: string;
+  status: string;
+  paid: boolean;
+  total: string;
+  currency: string;
+  payment_method: string;
+}
+
+interface WooOrder {
+  id: number;
+  number?: string | number;
+  status?: string;
+  order_key?: string;
+  currency?: string;
+  total?: string;
+  payment_method?: string;
+}
+
+const PAID_STATUSES = new Set(['processing', 'completed']);
+
+// Length-checked constant-ish compare so we don't leak order_key validity via timing.
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Fetch a single order, GATED BY its order_key (IDOR guard). WC REST returns the
+ * order regardless of key because we authenticate with admin consumer creds, so we
+ * MUST compare the order_key ourselves and refuse on mismatch. Returns only non-PII
+ * summary fields, or null on not-found / key mismatch (callers should 404 either way
+ * so order IDs can't be enumerated).
+ */
+export async function getOrder(id: number, key: string): Promise<OrderSummary | null> {
+  if (!Number.isInteger(id) || id <= 0 || !key) return null;
+  let order: WooOrder;
+  try {
+    const { data } = await wooGet<WooOrder>(`/orders/${id}`, {
+      _fields: 'id,number,status,order_key,currency,total,payment_method',
+    });
+    order = data;
+  } catch {
+    return null; // 404 / network — don't distinguish from a key mismatch
+  }
+  if (!order || typeof order.order_key !== 'string' || !safeEqual(order.order_key, key)) {
+    return null;
+  }
+  const status = String(order.status ?? '');
+  return {
+    order_number: String(order.number ?? order.id ?? id),
+    status,
+    paid: PAID_STATUSES.has(status),
+    total: String(order.total ?? ''),
+    currency: String(order.currency ?? ''),
+    payment_method: String(order.payment_method ?? ''),
+  };
+}
+
 // ---------- categories + nav (cached per server process) ----------
 
 const NAV_EXCLUDE = new Set(['uncategorized', 'oflokkad']);

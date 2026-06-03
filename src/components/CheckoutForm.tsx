@@ -27,6 +27,14 @@ const EMPTY: FormState = {
   postcode: '',
 };
 
+// Display copy for the gateways the Store API exposes via cart.payment_methods.
+// Order matters: card first (the IS market default), bank transfer second.
+const PAYMENT_META: Record<string, { label: string; desc: string }> = {
+  straumur: { label: 'Greiðslukort', desc: 'Visa · Mastercard — örugg greiðsla hjá Straumur.' },
+  bacs: { label: 'Bankamillifærsla', desc: 'Greiðsluupplýsingar fylgja í staðfestingarpósti.' },
+};
+const PAYMENT_ORDER = ['straumur', 'bacs'];
+
 export default function CheckoutForm() {
   const $cart = useStore(cart);
   const loading = useStore(cartLoading);
@@ -35,6 +43,7 @@ export default function CheckoutForm() {
   const [addressDone, setAddressDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [placing, setPlacing] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('');
 
   useEffect(() => {
     ensureLoaded();
@@ -43,11 +52,28 @@ export default function CheckoutForm() {
   const items = $cart?.items ?? [];
   const totals = $cart?.totals;
   const needsShipping = $cart?.needs_shipping ?? false;
+  const needsPayment = $cart?.needs_payment ?? false;
   const rates = $cart?.shipping_rates?.[0]?.shipping_rates ?? [];
   const selectedRate = rates.find((r) => r.selected) ?? null;
   const cartPostcode = $cart?.shipping_address?.postcode ?? '';
   const needsPostbox = rateNeedsPostbox(selectedRate?.rate_id);
   const postboxChosen = needsPostbox && $droppoint != null && $droppoint.postcode === cartPostcode;
+
+  // Drive the payment options from what the backend actually offers, known
+  // gateways first. (cart.payment_methods had zero readers before this.)
+  const availableMethods = $cart?.payment_methods ?? [];
+  const orderedMethods = [
+    ...PAYMENT_ORDER.filter((m) => availableMethods.includes(m)),
+    ...availableMethods.filter((m) => !PAYMENT_ORDER.includes(m)),
+  ];
+
+  // Default to card (straumur) when offered, else the first available gateway.
+  useEffect(() => {
+    if (orderedMethods.length === 0) return;
+    if (!orderedMethods.includes(paymentMethod)) {
+      setPaymentMethod(orderedMethods.includes('straumur') ? 'straumur' : orderedMethods[0]);
+    }
+  }, [orderedMethods.join(',')]);
 
   function update<K extends keyof FormState>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -112,6 +138,9 @@ export default function CheckoutForm() {
       extra.postis_dpo_postbox = $droppoint.id;
       extra.postis_dpo_phonenumber = form.phone.trim();
     }
+    // paymentMethod is required by canPlace whenever payment is needed; the fallbacks
+    // only matter for a zero-total order (needs_payment=false) with no selectable gateway.
+    const method = paymentMethod || orderedMethods[0] || 'bacs';
     setPlacing(true);
     setError(null);
     try {
@@ -121,7 +150,7 @@ export default function CheckoutForm() {
         body: JSON.stringify({
           billing_address: { ...addressObj(), email: form.email },
           shipping_address: addressObj(),
-          payment_method: 'bacs',
+          payment_method: method,
           payment_data: [],
           ...extra,
         }),
@@ -130,6 +159,15 @@ export default function CheckoutForm() {
       if (!res.ok || !data?.order_id) {
         throw new Error(data?.message || 'Ekki tókst að ganga frá pöntun.');
       }
+      // Redirect gateways (e.g. Straumur hosted checkout) hand back a URL to send
+      // the shopper to. The server-side cart is already emptied at order creation,
+      // so we do NOT resetCart() here — just hand off and keep the button disabled.
+      const redirectUrl = data.payment_result?.redirect_url;
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
+        return;
+      }
+      // Non-redirect gateways (bank transfer): straight to the local thank-you page.
       resetCart();
       window.location.href = `/utskra/takk?order=${encodeURIComponent(String(data.order_number || data.order_id))}`;
     } catch (err) {
@@ -151,6 +189,7 @@ export default function CheckoutForm() {
     addressDone &&
     (!needsShipping || Boolean(selectedRate)) &&
     (!needsPostbox || (postboxChosen && form.phone.trim() !== '')) &&
+    (!needsPayment || paymentMethod !== '') &&
     !placing &&
     items.length > 0;
 
@@ -236,25 +275,34 @@ export default function CheckoutForm() {
           </div>
         )}
 
-        {addressDone && (
+        {addressDone && orderedMethods.length > 0 && (
           <div className="panel" style={{ marginTop: '1rem' }}>
             <h2>Greiðslumáti</h2>
-            <label className="radio-card" style={{ marginBottom: '0.5rem' }}>
-              <input type="radio" name="payment" checked readOnly />
-              <span>
-                Bankamillifærsla
-                <br />
-                <small>Greiðsluupplýsingar fylgja í staðfestingarpósti.</small>
-              </span>
-            </label>
-            <label className="radio-card is-disabled">
-              <input type="radio" name="payment" disabled />
-              <span>
-                Kortagreiðsla
-                <br />
-                <small>Væntanleg — ekki í boði sem stendur.</small>
-              </span>
-            </label>
+            {orderedMethods.map((m) => {
+              const meta = PAYMENT_META[m] ?? { label: m, desc: '' };
+              return (
+                <label className="radio-card" key={m} style={{ marginBottom: '0.5rem' }}>
+                  <input
+                    type="radio"
+                    name="payment"
+                    checked={paymentMethod === m}
+                    onChange={() => {
+                      setPaymentMethod(m);
+                      setError(null);
+                    }}
+                  />
+                  <span>
+                    {meta.label}
+                    {meta.desc && (
+                      <>
+                        <br />
+                        <small>{meta.desc}</small>
+                      </>
+                    )}
+                  </span>
+                </label>
+              );
+            })}
           </div>
         )}
 
