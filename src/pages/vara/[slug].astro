@@ -177,6 +177,21 @@ if (product) {
             baseImage={{ src: img.src, alt: img.alt }}
           />
 
+          <button
+            class="btn btn--ghost btn--block wish-pdp"
+            type="button"
+            data-wish
+            data-id={product.id}
+            data-slug={product.slug}
+            data-name={name}
+            data-image={img.src}
+            aria-pressed="false"
+          >
+            <Icon name="heart" size={18} />
+            <span class="wish-pdp__off">Setja á óskalista</span>
+            <span class="wish-pdp__on">Á óskalista</span>
+          </button>
+
           <a class="pdp__sizeguide" href="/staerdir">Sjá stærðartöflu</a>
 
           {product.short_description && (

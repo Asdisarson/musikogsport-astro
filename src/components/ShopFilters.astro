@@ -1,7 +1,15 @@
 ---
 import Icon from './Icon.astro';
 import { decodeEntities } from '../lib/decode';
-import { BRAND_KEY, toggleHref, clearHref, type FacetData, type Selection } from '../lib/facets';
+import { BRAND_KEY, toggleHref, clearHref, colourSwatch, type FacetData, type Selection } from '../lib/facets';
+
+const COLOUR_KEY = 'litur';
+/** Inline CSS background for a colour term (solid, or a split for two-tone slugs). */
+function swatchStyle(slug: string): string | null {
+  const c = colourSwatch(slug);
+  if (!c) return null;
+  return c.length === 2 ? `background:linear-gradient(135deg, ${c[0]} 0 50%, ${c[1]} 50% 100%)` : `background:${c[0]}`;
+}
 
 interface Props {
   basePath: string;
@@ -90,9 +98,20 @@ const facetParamKeys = [BRAND_KEY, ...facetData.groups.map((g) => g.key)];
               <div class="facet__panel">
                 {g.terms.slice(0, g.cap).map((t) => {
                   const on = selection.active[g.key]?.includes(t.slug) ?? false;
+                  const sw = g.key === COLOUR_KEY ? swatchStyle(t.slug) : null;
                   return (
-                    <a class="facet-opt" data-on={on ? 'true' : undefined} href={toggleHref(basePath, params, g.key, t.slug)} rel="nofollow">
-                      <span class="facet-opt__box" aria-hidden="true" />
+                    <a
+                      class:list={['facet-opt', sw && 'facet-opt--swatch']}
+                      data-on={on ? 'true' : undefined}
+                      aria-current={on ? 'true' : undefined}
+                      href={toggleHref(basePath, params, g.key, t.slug)}
+                      rel="nofollow"
+                    >
+                      {sw ? (
+                        <span class="swatch-dot" style={sw} aria-hidden="true" />
+                      ) : (
+                        <span class="facet-opt__box" aria-hidden="true" />
+                      )}
                       <span class="facet-opt__label">{decodeEntities(t.name)}</span>
                       <span class="facet-opt__c">{t.count}</span>
                     </a>
@@ -108,12 +127,17 @@ const facetParamKeys = [BRAND_KEY, ...facetData.groups.map((g) => g.key)];
   {
     chips.length > 0 && (
       <div class="facet-chips">
-        {chips.map((c) => (
-          <a class="facet-chip" href={toggleHref(basePath, params, c.key, c.slug)} rel="nofollow">
-            {c.label}
-            <Icon name="close" size={13} />
-          </a>
-        ))}
+        <span class="facet-chips__label">{selection.activeCount === 1 ? '1 virk sía' : `${selection.activeCount} virkar síur`}</span>
+        {chips.map((c) => {
+          const sw = c.key === COLOUR_KEY ? swatchStyle(c.slug) : null;
+          return (
+            <a class="facet-chip" href={toggleHref(basePath, params, c.key, c.slug)} rel="nofollow">
+              {sw && <span class="chip-dot" style={sw} aria-hidden="true" />}
+              <span>{c.label}</span>
+              <Icon name="close" size={13} />
+            </a>
+          );
+        })}
         <a class="facet-chips__clear" href={clearHref(basePath, params)} rel="nofollow">Hreinsa allt</a>
       </div>
     )

@@ -82,6 +82,11 @@ const path = Astro.url.pathname;
         <Icon name="sun" class="theme-ic theme-ic--sun" />
       </button>
 
+      <a class="icon-btn cart-link wish-link" href="/oskalisti" aria-label="Óskalisti">
+        <Icon name="heart" />
+        <span class="cart-count wish-count" data-wish-count data-count="0"></span>
+      </a>
+
       <CartButton client:load />
       <noscript><a class="icon-btn cart-link" href="/karfa" aria-label="Karfa"><Icon name="cart" /></a></noscript>
     </div>

@@ -2,6 +2,7 @@
 import type { WooProduct } from '../lib/types';
 import { productImage } from '../lib/img';
 import { splitBrand } from '../lib/brand';
+import { decodeEntities } from '../lib/decode';
 import ProductImage from './ProductImage.astro';
 import PriceTag from './PriceTag.astro';
 import Icon from './Icon.astro';
@@ -14,20 +15,36 @@ const { product, eager = false } = Astro.props;
 const img = productImage(product);
 const out = product.stock_status === 'outofstock';
 const { brand, rest } = splitBrand(product.name);
+const fullName = decodeEntities(product.name);
 ---
 
-<a class="product-card" href={`/vara/${product.slug}`}>
-  <div class="product-card__media">
-    <ProductImage src={img.src} alt={img.alt} loading={eager ? 'eager' : 'lazy'} />
-    {out && <span class="badge badge--muted">Uppselt</span>}
-    {!out && product.on_sale && <span class="badge badge--sale">Tilboð</span>}
-    <div class="product-card__quick">
-      <span class="pill">Skoða <Icon name="arrow-up-right" /></span>
+<div class="product-card-wrap">
+  <a class="product-card" href={`/vara/${product.slug}`}>
+    <div class="product-card__media">
+      <ProductImage src={img.src} alt={img.alt} loading={eager ? 'eager' : 'lazy'} />
+      {out && <span class="badge badge--muted">Uppselt</span>}
+      {!out && product.on_sale && <span class="badge badge--sale">Tilboð</span>}
+      <div class="product-card__quick">
+        <span class="pill">Skoða <Icon name="arrow-up-right" /></span>
+      </div>
     </div>
-  </div>
-  <div class="product-card__body">
-    {brand && <span class="product-card__brand">{brand}</span>}
-    <h3 class="product-card__title">{rest}</h3>
-    <PriceTag product={product} />
-  </div>
-</a>
+    <div class="product-card__body">
+      {brand && <span class="product-card__brand">{brand}</span>}
+      <h3 class="product-card__title">{rest}</h3>
+      <PriceTag product={product} />
+    </div>
+  </a>
+  <button
+    class="wish-btn"
+    type="button"
+    data-wish
+    data-id={product.id}
+    data-slug={product.slug}
+    data-name={fullName}
+    data-image={img.src}
+    aria-pressed="false"
+    aria-label={`Setja „${fullName}“ á óskalista`}
+  >
+    <Icon name="heart" size={18} />
+  </button>
+</div>

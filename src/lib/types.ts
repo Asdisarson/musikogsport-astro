@@ -36,7 +36,7 @@ export interface WooProduct {
   sku?: string;
   description?: string;
   short_description?: string;
-  price: string; // whole-ISK string, e.g. "37990" ("" on variable parents)
+  price: string; // whole-ISK string, e.g. "37990". Variable parents = min variation price (NON-empty here), with regular_price/sale_price blank — verified against this store's WC REST v3.
   regular_price: string;
   sale_price: string;
   on_sale: boolean;

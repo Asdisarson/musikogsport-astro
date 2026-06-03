@@ -49,6 +49,38 @@ export async function loadFacetData(): Promise<FacetData> {
   };
 }
 
+// Real product-colour swatches for the Litur facet — the one place colour is allowed
+// into the monochrome UI because it's functional data, not decoration. Keyed by term
+// slug (incl. alt grammatical forms); two-word slugs (e.g. "blar-hvitur") render as a
+// split swatch. Unknown slugs return null → the option falls back to the neutral box.
+const COLOUR_HEX: Record<string, string> = {
+  grar: '#9a9a9a', gratt: '#9a9a9a',
+  svartur: '#1b1b1b', svart: '#1b1b1b', black: '#1b1b1b',
+  hvitur: '#f1f1f1', hvitt: '#f1f1f1', white: '#f1f1f1',
+  blar: '#2f6fed', blatt: '#2f6fed', dokkblatt: '#1e2a52',
+  bleikur: '#f178b6', 'dusty-pink': '#d9a7b0',
+  graenn: '#3aa657', graent: '#3aa657',
+  fjolublar: '#8a4fce',
+  raudur: '#d83a3a', rautt: '#d83a3a', 'mahagony-red': '#6e2a26',
+  gulur: '#f3c70f', gult: '#f3c70f', yellow: '#f3c70f',
+  brunn: '#8a5a33',
+  beige: '#d9c9a8',
+  silfur: '#c4c4c8',
+  turkis: '#1bb5ad',
+  appelsinugulur: '#f08a1d',
+  gull: '#d4af37',
+};
+
+/** One or two hex colours for a colour-term slug, or null if it isn't a known colour. */
+export function colourSwatch(slug: string): string[] | null {
+  if (COLOUR_HEX[slug]) return [COLOUR_HEX[slug]];
+  if (slug.includes('-')) {
+    const parts = slug.split('-').map((p) => COLOUR_HEX[p]).filter(Boolean);
+    if (parts.length === 2) return parts;
+  }
+  return null;
+}
+
 function parseCsv(value: string | null): string[] {
   return (value ?? '')
     .split(',')

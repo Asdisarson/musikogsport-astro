@@ -1,0 +1,21 @@
+---
+import Base from '../layouts/Base.astro';
+import Breadcrumbs from '../components/Breadcrumbs.astro';
+import WishlistView from '../components/WishlistView.tsx';
+
+export const prerender = false;
+---
+
+<Base title="Óskalisti" description="Vörur sem þú hefur vistað á óskalistann þinn." noindex>
+  <div class="container container--wide">
+    <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Óskalisti' }]} />
+    <div class="page-head">
+      <p class="eyebrow">Óskalisti</p>
+      <h1>Óskalistinn þinn</h1>
+      <p>Vörur sem þú hefur vistað til að skoða eða kaupa síðar. Listinn geymist í vafranum þínum.</p>
+    </div>
+  </div>
+  <div class="section--tight container container--wide">
+    <WishlistView client:load />
+  </div>
+</Base>

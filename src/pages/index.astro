@@ -20,7 +20,7 @@ const [topCats, newest, popular, onSale, brandTerms] = await Promise.all([
   listBrandTerms().catch(() => []),
 ]);
 
-const heroProducts = newest.items.slice(0, 4);
+const heroProducts = newest.items.slice(0, 3);
 const featureCats = topCats.filter((c) => c.slug !== 'oflokkad').slice(0, 6);
 // Real top brands (clickable → brand-filtered shop); fall back to plain labels if the fetch fails.
 const FALLBACK_BRANDS = ['ASICS', 'Adidas', 'Nike', 'Speedo', 'Didriksons', 'Puma', 'New Balance', 'Hummel', 'Salomon', 'Craft', 'Select', 'Errea'];

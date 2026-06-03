@@ -122,6 +122,49 @@ const websiteLd = {
       // One-time, document-level wiring (survives view transitions).
       const root = document.documentElement;
 
+      // ── wishlist (localStorage, event-delegated so grids need no per-card island) ──
+      const WKEY = 'mos-wishlist';
+      interface WishItem { id: number; slug: string; name: string; image: string; }
+      function readWish(): WishItem[] {
+        try {
+          const a = JSON.parse(localStorage.getItem(WKEY) || '[]');
+          return Array.isArray(a) ? a.filter((x) => x && typeof x.id === 'number') : [];
+        } catch {
+          return [];
+        }
+      }
+      function writeWish(list: WishItem[]) {
+        try {
+          localStorage.setItem(WKEY, JSON.stringify(list));
+        } catch (e) {
+          /* private mode / quota */
+        }
+        window.dispatchEvent(new CustomEvent('mos:wishlist'));
+      }
+      function toggleWish(item: WishItem) {
+        if (!item.id) return;
+        const list = readWish();
+        const i = list.findIndex((x) => x.id === item.id);
+        if (i >= 0) list.splice(i, 1);
+        else list.unshift(item);
+        writeWish(list);
+      }
+      function syncWishUI() {
+        const list = readWish();
+        const ids = new Set(list.map((x) => x.id));
+        document.querySelectorAll<HTMLElement>('[data-wish]').forEach((b) => {
+          b.setAttribute('aria-pressed', String(ids.has(Number(b.dataset.id))));
+        });
+        document.querySelectorAll<HTMLElement>('[data-wish-count]').forEach((el) => {
+          el.textContent = list.length ? String(list.length) : '';
+          el.dataset.count = String(list.length);
+        });
+      }
+      window.addEventListener('mos:wishlist', syncWishUI);
+      window.addEventListener('storage', (e) => {
+        if (e.key === WKEY) syncWishUI();
+      });
+
       function setTheme(theme: string) {
         root.dataset.theme = theme;
         try {
@@ -134,6 +177,17 @@ const websiteLd = {
 
       document.addEventListener('click', (e) => {
         const t = e.target as HTMLElement;
+        const wishBtn = t.closest<HTMLElement>('[data-wish]');
+        if (wishBtn) {
+          e.preventDefault();
+          toggleWish({
+            id: Number(wishBtn.dataset.id),
+            slug: wishBtn.dataset.slug || '',
+            name: wishBtn.dataset.name || '',
+            image: wishBtn.dataset.image || '',
+          });
+          return;
+        }
         const themeBtn = t.closest('[data-theme-toggle]');
         if (themeBtn) {
           setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark');
@@ -194,6 +248,7 @@ const websiteLd = {
         if (nav) nav.dataset.open = 'false';
         onScroll();
         initReveal();
+        syncWishUI();
       }
 
       document.addEventListener('astro:page-load', onPage);
