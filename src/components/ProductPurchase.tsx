@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { addToCart, cartError, openCart } from '../lib/cartStore';
 import { formatISK } from '../lib/format';
+import { PLACEHOLDER } from '../lib/img';
 import WaitlistForm from './WaitlistForm';
 
 interface VarAttr {
@@ -16,6 +17,7 @@ interface Variation {
   sale_price: string;
   on_sale: boolean;
   stock_status: string;
+  image?: { src: string; alt: string } | null;
 }
 interface Props {
   productId: number;
@@ -24,6 +26,8 @@ interface Props {
   variationAttrs?: VarAttr[];
   variations?: Variation[];
   variationsFailed?: boolean;
+  /** Product's default/gallery image — restored when a selected variation has no own image. */
+  baseImage?: { src: string; alt: string };
 }
 
 export default function ProductPurchase({
@@ -33,6 +37,7 @@ export default function ProductPurchase({
   variationAttrs = [],
   variations = [],
   variationsFailed = false,
+  baseImage,
 }: Props) {
   const isVariable = type === 'variable';
   const [selected, setSelected] = useState<Record<string, string>>({});
@@ -55,6 +60,31 @@ export default function ProductPurchase({
       ) ?? null
     );
   }, [selected, isVariable, allChosen, variationAttrs, variations]);
+
+  // Swap the PDP main image to the selected variation's own image, or restore the base
+  // image when the selection has none (so switching A→B never leaves A's photo showing).
+  // Keeps the gallery thumbnail highlight in sync. Mirrors Base.astro's thumbnail swap.
+  useEffect(() => {
+    if (!isVariable) return;
+    const main = document.getElementById('pdp-main') as HTMLImageElement | null;
+    if (!main) return;
+    const target = resolved?.image?.src ? resolved.image : baseImage;
+    if (!target?.src) return;
+    // Re-arm the placeholder fallback — ProductImage's inline onerror is one-shot and
+    // self-disarms, so a second failed swap would otherwise show a broken image.
+    main.onerror = () => {
+      if (!main.src.endsWith(PLACEHOLDER)) {
+        main.src = PLACEHOLDER;
+        main.onerror = null;
+      }
+    };
+    main.src = target.src;
+    if (target.alt) main.alt = target.alt;
+    document.querySelectorAll<HTMLElement>('.pdp__thumb').forEach((o) => {
+      if (o.dataset.full === target.src) o.setAttribute('aria-current', 'true');
+      else o.removeAttribute('aria-current');
+    });
+  }, [resolved?.id]);
 
   const activeStock = isVariable ? resolved?.stock_status ?? 'outofstock' : inStock ? 'instock' : 'outofstock';
   const canAdd = (isVariable ? Boolean(resolved && resolved.stock_status === 'instock') : inStock) && !adding;

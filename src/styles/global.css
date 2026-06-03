@@ -640,6 +640,57 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%23a8a8a8' stroke-width='2'%3E%3Cpath d='M3 5l4 4 4-4'/%3E%3C/svg%3E");
   }
 
+  /* — faceted shop filters — */
+  .shop-filters .toolbar { margin-bottom: 1rem; }
+  .facet-row { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 1.25rem; }
+  .facet { position: relative; }
+  .facet > summary {
+    list-style: none; cursor: pointer; user-select: none;
+    display: inline-flex; align-items: center; gap: 0.45rem;
+    padding: 0.5rem 0.9rem; font-size: var(--fz-sm); font-weight: 600;
+    border: 1px solid var(--line-strong); border-radius: var(--r-pill);
+    background: var(--surface); color: var(--ink);
+    transition: border-color var(--dur-1) var(--ease);
+  }
+  .facet > summary::-webkit-details-marker { display: none; }
+  .facet > summary:hover { border-color: var(--ink); }
+  .facet[open] > summary { border-color: var(--ink); }
+  .facet__chev { color: var(--muted); transition: transform var(--dur-1) var(--ease); }
+  .facet[open] .facet__chev { transform: rotate(180deg); }
+  .facet__n {
+    display: inline-grid; place-items: center; min-width: 1.2rem; height: 1.2rem; padding: 0 0.3rem;
+    font-size: var(--fz-xs); font-weight: 700; background: var(--ink); color: var(--paper); border-radius: var(--r-pill);
+  }
+  .facet__panel {
+    position: absolute; z-index: 40; top: calc(100% + 0.4rem); left: 0;
+    width: max-content; min-width: 13rem; max-width: min(22rem, 88vw); max-height: 19rem; overflow-y: auto;
+    display: flex; flex-direction: column; padding: 0.35rem;
+    background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--shadow-lg);
+  }
+  .facet-opt {
+    display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0.6rem;
+    font-size: var(--fz-sm); color: var(--ink); text-decoration: none;
+  }
+  .facet-opt:hover { background: var(--surface-2); }
+  .facet-opt__box { flex: none; width: 1rem; height: 1rem; border: 1.5px solid var(--line-strong); background: var(--surface); }
+  .facet-opt[data-on] .facet-opt__box { background: var(--ink); border-color: var(--ink); box-shadow: inset 0 0 0 2px var(--surface); }
+  .facet-opt__label { flex: 1; }
+  .facet-opt__c { color: var(--muted); font-size: var(--fz-xs); }
+  .facet-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 1.25rem; }
+  .facet-chip {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.35rem 0.45rem 0.35rem 0.7rem; font-size: var(--fz-sm); font-weight: 600;
+    border: 1px solid var(--ink); background: var(--ink); color: var(--paper); text-decoration: none;
+    transition: opacity var(--dur-1) var(--ease);
+  }
+  .facet-chip svg { opacity: 0.85; }
+  .facet-chip:hover { opacity: 0.82; }
+  .facet-chips__clear { font-size: var(--fz-sm); color: var(--muted); text-decoration: underline; margin-left: 0.25rem; }
+  .facet-chips__clear:hover { color: var(--ink); }
+  /* clickable brand marquee */
+  a.marquee__item { text-decoration: none; color: var(--muted); transition: color var(--dur-1) var(--ease); }
+  a.marquee__item:hover { color: var(--ink); }
+
   /* — pagination — */
   .pagination { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; padding: 3rem 0 1rem; }
   .pagination a, .pagination span {

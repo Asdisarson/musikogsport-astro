@@ -1,10 +1,11 @@
 ---
 import Base from '../../layouts/Base.astro';
 import ProductGrid from '../../components/ProductGrid.astro';
-import SortFilterBar from '../../components/SortFilterBar.astro';
+import ShopFilters from '../../components/ShopFilters.astro';
 import Pagination from '../../components/Pagination.astro';
 import Breadcrumbs from '../../components/Breadcrumbs.astro';
-import { listProducts } from '../../lib/woo';
+import { storeProducts } from '../../lib/storeCatalog';
+import { loadFacetData, resolveSelection } from '../../lib/facets';
 import { parseSort, pageHref } from '../../lib/query';
 import { ld, breadcrumbList } from '../../lib/jsonld';
 import type { Paged, WooProduct } from '../../lib/types';
@@ -18,14 +19,19 @@ const onSale = params.get('on_sale') === 'true';
 const inStock = params.get('instock') === 'true';
 const { orderby, order } = parseSort(sort);
 
+const facetData = await loadFacetData();
+const selection = resolveSelection(params, facetData);
+
 const empty: Paged<WooProduct> = { items: [], total: 0, totalPages: 0, page };
-const result = await listProducts({
+const result = await storeProducts({
   page,
   per_page: 24,
   orderby,
   order,
   on_sale: onSale || undefined,
-  stock_status: inStock ? 'instock' : undefined,
+  instock: inStock || undefined,
+  brandIds: selection.brandIds,
+  attributes: selection.attributes,
 }).catch(() => empty);
 
 const baseParams = new URLSearchParams(params);
@@ -47,7 +53,16 @@ const breadcrumbLdObj = breadcrumbList(crumbs, siteHref, new URL('/verslun', sit
       <p>Hlaupaskór, fatnaður, útivist, æfingavörur og félagabúningar frá fremstu vörumerkjum.</p>
     </div>
   </div>
-  <SortFilterBar total={result.total} sort={sort} onSale={onSale} inStock={inStock} />
+  <ShopFilters
+    basePath="/verslun"
+    params={baseParams}
+    total={result.total}
+    sort={sort}
+    onSale={onSale}
+    inStock={inStock}
+    facetData={facetData}
+    selection={selection}
+  />
   <div class="section--tight container container--wide">
     <ProductGrid products={result.items} eagerCount={4} />
   </div>

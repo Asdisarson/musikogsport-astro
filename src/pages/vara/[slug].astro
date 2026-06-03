@@ -5,10 +5,13 @@ import ProductImage from '../../components/ProductImage.astro';
 import PriceTag from '../../components/PriceTag.astro';
 import NotFound from '../../components/NotFound.astro';
 import ProductPurchase from '../../components/ProductPurchase.tsx';
+import RelatedProducts from '../../components/RelatedProducts.astro';
+import RecentlyViewed from '../../components/RecentlyViewed.tsx';
 import Icon from '../../components/Icon.astro';
-import { getProductBySlug, getVariations } from '../../lib/woo';
+import { getProductBySlug, getVariations, getProductsByIds } from '../../lib/woo';
 import { productImage } from '../../lib/img';
 import { mediaUrl } from '../../lib/img';
+import { formatISK } from '../../lib/format';
 import { splitBrand } from '../../lib/brand';
 import { decodeEntities, stripShortcodes } from '../../lib/decode';
 import { sanitizeHtml } from '../../lib/sanitize';
@@ -32,6 +35,7 @@ let variations: {
   sale_price: string;
   on_sale: boolean;
   stock_status: string;
+  image: { src: string; alt: string } | null;
 }[] = [];
 
 if (product && product.type === 'variable') {
@@ -50,7 +54,28 @@ if (product && product.type === 'variable') {
     sale_price: v.sale_price,
     on_sale: v.on_sale,
     stock_status: v.stock_status,
+    image: v.image?.src ? { src: mediaUrl(v.image.src), alt: v.image.alt ?? '' } : null,
   }));
+}
+
+// Related products ("Þér gæti einnig líkað"), key-fields only, current item excluded.
+// Exclude self BEFORE the fetch caps to 8, so a self-referential related_id (some WC
+// setups inject one) can't consume a slot and silently leave the strip one short.
+const relatedIds = (product?.related_ids ?? []).filter((id) => id !== product?.id);
+const related = product && relatedIds.length ? await getProductsByIds(relatedIds, 8).catch(() => []) : [];
+
+// Pre-rendered current-price text for the recently-viewed card (so it needs no client
+// fetch). A single price only — no "was"/sale state, which would go stale in localStorage.
+let recentPriceText = '';
+if (product) {
+  if (product.on_sale && product.sale_price) {
+    recentPriceText = formatISK(product.sale_price);
+  } else if (product.price && Number.isFinite(Number(product.price))) {
+    recentPriceText = (product.type === 'variable' ? 'frá ' : '') + formatISK(product.price);
+  } else {
+    const varPrices = variations.map((v) => Number(v.price)).filter((n) => n > 0);
+    if (varPrices.length) recentPriceText = 'frá ' + formatISK(Math.min(...varPrices));
+  }
 }
 
 const name = product ? decodeEntities(product.name) : '';
@@ -149,6 +174,7 @@ if (product) {
             variationAttrs={variationAttrs}
             variations={variations}
             variationsFailed={variationsFailed}
+            baseImage={{ src: img.src, alt: img.alt }}
           />
 
           <a class="pdp__sizeguide" href="/staerdir">Sjá stærðartöflu</a>
@@ -170,6 +196,19 @@ if (product) {
           <div class="pdp__desc" set:html={sanitizeHtml(stripShortcodes(product.description))} />
         </div>
       )}
+
+      <RelatedProducts products={related} />
+
+      <RecentlyViewed
+        client:idle
+        current={{
+          id: product.id,
+          slug: product.slug,
+          name: product.name,
+          image: img.src,
+          priceText: recentPriceText,
+        }}
+      />
     </Base>
   ) : (
     <Base title="Vara fannst ekki">

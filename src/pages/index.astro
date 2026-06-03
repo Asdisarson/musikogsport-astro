@@ -2,8 +2,9 @@
 import Base from '../layouts/Base.astro';
 import ProductGrid from '../components/ProductGrid.astro';
 import ProductImage from '../components/ProductImage.astro';
+import RecentlyViewed from '../components/RecentlyViewed.tsx';
 import Icon from '../components/Icon.astro';
-import { listProducts, listTopCategories } from '../lib/woo';
+import { listProducts, listTopCategories, listBrandTerms } from '../lib/woo';
 import { productImage } from '../lib/img';
 import { splitBrand } from '../lib/brand';
 import { decodeEntities } from '../lib/decode';
@@ -11,16 +12,21 @@ import type { Paged, WooProduct } from '../lib/types';
 
 const EMPTY: Paged<WooProduct> = { items: [], total: 0, totalPages: 0, page: 1 };
 
-const [topCats, newest, popular, onSale] = await Promise.all([
+const [topCats, newest, popular, onSale, brandTerms] = await Promise.all([
   listTopCategories().catch(() => []),
   listProducts({ orderby: 'date', per_page: 8 }).catch(() => EMPTY),
   listProducts({ orderby: 'popularity', per_page: 8 }).catch(() => EMPTY),
   listProducts({ on_sale: true, per_page: 4, orderby: 'popularity' }).catch(() => EMPTY),
+  listBrandTerms().catch(() => []),
 ]);
 
 const heroProducts = newest.items.slice(0, 4);
 const featureCats = topCats.filter((c) => c.slug !== 'oflokkad').slice(0, 6);
-const brands = ['ASICS', 'Adidas', 'Nike', 'Speedo', 'Didriksons', 'Puma', 'New Balance', 'Hummel', 'Salomon', 'Craft', 'Select', 'Errea'];
+// Real top brands (clickable → brand-filtered shop); fall back to plain labels if the fetch fails.
+const FALLBACK_BRANDS = ['ASICS', 'Adidas', 'Nike', 'Speedo', 'Didriksons', 'Puma', 'New Balance', 'Hummel', 'Salomon', 'Craft', 'Select', 'Errea'];
+const brands: { name: string; slug: string | null }[] = brandTerms.length
+  ? brandTerms.slice(0, 14).map((b) => ({ name: decodeEntities(b.name), slug: b.slug }))
+  : FALLBACK_BRANDS.map((n) => ({ name: n, slug: null }));
 ---
 
 <Base>
@@ -66,8 +72,12 @@ const brands = ['ASICS', 'Adidas', 'Nike', 'Speedo', 'Didriksons', 'Puma', 'New 
   <!-- ───────────────── BRAND MARQUEE ───────────────── -->
   <div class="marquee" role="presentation">
     <div class="marquee__track">
-      {brands.map((b) => <span class="marquee__item">{b}</span>)}
-      {brands.map((b) => <span class="marquee__item" aria-hidden="true">{b}</span>)}
+      {brands.map((b) => (b.slug
+        ? <a class="marquee__item" href={`/verslun?merki=${b.slug}`}>{b.name}</a>
+        : <span class="marquee__item">{b.name}</span>))}
+      {brands.map((b) => (b.slug
+        ? <a class="marquee__item" href={`/verslun?merki=${b.slug}`} aria-hidden="true" tabindex="-1">{b.name}</a>
+        : <span class="marquee__item" aria-hidden="true">{b.name}</span>))}
     </div>
   </div>
 
@@ -159,6 +169,9 @@ const brands = ['ASICS', 'Adidas', 'Nike', 'Speedo', 'Didriksons', 'Puma', 'New 
     </div>
     <div data-reveal><ProductGrid products={popular.items} /></div>
   </section>
+
+  <!-- ───────────────── RECENTLY VIEWED ───────────────── -->
+  <RecentlyViewed client:idle />
 
   <!-- ───────────────── TRUST ROW ───────────────── -->
   <section class="section container container--wide">

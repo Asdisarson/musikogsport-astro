@@ -66,6 +66,24 @@ export async function getVariations(productId: number): Promise<WooVariation[]> 
   return data;
 }
 
+/**
+ * Fetch specific products by ID (card fields only), preserving the requested order
+ * (orderby=include). Used for the related-products strip on the PDP. Caps the count
+ * and silently drops anything not published.
+ */
+export async function getProductsByIds(ids: number[], limit = 8): Promise<WooProduct[]> {
+  const wanted = ids.filter((n) => Number.isInteger(n) && n > 0).slice(0, limit);
+  if (wanted.length === 0) return [];
+  const { data } = await wooGet<WooProduct[]>('/products', {
+    status: 'publish',
+    _fields: LIST_FIELDS,
+    include: wanted,
+    per_page: wanted.length,
+    orderby: 'include',
+  });
+  return data;
+}
+
 // ---------- single order lookup (order-status / thank-you page) ----------
 
 /** Non-PII order summary returned to the storefront. */
@@ -168,6 +186,49 @@ export async function resolveCategoryId(slug: string): Promise<number | null> {
 
 export async function searchProducts(query: string, page = 1): Promise<Paged<WooProduct>> {
   return listProducts({ search: query, page, orderby: 'date' });
+}
+
+// ---------- facet term sources (brand + attributes, cached per process) ----------
+
+export interface FacetTerm {
+  id: number;
+  name: string;
+  slug: string;
+  count: number;
+}
+
+const FACET_TTL = 10 * 60 * 1000;
+const brandTermsCache: { at: number; terms: FacetTerm[] } = { at: 0, terms: [] };
+const attrTermsCache = new Map<number, { at: number; terms: FacetTerm[] }>();
+
+/** All non-empty product-brand terms (native Woo Brands taxonomy), by count desc. */
+export async function listBrandTerms(): Promise<FacetTerm[]> {
+  if (brandTermsCache.terms.length && Date.now() - brandTermsCache.at < FACET_TTL) return brandTermsCache.terms;
+  const { data } = await wooGet<FacetTerm[]>('/products/brands', {
+    per_page: 100,
+    orderby: 'count',
+    order: 'desc',
+    hide_empty: true,
+    _fields: 'id,name,slug,count',
+  });
+  brandTermsCache.at = Date.now();
+  brandTermsCache.terms = data;
+  return data;
+}
+
+/** All non-empty terms for a global attribute (by its numeric attribute ID), by count desc. */
+export async function listAttributeTerms(attrId: number): Promise<FacetTerm[]> {
+  const hit = attrTermsCache.get(attrId);
+  if (hit && Date.now() - hit.at < FACET_TTL) return hit.terms;
+  const { data } = await wooGet<FacetTerm[]>(`/products/attributes/${attrId}/terms`, {
+    per_page: 100,
+    orderby: 'count',
+    order: 'desc',
+    hide_empty: true,
+    _fields: 'id,name,slug,count',
+  });
+  attrTermsCache.set(attrId, { at: Date.now(), terms: data });
+  return data;
 }
 
 // ---------- sitemap helpers (cached per server process) ----------

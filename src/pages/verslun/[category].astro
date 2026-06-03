@@ -1,11 +1,13 @@
 ---
 import Base from '../../layouts/Base.astro';
 import ProductGrid from '../../components/ProductGrid.astro';
-import SortFilterBar from '../../components/SortFilterBar.astro';
+import ShopFilters from '../../components/ShopFilters.astro';
 import Pagination from '../../components/Pagination.astro';
 import Breadcrumbs from '../../components/Breadcrumbs.astro';
 import NotFound from '../../components/NotFound.astro';
-import { getCategoryBySlug, listProducts } from '../../lib/woo';
+import { getCategoryBySlug } from '../../lib/woo';
+import { storeProducts } from '../../lib/storeCatalog';
+import { loadFacetData, resolveSelection } from '../../lib/facets';
 import { decodeEntities } from '../../lib/decode';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { parseSort, pageHref } from '../../lib/query';
@@ -28,16 +30,21 @@ const onSale = params.get('on_sale') === 'true';
 const inStock = params.get('instock') === 'true';
 const { orderby, order } = parseSort(sort);
 
+const facetData = await loadFacetData();
+const selection = resolveSelection(params, facetData);
+
 const empty: Paged<WooProduct> = { items: [], total: 0, totalPages: 0, page };
 const result = cat
-  ? await listProducts({
+  ? await storeProducts({
       category: cat.id,
       page,
       per_page: 24,
       orderby,
       order,
       on_sale: onSale || undefined,
-      stock_status: inStock ? 'instock' : undefined,
+      instock: inStock || undefined,
+      brandIds: selection.brandIds,
+      attributes: selection.attributes,
     }).catch(() => empty)
   : empty;
 
@@ -68,7 +75,16 @@ const breadcrumbLdObj = cat ? breadcrumbList(crumbs, siteHref, canonicalUrl) : n
           {cat.description && <p set:html={sanitizeHtml(cat.description)} />}
         </div>
       </div>
-      <SortFilterBar total={result.total} sort={sort} onSale={onSale} inStock={inStock} />
+      <ShopFilters
+        basePath={`/verslun/${slug}`}
+        params={baseParams}
+        total={result.total}
+        sort={sort}
+        onSale={onSale}
+        inStock={inStock}
+        facetData={facetData}
+        selection={selection}
+      />
       <div class="section--tight container container--wide">
         <ProductGrid products={result.items} eagerCount={4} />
       </div>

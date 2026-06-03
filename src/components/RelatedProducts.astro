@@ -1,0 +1,25 @@
+---
+import type { WooProduct } from '../lib/types';
+import ProductGrid from './ProductGrid.astro';
+
+interface Props {
+  products: WooProduct[];
+  title?: string;
+  eyebrow?: string;
+}
+const { products, title = 'Þér gæti einnig líkað', eyebrow = 'Tengdar vörur' } = Astro.props;
+---
+
+{
+  products.length > 0 && (
+    <section class="section--tight container container--wide related">
+      <div class="section__head">
+        <div>
+          <p class="eyebrow">{eyebrow}</p>
+          <h2>{title}</h2>
+        </div>
+      </div>
+      <ProductGrid products={products} />
+    </section>
+  )
+}

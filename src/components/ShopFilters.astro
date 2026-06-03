@@ -1,0 +1,121 @@
+---
+import Icon from './Icon.astro';
+import { decodeEntities } from '../lib/decode';
+import { BRAND_KEY, toggleHref, clearHref, type FacetData, type Selection } from '../lib/facets';
+
+interface Props {
+  basePath: string;
+  /** Current request params WITHOUT `page` (facet links + sort form build on these). */
+  params: URLSearchParams;
+  total: number;
+  sort: string;
+  onSale: boolean;
+  inStock: boolean;
+  showSaleFilter?: boolean;
+  facetData: FacetData;
+  selection: Selection;
+}
+const {
+  basePath,
+  params,
+  total,
+  sort,
+  onSale,
+  inStock,
+  showSaleFilter = true,
+  facetData,
+  selection,
+} = Astro.props;
+
+const sortOptions: [string, string][] = [
+  ['date', 'Nýjast'],
+  ['popularity', 'Vinsælast'],
+  ['price-asc', 'Verð: lágt → hátt'],
+  ['price-desc', 'Verð: hátt → lágt'],
+  ['title', 'Heiti A–Ö'],
+];
+
+// All facet groups in render order (brand first); per-group display caps come from facets.ts.
+const allGroups = [facetData.brand, ...facetData.groups];
+
+// slug -> display name, per facet key (for the active chips).
+const nameLookup = new Map<string, Map<string, string>>(
+  allGroups.map((g) => [g.key, new Map(g.terms.map((t) => [t.slug, decodeEntities(t.name)]))]),
+);
+
+const chips = Object.entries(selection.active).flatMap(([key, slugs]) =>
+  slugs.map((slug) => ({ key, slug, label: nameLookup.get(key)?.get(slug) ?? slug })),
+);
+
+// Facet keys that must survive a sort-form submit (carried as hidden inputs).
+const facetParamKeys = [BRAND_KEY, ...facetData.groups.map((g) => g.key)];
+---
+
+<div class="shop-filters container container--wide">
+  <div class="toolbar">
+    <span class="toolbar__count"><strong>{total.toLocaleString('is-IS')}</strong> vörur</span>
+    <form class="toolbar__sort" method="get" action={basePath}>
+      {facetParamKeys.map((k) => params.get(k) && <input type="hidden" name={k} value={params.get(k)} />)}
+      {
+        showSaleFilter && (
+          <label>
+            <input type="checkbox" name="on_sale" value="true" checked={onSale} /> Á útsölu
+          </label>
+        )
+      }
+      <label>
+        <input type="checkbox" name="instock" value="true" checked={inStock} /> Til á lager
+      </label>
+      <label>
+        Raða:
+        <select class="select" name="sort" onchange="this.form.submit()">
+          {sortOptions.map(([v, l]) => (<option value={v} selected={sort === v}>{l}</option>))}
+        </select>
+      </label>
+      <button class="btn btn--ghost btn--sm" type="submit">Sía</button>
+    </form>
+  </div>
+
+  <div class="facet-row">
+    {
+      allGroups.map(
+        (g) =>
+          g.terms.length > 0 && (
+            <details class="facet">
+              <summary>
+                {g.label}
+                {selection.active[g.key]?.length ? <span class="facet__n">{selection.active[g.key].length}</span> : null}
+                <Icon name="chevron-down" size={15} class="facet__chev" />
+              </summary>
+              <div class="facet__panel">
+                {g.terms.slice(0, g.cap).map((t) => {
+                  const on = selection.active[g.key]?.includes(t.slug) ?? false;
+                  return (
+                    <a class="facet-opt" data-on={on ? 'true' : undefined} href={toggleHref(basePath, params, g.key, t.slug)} rel="nofollow">
+                      <span class="facet-opt__box" aria-hidden="true" />
+                      <span class="facet-opt__label">{decodeEntities(t.name)}</span>
+                      <span class="facet-opt__c">{t.count}</span>
+                    </a>
+                  );
+                })}
+              </div>
+            </details>
+          ),
+      )
+    }
+  </div>
+
+  {
+    chips.length > 0 && (
+      <div class="facet-chips">
+        {chips.map((c) => (
+          <a class="facet-chip" href={toggleHref(basePath, params, c.key, c.slug)} rel="nofollow">
+            {c.label}
+            <Icon name="close" size={13} />
+          </a>
+        ))}
+        <a class="facet-chips__clear" href={clearHref(basePath, params)} rel="nofollow">Hreinsa allt</a>
+      </div>
+    )
+  }
+</div>
