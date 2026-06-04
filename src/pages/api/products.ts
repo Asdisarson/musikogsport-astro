@@ -20,7 +20,15 @@ export const GET: APIRoute = async (ctx) => {
     .filter((n) => Number.isInteger(n) && n > 0);
   if (ids.length === 0) return json([], 200);
 
-  const products = await getProductsByIds(ids, ids.length).catch(() => []);
+  // Do NOT collapse a backend outage into an empty result: a 200+[] would make WishlistView
+  // (which only trusts res.ok) mark EVERY saved item "Ekki í boði". Surface the failure as a
+  // non-2xx so the client keeps fetchOk=false and falls back to its stored {name,image} snapshot.
+  let products;
+  try {
+    products = await getProductsByIds(ids, ids.length);
+  } catch {
+    return json({ error: 'catalog_unavailable' }, 502);
+  }
   const items = products.map((p) => ({
     id: p.id,
     slug: p.slug,

@@ -167,9 +167,13 @@ export default function CheckoutForm() {
         window.location.href = redirectUrl;
         return;
       }
-      // Non-redirect gateways (bank transfer): straight to the local thank-you page.
+      // Non-redirect gateways (bank transfer): straight to the local thank-you page. Pass the
+      // id + key takk.astro actually reads, so the receipt resolves from the URL on refresh /
+      // bookmark / share — not only from the one-shot mos_order cookie. Only append order_key when
+      // present — never emit a literal `order_key=undefined`, which would fail the Woo lookup.
       resetCart();
-      window.location.href = `/utskra/takk?order=${encodeURIComponent(String(data.order_number || data.order_id))}`;
+      const okey = data.order_key ? `&order_key=${encodeURIComponent(data.order_key)}` : '';
+      window.location.href = `/utskra/takk?order_id=${data.order_id}${okey}`;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ekki tókst að ganga frá pöntun.');
       setPlacing(false);

@@ -28,6 +28,8 @@ interface Props {
   variationsFailed?: boolean;
   /** Product's default/gallery image — restored when a selected variation has no own image. */
   baseImage?: { src: string; alt: string };
+  /** Variable-product minimum price (major units); rendered as "frá {min}" until a variation resolves. */
+  basePriceMin?: number;
 }
 
 export default function ProductPurchase({
@@ -38,6 +40,7 @@ export default function ProductPurchase({
   variations = [],
   variationsFailed = false,
   baseImage,
+  basePriceMin,
 }: Props) {
   const isVariable = type === 'variable';
   const [selected, setSelected] = useState<Record<string, string>>({});
@@ -137,6 +140,13 @@ export default function ProductPurchase({
             </div>
           </div>
         ))}
+
+      {isVariable && !resolved && basePriceMin != null && (
+        <p className="pdp__price">
+          <span className="price__from">frá </span>
+          {formatISK(basePriceMin)}
+        </p>
+      )}
 
       {isVariable && resolved && (
         <p className="pdp__price">

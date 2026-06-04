@@ -78,6 +78,19 @@ if (product) {
   }
 }
 
+// Minimum price for a VARIABLE PDP before any swatch is chosen — mirrors what the shop card /
+// PriceTag shows, so the price no longer vanishes on the PDP. ProductPurchase renders it as
+// "frá {min}" and swaps in the exact variation price once a selection resolves.
+let basePriceMin: number | undefined;
+if (product?.type === 'variable') {
+  if (product.price && Number.isFinite(Number(product.price))) {
+    basePriceMin = Number(product.price);
+  } else {
+    const varPrices = variations.map((v) => Number(v.price)).filter((n) => n > 0);
+    if (varPrices.length) basePriceMin = Math.min(...varPrices);
+  }
+}
+
 const name = product ? decodeEntities(product.name) : '';
 const { brand, rest } = product ? splitBrand(product.name) : { brand: undefined, rest: '' };
 const img = product ? productImage(product) : { src: '', alt: '' };
@@ -175,6 +188,7 @@ if (product) {
             variations={variations}
             variationsFailed={variationsFailed}
             baseImage={{ src: img.src, alt: img.alt }}
+            basePriceMin={basePriceMin}
           />
 
           <button
