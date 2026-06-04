@@ -14,13 +14,14 @@ const EMPTY: Paged<WooProduct> = { items: [], total: 0, totalPages: 0, page: 1 }
 
 const [topCats, newest, popular, onSale, brandTerms] = await Promise.all([
   listTopCategories().catch(() => []),
-  listProducts({ orderby: 'date', per_page: 8 }).catch(() => EMPTY),
+  listProducts({ orderby: 'date', per_page: 11 }).catch(() => EMPTY), // 3 for the hero + 8 for the grid (no overlap)
   listProducts({ orderby: 'popularity', per_page: 8 }).catch(() => EMPTY),
   listProducts({ on_sale: true, per_page: 4, orderby: 'popularity' }).catch(() => EMPTY),
   listBrandTerms().catch(() => []),
 ]);
 
 const heroProducts = newest.items.slice(0, 3);
+const newestGrid = newest.items.slice(3, 11); // the 8 after the hero (no overlap)
 const featureCats = topCats.filter((c) => c.slug !== 'oflokkad').slice(0, 6);
 // Real top brands (clickable → brand-filtered shop); fall back to plain labels if the fetch fails.
 const FALLBACK_BRANDS = ['ASICS', 'Adidas', 'Nike', 'Speedo', 'Didriksons', 'Puma', 'New Balance', 'Hummel', 'Salomon', 'Craft', 'Select', 'Errea'];
@@ -108,16 +109,22 @@ const brands: { name: string; slug: string | null }[] = brandTerms.length
   }
 
   <!-- ───────────────── NEWEST ───────────────── -->
-  <section class="section container container--wide">
-    <div class="section__head" data-reveal>
-      <div>
-        <p class="eyebrow">Nýtt í verslun</p>
-        <h2>Nýjustu vörurnar</h2>
-      </div>
-      <a class="section__link" href="/verslun?sort=date">Sjá allt <Icon name="arrow-right" size={16} /></a>
-    </div>
-    <div data-reveal><ProductGrid products={newest.items} /></div>
-  </section>
+  {
+    newestGrid.length > 0 && (
+      <section class="section container container--wide">
+        <div class="section__head" data-reveal>
+          <div>
+            <p class="eyebrow">Nýtt í verslun</p>
+            <h2>Nýjustu vörurnar</h2>
+          </div>
+          <a class="section__link" href="/verslun?sort=date">Sjá allt <Icon name="arrow-right" size={16} /></a>
+        </div>
+        <div data-reveal>
+          <ProductGrid products={newestGrid} />
+        </div>
+      </section>
+    )
+  }
 
   <!-- ───────────────── SALE ───────────────── -->
   {
