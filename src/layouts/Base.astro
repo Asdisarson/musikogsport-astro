@@ -119,6 +119,7 @@ const websiteLd = {
 
     <!-- behaviour: theme toggle · sticky header · mobile nav · scroll-reveal -->
     <script>
+      import { PLACEHOLDER } from '../lib/img';
       // One-time, document-level wiring (survives view transitions).
       const root = document.documentElement;
 
@@ -207,6 +208,15 @@ const websiteLd = {
           const main = document.getElementById('pdp-main') as HTMLImageElement | null;
           const full = thumb.dataset.full;
           if (main && full) {
+            // Re-arm the one-shot placeholder fallback (ProductImage's inline onerror self-disarms
+            // after the first error) so a broken gallery image still degrades to the placeholder.
+            // Mirrors ProductPurchase.tsx's variation swap.
+            main.onerror = () => {
+              if (!main.src.endsWith(PLACEHOLDER)) {
+                main.src = PLACEHOLDER;
+                main.onerror = null;
+              }
+            };
             main.src = full;
             if (thumb.dataset.alt) main.alt = thumb.dataset.alt;
             document.querySelectorAll('.pdp__thumb').forEach((o) => o.removeAttribute('aria-current'));
