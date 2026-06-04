@@ -3,11 +3,12 @@ import { listAllProductSlugs, listAllCategorySlugs } from '../lib/woo';
 
 export const prerender = false;
 
-// Static, indexable routes (cart/checkout/api are intentionally excluded).
+// Static, indexable routes (cart/checkout/api are intentionally excluded). `/leita` is also
+// excluded: robots.txt Disallows it (thin search-results pages), so listing it in the sitemap
+// would only produce a "Submitted URL blocked by robots.txt" conflict in Search Console.
 const STATIC_PATHS = [
   '/',
   '/verslun',
-  '/leita',
   '/skilmalar',
   '/personuvernd',
   '/um-okkur',
