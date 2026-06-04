@@ -69,9 +69,10 @@ const breadcrumbLdObj = breadcrumbList(crumbs, siteHref, new URL('/verslun', sit
     selection={selection}
     facetCounts={facetCounts}
   />
-  <div class="section--tight container container--wide">
+  <section class="section--tight container container--wide" aria-labelledby="shop-grid-heading">
+    <h2 id="shop-grid-heading" class="visually-hidden">Vörur</h2>
     <ProductGrid products={result.items} eagerCount={4} />
-  </div>
+  </section>
   <div class="container container--wide">
     <Pagination page={result.page} totalPages={result.totalPages} hrefFor={hrefFor} />
   </div>
