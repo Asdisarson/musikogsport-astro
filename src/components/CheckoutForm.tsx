@@ -157,14 +157,27 @@ export default function CheckoutForm() {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.order_id) {
-        throw new Error(data?.message || 'Ekki tókst að ganga frá pöntun.');
+        // Decode server entities (e.g. &quot;) so the inline error reads cleanly. `data` is
+        // untyped JSON, so only decode an actual string — a non-string message would make
+        // decodeEntities (.replace) throw and surface a raw JS error instead of the fallback.
+        const msg = typeof data?.message === 'string' ? decodeEntities(data.message) : '';
+        throw new Error(msg || 'Ekki tókst að ganga frá pöntun.');
       }
       // Redirect gateways (e.g. Straumur hosted checkout) hand back a URL to send
       // the shopper to. The server-side cart is already emptied at order creation,
       // so we do NOT resetCart() here — just hand off and keep the button disabled.
       const redirectUrl = data.payment_result?.redirect_url;
       if (redirectUrl) {
-        window.location.href = redirectUrl;
+        // Only follow an absolute https:// URL (blocks javascript:/data:/downgrade if a backend
+        // response is ever tampered with); anything else routes to the local error page.
+        // TODO(go-live): tighten to a host allowlist once the Straumur hosted-checkout domain is confirmed.
+        let okScheme = false;
+        try {
+          okScheme = new URL(redirectUrl).protocol === 'https:';
+        } catch {
+          okScheme = false;
+        }
+        window.location.href = okScheme ? redirectUrl : '/utskra/villa';
         return;
       }
       // Non-redirect gateways (bank transfer): straight to the local thank-you page. Pass the

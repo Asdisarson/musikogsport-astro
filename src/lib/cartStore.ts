@@ -1,6 +1,7 @@
 // Client-side cart state. The server-side Woo Store API cart (via /api/cart*) is
 // the source of truth; this nanostore mirrors it so all React islands stay in sync.
 import { atom, computed } from 'nanostores';
+import { decodeEntities } from './decode';
 import type { Cart } from './types';
 
 export const cart = atom<Cart | null>(null);
@@ -23,7 +24,8 @@ async function call(path: string, body?: unknown): Promise<Cart> {
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const msg = (data && typeof data === 'object' && 'message' in data && (data as { message?: string }).message) || 'Villa kom upp. Reyndu aftur.';
-      throw new Error(String(msg));
+      // Decode server entities (e.g. &quot;) so coupon/shipping errors read cleanly inline.
+      throw new Error(decodeEntities(String(msg)));
     }
     cart.set(data as Cart);
     return data as Cart;
