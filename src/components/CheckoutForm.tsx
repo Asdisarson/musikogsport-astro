@@ -168,16 +168,19 @@ export default function CheckoutForm() {
       // so we do NOT resetCart() here — just hand off and keep the button disabled.
       const redirectUrl = data.payment_result?.redirect_url;
       if (redirectUrl) {
-        // Only follow an absolute https:// URL (blocks javascript:/data:/downgrade if a backend
-        // response is ever tampered with); anything else routes to the local error page.
-        // TODO(go-live): tighten to a host allowlist once the Straumur hosted-checkout domain is confirmed.
-        let okScheme = false;
+        // Follow only an external https URL (e.g. Straumur hosted checkout) OR a same-origin URL —
+        // the bank-transfer flow's return URL is our own /utskra/takk page, which is http on local
+        // dev. This blocks javascript:/data:/cross-origin-http if a backend response is tampered
+        // with, without breaking either real gateway.
+        // TODO(go-live): tighten the external-https case to a Straumur host allowlist once confirmed.
+        let ok = false;
         try {
-          okScheme = new URL(redirectUrl).protocol === 'https:';
+          const u = new URL(redirectUrl, window.location.origin);
+          ok = u.protocol === 'https:' || u.origin === window.location.origin;
         } catch {
-          okScheme = false;
+          ok = false;
         }
-        window.location.href = okScheme ? redirectUrl : '/utskra/villa';
+        window.location.href = ok ? redirectUrl : '/utskra/villa';
         return;
       }
       // Non-redirect gateways (bank transfer): straight to the local thank-you page. Pass the
