@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { splitBrand } from '../lib/brand';
 import { PLACEHOLDER } from '../lib/img';
+import { WISHLIST_MAX_IDS } from '../lib/wishlist';
 
 interface Stored {
   id: number;
@@ -40,6 +41,9 @@ export default function WishlistView() {
   // true once a catalog fetch succeeds — lets us tell "deleted/unpublished" (in store
   // but absent from a successful response) apart from "fetch failed, use stored fallback".
   const [fetchOk, setFetchOk] = useState(false);
+  // Ids we actually asked the API to resolve (capped to WISHLIST_MAX_IDS, matching the server).
+  // Only THESE are eligible for the "gone" verdict; items past the cap fall back to their snapshot.
+  const [attempted, setAttempted] = useState<Set<number>>(new Set());
 
   async function load() {
     const s = readStore();
@@ -47,11 +51,16 @@ export default function WishlistView() {
     setFetchOk(false);
     if (s.length === 0) {
       setFresh({});
+      setAttempted(new Set());
       setReady(true);
       return;
     }
+    // Cap the request to the server's limit so ids beyond it aren't sent (and aren't mislabeled
+    // "gone" when they come back absent from a 200 — they simply keep their stored snapshot).
+    const sentIds = s.slice(0, WISHLIST_MAX_IDS).map((x) => x.id);
+    setAttempted(new Set(sentIds));
     try {
-      const res = await fetch(`/api/products?ids=${s.map((x) => x.id).join(',')}`, {
+      const res = await fetch(`/api/products?ids=${sentIds.join(',')}`, {
         headers: { Accept: 'application/json' },
       });
       if (res.ok) {
@@ -134,9 +143,10 @@ export default function WishlistView() {
     <ul className="product-grid">
       {stored.map((s) => {
         const c = fresh[s.id];
-        // A successful fetch that omits this id means the product was unpublished/deleted —
-        // show it as unavailable (no dead link to a 404 PDP) rather than a stale clickable card.
-        const gone = fetchOk && !c;
+        // A successful fetch that omits an ATTEMPTED id means the product was unpublished/deleted —
+        // show it as unavailable (no dead link to a 404 PDP). Ids past the cap weren't attempted,
+        // so they keep their stored snapshot rather than being mislabeled gone.
+        const gone = fetchOk && attempted.has(s.id) && !c;
         const name = c?.name || s.name;
         const { brand, rest } = splitBrand(name);
         const image = c?.image || s.image;

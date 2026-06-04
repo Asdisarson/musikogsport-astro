@@ -67,21 +67,34 @@ export async function getVariations(productId: number): Promise<WooVariation[]> 
 }
 
 /**
- * Fetch specific products by ID (card fields only), preserving the requested order
- * (orderby=include). Used for the related-products strip on the PDP. Caps the count
- * and silently drops anything not published.
+ * Fetch specific products by ID (card fields only), preserving the requested order.
+ * Used for the related-products strip on the PDP and the wishlist page. Caps the count
+ * and silently drops anything not published. Chunks into batches of 100 because Woo REST
+ * hard-caps `per_page` at 100 and silently drops ids past that — so a wishlist of >100
+ * items would otherwise lose its oldest saves.
  */
 export async function getProductsByIds(ids: number[], limit = 8): Promise<WooProduct[]> {
-  const wanted = ids.filter((n) => Number.isInteger(n) && n > 0).slice(0, limit);
+  // De-dupe first: WC `include` collapsed duplicates, so a dirty related_ids list like [5,5,7]
+  // must not re-emit product 5 twice now that we re-key the result ourselves.
+  const wanted = [...new Set(ids.filter((n) => Number.isInteger(n) && n > 0))].slice(0, limit);
   if (wanted.length === 0) return [];
-  const { data } = await wooGet<WooProduct[]>('/products', {
-    status: 'publish',
-    _fields: LIST_FIELDS,
-    include: wanted,
-    per_page: wanted.length,
-    orderby: 'include',
-  });
-  return data;
+  const BATCH = 100;
+  const batches: number[][] = [];
+  for (let i = 0; i < wanted.length; i += BATCH) batches.push(wanted.slice(i, i + BATCH));
+  const pages = await Promise.all(
+    batches.map((batch) =>
+      wooGet<WooProduct[]>('/products', {
+        status: 'publish',
+        _fields: LIST_FIELDS,
+        include: batch,
+        per_page: batch.length,
+        orderby: 'include',
+      }).then((r) => r.data),
+    ),
+  );
+  // orderby=include only orders WITHIN a batch; re-key by id and re-emit in the requested order.
+  const byId = new Map(pages.flat().map((p) => [p.id, p]));
+  return wanted.map((id) => byId.get(id)).filter((p): p is WooProduct => p != null);
 }
 
 // ---------- single order lookup (order-status / thank-you page) ----------
