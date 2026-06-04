@@ -9,6 +9,22 @@ interface VarAttr {
   name: string;
   options: string[];
 }
+
+const LETTER_SIZE_ORDER = ['xxs', 'xs', 's', 'm', 'l', 'xl', 'xxl', 'xxxl', '2xl', '3xl', '4xl'];
+
+/** Natural-sort size options: pure-numeric sizes ascending (handles 42.5 / 42,5), letter sizes by
+ *  S/M/L/XL order. Anything else (colour and other non-size attributes) keeps its raw API order. */
+function sortSizeOptions(options: string[]): string[] {
+  const num = (s: string) => Number(s.trim().replace(',', '.'));
+  if (options.every((o) => /^\d+([.,]\d+)?$/.test(o.trim()))) {
+    return [...options].sort((a, b) => num(a) - num(b));
+  }
+  const rank = (s: string) => LETTER_SIZE_ORDER.indexOf(s.trim().toLowerCase());
+  if (options.every((o) => rank(o) !== -1)) {
+    return [...options].sort((a, b) => rank(a) - rank(b));
+  }
+  return options;
+}
 interface Variation {
   id: number;
   attributes: { name: string; option: string }[];
@@ -122,7 +138,7 @@ export default function ProductPurchase({
           <div className="field" key={a.name}>
             <span className="field__label">{a.name}</span>
             <div className="swatches">
-              {a.options.map((opt) => (
+              {sortSizeOptions(a.options).map((opt) => (
                 <button
                   type="button"
                   key={opt}
