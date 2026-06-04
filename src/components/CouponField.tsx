@@ -4,6 +4,23 @@ import { useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { cart, cartError, applyCoupon, removeCoupon } from '../lib/cartStore';
 
+// Map the stable English WooCommerce coupon-validation strings to Icelandic. WP returns these in
+// English when the site locale isn't is_IS (the source-level fix is Settings → Site Language). If a
+// message is already localized (no English pattern matches), it passes through unchanged.
+function couponErrorIs(msg: string): string {
+  const m = msg.toLowerCase();
+  if (m.includes('does not exist')) return 'Afsláttarkóðinn er ekki til.';
+  if (m.includes('expired')) return 'Afsláttarkóðinn er útrunninn.';
+  if (m.includes('usage limit')) return 'Notkunarmörkum afsláttarkóðans hefur verið náð.';
+  if (m.includes('minimum spend') || m.includes('minimum order')) return 'Lágmarksupphæð fyrir afsláttarkóðann er ekki náð.';
+  if (m.includes('maximum spend')) return 'Karfan fer yfir hámarksupphæð afsláttarkóðans.';
+  if (m.includes('already applied') || m.includes('already been applied')) return 'Afsláttarkóðinn er nú þegar virkur.';
+  if (m.includes('sale items')) return 'Afsláttarkóðinn gildir ekki á útsöluvörur.';
+  if (m.includes('not applicable') || m.includes('not valid for the products')) return 'Afsláttarkóðinn á ekki við vörurnar í körfunni.';
+  if (m.includes('email')) return 'Afsláttarkóðinn er bundinn við tiltekið netfang.';
+  return msg;
+}
+
 interface Props {
   /** Tighter layout for the cart drawer. */
   compact?: boolean;
@@ -25,7 +42,7 @@ export default function CouponField({ compact = false }: Props) {
       await applyCoupon(c);
       setCode('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ógildur afsláttarkóði.');
+      setError(err instanceof Error ? couponErrorIs(err.message) : 'Ógildur afsláttarkóði.');
       cartError.set(null); // surface the message inline only, not also in the cart-wide error banner
     } finally {
       setBusy(false);
@@ -39,7 +56,7 @@ export default function CouponField({ compact = false }: Props) {
     try {
       await removeCoupon(c);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Villa kom upp. Reyndu aftur.');
+      setError(err instanceof Error ? couponErrorIs(err.message) : 'Villa kom upp. Reyndu aftur.');
       cartError.set(null); // surface the message inline only, not also in the cart-wide error banner
     } finally {
       setBusy(false);
