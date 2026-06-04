@@ -80,7 +80,7 @@ const facetParamKeys = [BRAND_KEY, ...facetData.groups.map((g) => g.key)];
       </label>
       <label>
         Raða:
-        <select class="select" name="sort" onchange="this.form.submit()">
+        <select class="select" name="sort">
           {sortOptions.map(([v, l]) => (<option value={v} selected={sort === v}>{l}</option>))}
         </select>
       </label>
