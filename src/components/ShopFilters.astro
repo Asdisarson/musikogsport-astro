@@ -22,6 +22,9 @@ interface Props {
   showSaleFilter?: boolean;
   facetData: FacetData;
   selection: Selection;
+  /** Accurate, context-aware term counts (WP term_id -> count) from the Store API, matching the
+   *  grid. When absent (count fetch failed) the badge is omitted rather than showing a wrong number. */
+  facetCounts?: Map<number, number>;
 }
 const {
   basePath,
@@ -33,6 +36,7 @@ const {
   showSaleFilter = true,
   facetData,
   selection,
+  facetCounts,
 } = Astro.props;
 
 const sortOptions: [string, string][] = [
@@ -99,6 +103,9 @@ const facetParamKeys = [BRAND_KEY, ...facetData.groups.map((g) => g.key)];
                 {g.terms.slice(0, g.cap).map((t) => {
                   const on = selection.active[g.key]?.includes(t.slug) ?? false;
                   const sw = g.key === COLOUR_KEY ? swatchStyle(t.slug) : null;
+                  // Accurate Store-API count for this term; omit the badge entirely if the count
+                  // fetch failed (map empty) rather than show the stale global REST number.
+                  const c = facetCounts?.get(t.id);
                   return (
                     <a
                       class:list={['facet-opt', sw && 'facet-opt--swatch']}
@@ -113,7 +120,7 @@ const facetParamKeys = [BRAND_KEY, ...facetData.groups.map((g) => g.key)];
                         <span class="facet-opt__box" aria-hidden="true" />
                       )}
                       <span class="facet-opt__label">{decodeEntities(t.name)}</span>
-                      <span class="facet-opt__c">{t.count}</span>
+                      {typeof c === 'number' && <span class="facet-opt__c">{c.toLocaleString('is-IS')}</span>}
                     </a>
                   );
                 })}

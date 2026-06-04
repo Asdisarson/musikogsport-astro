@@ -6,7 +6,7 @@ import Pagination from '../../components/Pagination.astro';
 import Breadcrumbs from '../../components/Breadcrumbs.astro';
 import NotFound from '../../components/NotFound.astro';
 import { getCategoryBySlug } from '../../lib/woo';
-import { storeProducts } from '../../lib/storeCatalog';
+import { storeProducts, loadFacetCounts } from '../../lib/storeCatalog';
 import { loadFacetData, resolveSelection } from '../../lib/facets';
 import { decodeEntities } from '../../lib/decode';
 import { sanitizeHtml } from '../../lib/sanitize';
@@ -34,8 +34,8 @@ const facetData = await loadFacetData();
 const selection = resolveSelection(params, facetData);
 
 const empty: Paged<WooProduct> = { items: [], total: 0, totalPages: 0, page };
-const result = cat
-  ? await storeProducts({
+const q = cat
+  ? {
       category: cat.id,
       page,
       per_page: 24,
@@ -45,8 +45,12 @@ const result = cat
       instock: inStock || undefined,
       brandIds: selection.brandIds,
       attributes: selection.attributes,
-    }).catch(() => empty)
-  : empty;
+    }
+  : null;
+// Grid + accurate facet counts in parallel; both mirror the same query so badges match the grid.
+const [result, facetCounts] = q
+  ? await Promise.all([storeProducts(q).catch(() => empty), loadFacetCounts(q)])
+  : [empty, new Map<number, number>()];
 
 const baseParams = new URLSearchParams(params);
 baseParams.delete('page');
@@ -84,6 +88,7 @@ const breadcrumbLdObj = cat ? breadcrumbList(crumbs, siteHref, canonicalUrl) : n
         inStock={inStock}
         facetData={facetData}
         selection={selection}
+        facetCounts={facetCounts}
       />
       <div class="section--tight container container--wide">
         <ProductGrid products={result.items} eagerCount={4} />

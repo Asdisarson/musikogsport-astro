@@ -4,7 +4,7 @@ import ProductGrid from '../../components/ProductGrid.astro';
 import ShopFilters from '../../components/ShopFilters.astro';
 import Pagination from '../../components/Pagination.astro';
 import Breadcrumbs from '../../components/Breadcrumbs.astro';
-import { storeProducts } from '../../lib/storeCatalog';
+import { storeProducts, loadFacetCounts } from '../../lib/storeCatalog';
 import { loadFacetData, resolveSelection } from '../../lib/facets';
 import { parseSort, pageHref } from '../../lib/query';
 import { ld, breadcrumbList } from '../../lib/jsonld';
@@ -23,7 +23,7 @@ const facetData = await loadFacetData();
 const selection = resolveSelection(params, facetData);
 
 const empty: Paged<WooProduct> = { items: [], total: 0, totalPages: 0, page };
-const result = await storeProducts({
+const q = {
   page,
   per_page: 24,
   orderby,
@@ -32,7 +32,12 @@ const result = await storeProducts({
   instock: inStock || undefined,
   brandIds: selection.brandIds,
   attributes: selection.attributes,
-}).catch(() => empty);
+};
+// Grid + accurate facet counts in parallel; both mirror the same query so badges match the grid.
+const [result, facetCounts] = await Promise.all([
+  storeProducts(q).catch(() => empty),
+  loadFacetCounts(q),
+]);
 
 const baseParams = new URLSearchParams(params);
 baseParams.delete('page');
@@ -62,6 +67,7 @@ const breadcrumbLdObj = breadcrumbList(crumbs, siteHref, new URL('/verslun', sit
     inStock={inStock}
     facetData={facetData}
     selection={selection}
+    facetCounts={facetCounts}
   />
   <div class="section--tight container container--wide">
     <ProductGrid products={result.items} eagerCount={4} />
