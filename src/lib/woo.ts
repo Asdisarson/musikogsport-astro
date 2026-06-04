@@ -246,49 +246,83 @@ export async function listAttributeTerms(attrId: number): Promise<FacetTerm[]> {
 
 // ---------- sitemap helpers (cached per server process) ----------
 
-const SITEMAP_TTL = 10 * 60 * 1000;
+// 6h: a full sitemap sweep is ~3k URLs / ~7s, far longer than a crawler's re-fetch interval, so a
+// short TTL made nearly every crawl pay the cold cost. The in-flight guards below also collapse a
+// burst of concurrent cold requests into a single sweep instead of N parallel ones.
+const SITEMAP_TTL = 6 * 60 * 60 * 1000;
 const MAX_PAGES = 200; // safety cap (~20k products at per_page=100)
 
 interface ProductSlug {
   slug: string;
   modified?: string;
 }
-let productSlugCache: { at: number; entries: ProductSlug[] } | null = null;
-let allCatCache: { at: number; slugs: string[] } | null = null;
 
-/** All published product slugs (+ lastmod) for the sitemap. Cached 10 min. */
-export async function listAllProductSlugs(): Promise<ProductSlug[]> {
-  if (productSlugCache && Date.now() - productSlugCache.at < SITEMAP_TTL) return productSlugCache.entries;
-  const entries: ProductSlug[] = [];
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const { data, totalPages } = await wooGet<ProductSlug[]>('/products', {
-      status: 'publish',
-      _fields: 'slug,modified',
-      per_page: 100,
-      page,
-      orderby: 'id',
-      order: 'asc',
-    });
-    for (const p of data) if (p.slug) entries.push({ slug: p.slug, modified: p.modified });
-    if (page >= totalPages || data.length === 0) break;
-  }
-  productSlugCache = { at: Date.now(), entries };
-  return entries;
+/** Mutable holder for a 6h-cached sitemap sweep with concurrent-request dedup + serve-stale-on-error. */
+interface SweepCache<T> {
+  at: number;
+  val: T | null;
+  inflight: Promise<T> | null;
 }
 
-/** All product-category slugs that have products, for the sitemap. Cached 10 min. */
-export async function listAllCategorySlugs(): Promise<string[]> {
-  if (allCatCache && Date.now() - allCatCache.at < SITEMAP_TTL) return allCatCache.slugs;
-  const slugs: string[] = [];
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const { data, totalPages } = await wooGet<{ slug: string; count: number }[]>('/products/categories', {
-      _fields: 'slug,count',
-      per_page: 100,
-      page,
+/** Run a cached sweep: return fresh cache; else share an in-flight sweep across concurrent cold
+ *  callers; on sweep failure, serve the stale value if we ever had one (so a transient Woo blip
+ *  can't blank the sitemap) and only propagate the error on a truly cold start. */
+function runSweep<T>(c: SweepCache<T>, sweep: () => Promise<T>): Promise<T> {
+  if (c.val !== null && Date.now() - c.at < SITEMAP_TTL) return Promise.resolve(c.val);
+  if (c.inflight) return c.inflight;
+  const inflight = sweep()
+    .then((val) => {
+      c.at = Date.now();
+      c.val = val;
+      return val;
+    })
+    .catch((e) => {
+      if (c.val !== null) return c.val; // serve stale rather than fail/blank
+      throw e;
+    })
+    .finally(() => {
+      c.inflight = null;
     });
-    for (const c of data) if (c.count > 0 && !NAV_EXCLUDE.has(c.slug)) slugs.push(c.slug);
-    if (page >= totalPages || data.length === 0) break;
-  }
-  allCatCache = { at: Date.now(), slugs };
-  return slugs;
+  c.inflight = inflight;
+  return inflight;
+}
+
+const productSlugSweep: SweepCache<ProductSlug[]> = { at: 0, val: null, inflight: null };
+const allCatSweep: SweepCache<string[]> = { at: 0, val: null, inflight: null };
+
+/** All published product slugs (+ lastmod) for the sitemap. Cached 6h; concurrent cold calls share one sweep. */
+export function listAllProductSlugs(): Promise<ProductSlug[]> {
+  return runSweep(productSlugSweep, async () => {
+    const entries: ProductSlug[] = [];
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const { data, totalPages } = await wooGet<ProductSlug[]>('/products', {
+        status: 'publish',
+        _fields: 'slug,modified',
+        per_page: 100,
+        page,
+        orderby: 'id',
+        order: 'asc',
+      });
+      for (const p of data) if (p.slug) entries.push({ slug: p.slug, modified: p.modified });
+      if (page >= totalPages || data.length === 0) break;
+    }
+    return entries;
+  });
+}
+
+/** All product-category slugs that have products, for the sitemap. Cached 6h; concurrent cold calls share one sweep. */
+export function listAllCategorySlugs(): Promise<string[]> {
+  return runSweep(allCatSweep, async () => {
+    const slugs: string[] = [];
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const { data, totalPages } = await wooGet<{ slug: string; count: number }[]>('/products/categories', {
+        _fields: 'slug,count',
+        per_page: 100,
+        page,
+      });
+      for (const c of data) if (c.count > 0 && !NAV_EXCLUDE.has(c.slug)) slugs.push(c.slug);
+      if (page >= totalPages || data.length === 0) break;
+    }
+    return slugs;
+  });
 }
