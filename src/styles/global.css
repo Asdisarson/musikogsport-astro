@@ -740,8 +740,10 @@
   }
   .facet-opt--swatch:hover .swatch-dot { transform: scale(1.14); }
   .facet-opt--swatch[data-on] .swatch-dot { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
-  .facet-opt__label { flex: 1; }
-  .facet-opt__c { color: var(--muted); font-size: var(--fz-xs); font-variant-numeric: tabular-nums; }
+  /* min-width:0 lets a long colour label shrink instead of clipping past the panel at ~390px;
+     the count badge stays visible and the label ellipsizes. */
+  .facet-opt__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .facet-opt__c { flex: none; color: var(--muted); font-size: var(--fz-xs); font-variant-numeric: tabular-nums; }
   .facet-opt[data-on] .facet-opt__c { color: var(--ink); }
   .facet-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 1.25rem; }
   .facet-chips__label { font-size: var(--fz-xs); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin-right: 0.15rem; }
