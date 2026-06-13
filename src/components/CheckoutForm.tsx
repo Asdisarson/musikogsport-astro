@@ -35,6 +35,25 @@ const PAYMENT_META: Record<string, { label: string; desc: string }> = {
 };
 const PAYMENT_ORDER = ['straumur', 'bacs'];
 
+// Hosts we'll follow a post-payment redirect to, besides our own origin. The card gateway
+// (Straumur) hands back a hosted-checkout URL; the bank-transfer flow returns to our own
+// /utskra/takk. Anything else (a tampered backend response) is bounced to /utskra/villa.
+// TODO(go-live): confirm the EXACT Straumur hosted-checkout host before enabling card payments
+// and pin it here — *.straumur.is is a conservative guess, not a verified domain.
+const STRAUMUR_HOSTS = ['straumur.is'];
+
+/** True iff `url` is same-origin or an https URL on an allowlisted Straumur host. */
+function isAllowedRedirect(url: string): boolean {
+  try {
+    const u = new URL(url, window.location.origin);
+    if (u.origin === window.location.origin) return true;
+    if (u.protocol !== 'https:') return false;
+    return STRAUMUR_HOSTS.some((h) => u.hostname === h || u.hostname.endsWith(`.${h}`));
+  } catch {
+    return false;
+  }
+}
+
 export default function CheckoutForm() {
   const $cart = useStore(cart);
   const loading = useStore(cartLoading);
@@ -168,19 +187,10 @@ export default function CheckoutForm() {
       // so we do NOT resetCart() here — just hand off and keep the button disabled.
       const redirectUrl = data.payment_result?.redirect_url;
       if (redirectUrl) {
-        // Follow only an external https URL (e.g. Straumur hosted checkout) OR a same-origin URL —
-        // the bank-transfer flow's return URL is our own /utskra/takk page, which is http on local
-        // dev. This blocks javascript:/data:/cross-origin-http if a backend response is tampered
-        // with, without breaking either real gateway.
-        // TODO(go-live): tighten the external-https case to a Straumur host allowlist once confirmed.
-        let ok = false;
-        try {
-          const u = new URL(redirectUrl, window.location.origin);
-          ok = u.protocol === 'https:' || u.origin === window.location.origin;
-        } catch {
-          ok = false;
-        }
-        window.location.href = ok ? redirectUrl : '/utskra/villa';
+        // Follow only a same-origin URL (the bank-transfer return to /utskra/takk, http on local
+        // dev) or an https URL on an allowlisted Straumur host. Blocks javascript:/data:/cross-origin
+        // and arbitrary external https if a backend response is tampered with. See isAllowedRedirect.
+        window.location.href = isAllowedRedirect(redirectUrl) ? redirectUrl : '/utskra/villa';
         return;
       }
       // Non-redirect gateways (bank transfer): straight to the local thank-you page. Pass the

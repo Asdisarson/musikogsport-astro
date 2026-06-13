@@ -21,7 +21,9 @@ export function decodeEntities(input: string | null | undefined): string {
   return input.replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]*);/g, (match, code: string) => {
     if (code[0] === '#') {
       const num = code[1] === 'x' || code[1] === 'X' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
-      return Number.isFinite(num) ? String.fromCodePoint(num) : match;
+      // Guard the valid Unicode range — String.fromCodePoint throws RangeError above 0x10FFFF
+      // (e.g. a malformed &#9999999;), which would otherwise crash SSR frontmatter mid-render.
+      return Number.isFinite(num) && num >= 0 && num <= 0x10ffff ? String.fromCodePoint(num) : match;
     }
     return NAMED[code] ?? match;
   });
