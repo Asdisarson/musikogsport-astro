@@ -4,6 +4,7 @@
 // otherwise 401s for a missing nonce), and rotate it from every response.
 import type { APIContext } from 'astro';
 import { getCart, type StoreResult } from './storeApi';
+import { jsonResponse } from './http';
 
 const COOKIE = 'wc_cart_token';
 
@@ -90,10 +91,7 @@ export function respondCart(ctx: APIContext, result: StoreResult<unknown>): Resp
 // ---------- request validation helpers ----------
 
 export function badRequest(message: string): Response {
-  return new Response(JSON.stringify({ message }), {
-    status: 400,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  return jsonResponse({ message }, 400);
 }
 
 export async function readJson<T = Record<string, unknown>>(ctx: APIContext): Promise<T | null> {
@@ -104,15 +102,6 @@ export async function readJson<T = Record<string, unknown>>(ctx: APIContext): Pr
   }
 }
 
-export function isPosInt(v: unknown): v is number {
-  return typeof v === 'number' && Number.isInteger(v) && v > 0;
-}
-
-export function isNonEmptyString(v: unknown): v is string {
-  return typeof v === 'string' && v.trim().length > 0;
-}
-
-const MAX_QTY = 99;
-export function clampQty(v: unknown): number {
-  return isPosInt(v) ? Math.min(v, MAX_QTY) : 1;
-}
+// The input guards now live in the domain-neutral ./validate module; re-exported here so the
+// cart routes that import them from cartProxy keep working unchanged.
+export { isPosInt, isNonEmptyString, clampQty } from './validate';

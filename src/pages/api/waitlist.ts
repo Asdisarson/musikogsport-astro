@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { WP_INTERNAL_URL } from 'astro:env/server';
 import { badRequest, isNonEmptyString, isPosInt, readJson } from '../../lib/cartProxy';
+import { jsonResponse } from '../../lib/http';
 
 export const prerender = false;
 
@@ -18,11 +19,20 @@ export const POST: APIRoute = async (ctx) => {
     email: body.email,
     language: 'is',
   };
-  const res = await fetch(`${WP_INTERNAL_URL}/wp-json/storedash/v1/waitlist/subscribe`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${WP_INTERNAL_URL}/wp-json/storedash/v1/waitlist/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (err) {
+    // WP unreachable or timed out. Without this guard the throw became an unlogged 500 (the rest
+    // of the proxy family standardizes on 502). 'server_error' maps to Icelandic copy in WaitlistForm.
+    console.warn(`[waitlist] upstream failed: ${err instanceof Error ? err.message : String(err)}`);
+    return jsonResponse({ ok: false, code: 'server_error' }, 502);
+  }
   const text = await res.text();
   return new Response(text || '{}', {
     status: res.status,

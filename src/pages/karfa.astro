@@ -4,6 +4,7 @@ import Breadcrumbs from '../components/Breadcrumbs.astro';
 import CartView from '../components/CartView.tsx';
 
 export const prerender = false;
+Astro.response.headers.set('Cache-Control', 'no-store'); // cart page is per-shopper — never cache
 ---
 
 <Base title="Karfa" noindex>

@@ -1,13 +1,8 @@
 import type { APIRoute } from 'astro';
 import { WP_INTERNAL_URL } from 'astro:env/server';
+import { jsonResponse } from '../../../lib/http';
 
 export const prerender = false;
-
-const json = (body: unknown, status: number, cache = 'no-store') =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': cache },
-  });
 
 // Proxies the MOS mu-plugin's public droppoints endpoint (server-to-server), which
 // lists Pósturinn parcel lockers (postbox) / post offices (parcelpoint) for a
@@ -15,7 +10,7 @@ const json = (body: unknown, status: number, cache = 'no-store') =>
 export const GET: APIRoute = async (ctx) => {
   const postcode = (ctx.url.searchParams.get('postcode') ?? '').replace(/\D/g, '');
   const type = ctx.url.searchParams.get('type') === 'parcelpoint' ? 'parcelpoint' : 'postbox';
-  if (postcode.length !== 3) return json({ ok: false, code: 'bad_postcode', items: [] }, 400);
+  if (postcode.length !== 3) return jsonResponse({ ok: false, code: 'bad_postcode', items: [] }, 400);
 
   try {
     const res = await fetch(
@@ -23,12 +18,15 @@ export const GET: APIRoute = async (ctx) => {
       { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000) },
     );
     const text = await res.text();
+    // Only cache successful lists (stable, browser-cacheable to avoid refetch churn). An upstream
+    // 4xx/5xx must NOT be cached publicly for 10 min — pass it through with no-store.
+    const cache = res.ok ? 'public, max-age=600' : 'no-store';
     return new Response(text || '{"ok":false,"items":[]}', {
       status: res.status,
-      // List is stable; let the browser cache it briefly to avoid refetch churn.
-      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=600' },
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': cache },
     });
-  } catch {
-    return json({ ok: false, code: 'upstream_error', items: [] }, 502);
+  } catch (err) {
+    console.warn(`[droppoints] upstream failed: ${err instanceof Error ? err.message : String(err)}`);
+    return jsonResponse({ ok: false, code: 'upstream_error', items: [] }, 502);
   }
 };

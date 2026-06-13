@@ -3,8 +3,10 @@ import Base from '../../layouts/Base.astro';
 import Icon from '../../components/Icon.astro';
 import { readOrderCookie, clearOrderCookie } from '../../lib/cartProxy';
 import { getOrder, type OrderSummary } from '../../lib/woo';
+import { isPosInt } from '../../lib/validate';
 
 export const prerender = false;
+Astro.response.headers.set('Cache-Control', 'no-store'); // receipt renders order details — never cache
 
 // Resolve order identity: URL params first (the headless-bridge appends order_id +
 // order_key on the gateway return), then the httpOnly cookie set at checkout
@@ -21,7 +23,7 @@ if (!orderId || !orderKey) {
 }
 
 let order: OrderSummary | null = null;
-if (Number.isInteger(orderId) && orderId > 0 && orderKey) {
+if (isPosInt(orderId) && orderKey) {
   order = await getOrder(orderId, orderKey).catch(() => null);
 }
 // One-shot: drop the fallback cookie so a later bare visit can't resurface a stale order.
