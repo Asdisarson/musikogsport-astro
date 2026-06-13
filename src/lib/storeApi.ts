@@ -22,16 +22,36 @@ async function storeFetch<T>(
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
   if (opts.cartToken) headers['Cart-Token'] = opts.cartToken;
+  const method = opts.method ?? 'GET';
 
-  const res = await fetch(`${STORE_BASE}${path}`, {
-    method: opts.method ?? 'GET',
-    headers,
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    // Generous backstop only — this path is request-scoped (/api/* routes, never page SSR),
-    // and shipping calc + order placement call Pósturinn's external rate API which can take
-    // several seconds (some postcodes ~4s warm). A tight timeout would abort valid checkouts.
-    signal: AbortSignal.timeout(25000),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${STORE_BASE}${path}`, {
+      method,
+      headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      // Generous backstop only — this path is request-scoped (/api/* routes, never page SSR),
+      // and shipping calc + order placement call Pósturinn's external rate API which can take
+      // several seconds (some postcodes ~4s warm). A tight timeout would abort valid checkouts.
+      signal: AbortSignal.timeout(25000),
+    });
+  } catch (err) {
+    // Transport failure, or the 25s timeout firing (AbortSignal.timeout → TimeoutError). Don't
+    // throw: callers (checkout/cart routes) hand us straight to respondCart, which would otherwise
+    // surface a raw 500 with no trace on the money path. Log once here and return a non-ok result
+    // so respondCart emits a localized {message} and a real HTTP status. cartToken stays null —
+    // writeToken's truthy-guard then preserves the shopper's existing Cart-Token cookie.
+    const timedOut = err instanceof Error && err.name === 'TimeoutError';
+    console.warn(
+      `[store-api] ${method} ${path} ${timedOut ? 'timed out' : 'failed'}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return {
+      status: timedOut ? 504 : 502,
+      ok: false,
+      data: { message: 'Þjónustan svaraði ekki, reyndu aftur.' } as T,
+      cartToken: null,
+    };
+  }
 
   const cartToken = res.headers.get('Cart-Token');
   const text = await res.text();

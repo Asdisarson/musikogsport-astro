@@ -5,6 +5,7 @@
 //  - pagination via X-WP-Total / X-WP-TotalPages headers.
 import { WP_INTERNAL_URL, WOOCOMMERCE_CONSUMER_KEY, WOOCOMMERCE_CONSUMER_SECRET } from 'astro:env/server';
 import type { Paged, ProductQuery, WooCategory, WooProduct, WooVariation } from './types';
+import { isPosInt } from './validate';
 
 const BASE = `${WP_INTERNAL_URL}/wp-json/wc/v3`;
 
@@ -22,11 +23,28 @@ async function wooGet<T>(path: string, params: Params = {}): Promise<{ data: T; 
     usp.set(k, Array.isArray(v) ? v.join(',') : String(v));
   }
   // Hard timeout so a hung Woo backend can't pin the SSR worker (callers .catch() it).
-  const res = await fetch(`${BASE}${path}?${usp.toString()}`, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(5000),
-  });
-  if (!res.ok) throw new Error(`WooCommerce GET ${path} -> ${res.status} ${res.statusText}`);
+  // We keep the throwing contract (callers degrade gracefully via .catch) but log the cause
+  // ONCE here at the boundary — otherwise a full Woo outage degrades every SSR page silently.
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}?${usp.toString()}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch (err) {
+    const timedOut = err instanceof Error && err.name === 'TimeoutError';
+    console.warn(
+      `[woo] GET ${path} ${timedOut ? 'timed out (5s)' : 'failed'}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    throw err;
+  }
+  if (!res.ok) {
+    // Log only server-side failures. A 4xx is expected here — getOrder() relies on the /orders
+    // 404 for missing/enumerated orders (anti-enumeration), and the thank-you page polls it, so
+    // logging 4xx would bury real outages in noise.
+    if (res.status >= 500) console.warn(`[woo] GET ${path} -> ${res.status} ${res.statusText}`);
+    throw new Error(`WooCommerce GET ${path} -> ${res.status} ${res.statusText}`);
+  }
   const data = (await res.json()) as T;
   return {
     data,
@@ -76,7 +94,7 @@ export async function getVariations(productId: number): Promise<WooVariation[]> 
 export async function getProductsByIds(ids: number[], limit = 8): Promise<WooProduct[]> {
   // De-dupe first: WC `include` collapsed duplicates, so a dirty related_ids list like [5,5,7]
   // must not re-emit product 5 twice now that we re-key the result ourselves.
-  const wanted = [...new Set(ids.filter((n) => Number.isInteger(n) && n > 0))].slice(0, limit);
+  const wanted = [...new Set(ids.filter(isPosInt))].slice(0, limit);
   if (wanted.length === 0) return [];
   const BATCH = 100;
   const batches: number[][] = [];
@@ -137,7 +155,7 @@ function safeEqual(a: string, b: string): boolean {
  * so order IDs can't be enumerated).
  */
 export async function getOrder(id: number, key: string): Promise<OrderSummary | null> {
-  if (!Number.isInteger(id) || id <= 0 || !key) return null;
+  if (!isPosInt(id) || !key) return null;
   let order: WooOrder;
   try {
     const { data } = await wooGet<WooOrder>(`/orders/${id}`, {

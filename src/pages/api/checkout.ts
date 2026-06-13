@@ -13,6 +13,10 @@ export const prerender = false;
 export const POST: APIRoute = async (ctx) => {
   const body = await readJson<CheckoutPayload>(ctx);
   const billing = body?.billing_address;
+  // Trust boundary: we guard only the two fields whose absence we can localize sensibly
+  // (email + payment_method). The WooCommerce Store API is the authoritative validator for the
+  // rest of the payload (addresses, payment_data, line items) and rejects bad input itself —
+  // re-validating every field here would risk diverging from Woo's rules and rejecting valid orders.
   if (
     !body ||
     !billing ||
