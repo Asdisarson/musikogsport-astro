@@ -16,6 +16,7 @@ import { splitBrand } from '../../lib/brand';
 import { decodeEntities, stripShortcodes } from '../../lib/decode';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { ld, productLd, breadcrumbList } from '../../lib/jsonld';
+import type { PdpVariation } from '../../lib/types';
 
 export const prerender = false;
 
@@ -27,16 +28,7 @@ if (!product) {
 
 let variationAttrs: { name: string; options: string[] }[] = [];
 let variationsFailed = false;
-let variations: {
-  id: number;
-  attributes: { name: string; option: string }[];
-  price: string;
-  regular_price: string;
-  sale_price: string;
-  on_sale: boolean;
-  stock_status: string;
-  image: { src: string; alt: string } | null;
-}[] = [];
+let variations: PdpVariation[] = [];
 
 if (product && product.type === 'variable') {
   variationAttrs = (product.attributes ?? [])

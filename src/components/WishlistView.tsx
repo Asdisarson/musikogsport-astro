@@ -2,21 +2,15 @@ import { useEffect, useState } from 'react';
 import { splitBrand } from '../lib/brand';
 import { PLACEHOLDER } from '../lib/img';
 import { WISHLIST_MAX_IDS } from '../lib/wishlist';
+import type { ProductSummary } from '../lib/types';
 
+// localStorage persistence shape — hearts store only this minimal snapshot (the live card,
+// with price/stock, is the fetched ProductSummary below).
 interface Stored {
   id: number;
   slug: string;
   name: string;
   image: string;
-}
-interface Card {
-  id: number;
-  slug: string;
-  name: string;
-  image: string;
-  priceText?: string;
-  onSale?: boolean;
-  outOfStock?: boolean;
 }
 
 const WKEY = 'mos-wishlist';
@@ -37,7 +31,7 @@ function readStore(): Stored[] {
 export default function WishlistView() {
   const [ready, setReady] = useState(false);
   const [stored, setStored] = useState<Stored[]>([]);
-  const [fresh, setFresh] = useState<Record<number, Card>>({});
+  const [fresh, setFresh] = useState<Record<number, ProductSummary>>({});
   // true once a catalog fetch succeeds — lets us tell "deleted/unpublished" (in store
   // but absent from a successful response) apart from "fetch failed, use stored fallback".
   const [fetchOk, setFetchOk] = useState(false);
@@ -64,8 +58,8 @@ export default function WishlistView() {
         headers: { Accept: 'application/json' },
       });
       if (res.ok) {
-        const arr: Card[] = await res.json();
-        const map: Record<number, Card> = {};
+        const arr: ProductSummary[] = await res.json();
+        const map: Record<number, ProductSummary> = {};
         for (const c of arr) map[c.id] = c;
         setFresh(map);
         setFetchOk(true);

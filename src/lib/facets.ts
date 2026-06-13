@@ -2,7 +2,7 @@
 // Semantics: OR within a facet (pick several colours), AND across facets
 // (colour AND sport AND brand) — implemented by storeCatalog.storeProducts().
 import { listAttributeTerms, listBrandTerms, type FacetTerm } from './woo';
-import type { AttributeFilter } from './storeCatalog';
+import type { AttributeFilter } from './types';
 
 export const BRAND_KEY = 'merki';
 

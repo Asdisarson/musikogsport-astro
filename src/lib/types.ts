@@ -210,6 +210,12 @@ export interface CheckoutPayload {
   payment_method: string;
   payment_data?: { key: string; value: string }[];
   customer_note?: string;
+  // Pósturinn "Pakki Póstbox" pickup: the chosen locker id + a contact phone. The Pósturinn
+  // plugin's own Store-API checkout hook reads these top-level fields off the request (see the
+  // NOTE in wp-mu-plugins/mos-posturinn-droppoints.php) — modeled here so they're not silently
+  // untyped on the checkout body.
+  postis_dpo_postbox?: string;
+  postis_dpo_phonenumber?: string;
 }
 
 export interface OrderResult {
@@ -230,4 +236,33 @@ export interface StoreError {
   code: string;
   message: string;
   data?: { status?: number; [k: string]: unknown };
+}
+
+/** Trimmed product fields for a card (grid / wishlist). Matches the /api/products response body. */
+export interface ProductSummary {
+  id: number;
+  slug: string;
+  name: string;
+  image: string;
+  priceText?: string;
+  onSale?: boolean;
+  outOfStock?: boolean;
+}
+
+/** Trimmed variation shape consumed by the PDP purchase island (a subset of WooVariation). */
+export interface PdpVariation {
+  id: number;
+  attributes: { name: string; option: string }[];
+  price: string;
+  regular_price: string;
+  sale_price: string;
+  on_sale: boolean;
+  stock_status: string;
+  image?: { src: string; alt: string } | null;
+}
+
+/** One attribute facet: a taxonomy + the term IDs selected within it (OR'd together). */
+export interface AttributeFilter {
+  taxonomy: string; // e.g. "pa_litur"
+  termIds: number[];
 }

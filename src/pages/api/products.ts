@@ -4,6 +4,9 @@ import { productImage } from '../../lib/img';
 import { decodeEntities } from '../../lib/decode';
 import { cardPriceText } from '../../lib/price';
 import { WISHLIST_MAX_IDS } from '../../lib/wishlist';
+import { jsonResponse } from '../../lib/http';
+import { isPosInt } from '../../lib/validate';
+import type { ProductSummary } from '../../lib/types';
 
 export const prerender = false;
 
@@ -16,8 +19,8 @@ export const GET: APIRoute = async (ctx) => {
     .split(',')
     .slice(0, WISHLIST_MAX_IDS) // cap the work before coercing every token (client caps to match)
     .map((s) => Number(s.trim()))
-    .filter((n) => Number.isInteger(n) && n > 0);
-  if (ids.length === 0) return json([], 200);
+    .filter(isPosInt);
+  if (ids.length === 0) return jsonResponse([], 200);
 
   // Do NOT collapse a backend outage into an empty result: a 200+[] would make WishlistView
   // (which only trusts res.ok) mark EVERY saved item "Ekki í boði". Surface the failure as a
@@ -26,9 +29,9 @@ export const GET: APIRoute = async (ctx) => {
   try {
     products = await getProductsByIds(ids, ids.length);
   } catch {
-    return json({ error: 'catalog_unavailable' }, 502);
+    return jsonResponse({ message: 'Vörulistinn er ekki í boði í augnablikinu.' }, 502);
   }
-  const items = products.map((p) => ({
+  const items: ProductSummary[] = products.map((p) => ({
     id: p.id,
     slug: p.slug,
     name: decodeEntities(p.name),
@@ -38,12 +41,5 @@ export const GET: APIRoute = async (ctx) => {
     // Match ProductCard's badge rule (only 'outofstock' is sold out; backorder isn't).
     outOfStock: p.stock_status === 'outofstock',
   }));
-  return json(items, 200);
+  return jsonResponse(items, 200);
 };
-
-function json(data: unknown, status: number): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-  });
-}

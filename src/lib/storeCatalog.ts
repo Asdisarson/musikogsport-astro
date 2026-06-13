@@ -10,7 +10,7 @@
 import { WP_INTERNAL_URL } from 'astro:env/server';
 import { scaleMinor } from './format';
 import { FACET_GROUPS } from './facets';
-import type { Paged, WooProduct } from './types';
+import type { AttributeFilter, Paged, WooProduct } from './types';
 
 const BASE = `${WP_INTERNAL_URL}/wp-json/wc/store/v1`;
 
@@ -31,12 +31,6 @@ interface StoreProductRaw {
   on_sale: boolean;
   is_in_stock: boolean;
   images?: { src: string; thumbnail?: string; alt?: string }[];
-}
-
-/** One attribute facet: a taxonomy + the term IDs selected within it (OR'd together). */
-export interface AttributeFilter {
-  taxonomy: string; // e.g. "pa_litur"
-  termIds: number[];
 }
 
 export interface StoreQuery {

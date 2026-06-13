@@ -3,6 +3,7 @@ import { useStore } from '@nanostores/react';
 import { addToCart, cartError, openCart } from '../lib/cartStore';
 import { formatISK } from '../lib/format';
 import { PLACEHOLDER } from '../lib/img';
+import type { PdpVariation } from '../lib/types';
 import WaitlistForm from './WaitlistForm';
 
 interface VarAttr {
@@ -25,22 +26,12 @@ function sortSizeOptions(options: string[]): string[] {
   }
   return options;
 }
-interface Variation {
-  id: number;
-  attributes: { name: string; option: string }[];
-  price: string;
-  regular_price: string;
-  sale_price: string;
-  on_sale: boolean;
-  stock_status: string;
-  image?: { src: string; alt: string } | null;
-}
 interface Props {
   productId: number;
   type: string;
   inStock: boolean;
   variationAttrs?: VarAttr[];
-  variations?: Variation[];
+  variations?: PdpVariation[];
   variationsFailed?: boolean;
   /** Product's default/gallery image — restored when a selected variation has no own image. */
   baseImage?: { src: string; alt: string };
@@ -67,7 +58,7 @@ export default function ProductPurchase({
 
   const allChosen = !isVariable || variationAttrs.every((a) => selected[a.name]);
 
-  const resolved = useMemo<Variation | null>(() => {
+  const resolved = useMemo<PdpVariation | null>(() => {
     if (!isVariable || !allChosen) return null;
     return (
       variations.find((v) =>
