@@ -21,7 +21,7 @@ import { pricesVary } from '../../lib/variations';
 import { ld, productLd, breadcrumbList } from '../../lib/jsonld';
 import { loadCatalogTerms } from '../../lib/catalogTerms';
 import { cardCategories, categoryChain, productCrumbTrail } from '../../lib/categoryTree';
-import { categoryPath, productPath } from '../../lib/paths';
+import { categoryPath, movedCategoryTarget, productPath } from '../../lib/paths';
 import { markUnavailable } from '../../lib/http';
 import type { PdpVariation } from '../../lib/types';
 
@@ -48,7 +48,9 @@ const redirectTo = legacyCategory
   ? categoryPath(categoryChain(terms.categories, legacyCategory.id)) + Astro.url.search
   : product && decodeURIComponent(Astro.url.pathname) !== decodeURIComponent(canonicalPath)
     ? canonicalPath + Astro.url.search
-    : null;
+    : !product && !terms.degraded && segments.length === 1
+      ? movedCategoryTarget(segments, Astro.url.search)
+      : null;
 if (redirectTo) return Astro.redirect(redirectTo, 301);
 if (!product) {
   if (down) markUnavailable(Astro.response);

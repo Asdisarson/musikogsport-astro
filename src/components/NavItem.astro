@@ -1,8 +1,9 @@
 ---
 // One menu item. Depth 0: a top-level link in the main bar and, when it has children, its full-width
-// mega-menu panel (lib/megaMenu decides grouped columns vs one flowed list). It opens on hover or keyboard
-// focus; Escape closes it (Base.astro). Deeper items render as plain nested lists inside their column.
-import { megaPanel } from '../lib/megaMenu';
+// mega-menu panel (lib/megaMenu decides grouped columns vs one flowed list), with "Sjá allt" under each linked
+// column and across the panel. It opens on hover or keyboard focus; Escape closes it (Base.astro). Deeper items
+// render as plain nested lists inside their column.
+import { isLinkHref, megaPanel } from '../lib/megaMenu';
 import type { MenuItem } from '../lib/siteChrome';
 import { isCurrentMenuHref } from '../lib/paths';
 import { linkRel } from '../lib/safeUrl';
@@ -14,9 +15,6 @@ interface Props {
 const { item, depth } = Astro.props;
 const isCurrent = isCurrentMenuHref(item.href, Astro.url);
 const panel = depth === 0 ? megaPanel(item) : null;
-// A column heading pointing nowhere ('#') or at the home page (a WordPress menu heading like "Vörumerki") is a
-// plain heading, not a link, as the footer treats those items.
-const headLinks = (href?: string) => Boolean(href) && href !== '/' && href !== '#';
 const linkAttrs = {
   href: item.href,
   target: item.target || undefined,
@@ -32,12 +30,12 @@ const linkAttrs = {
         {item.title}
       </a>
       {panel && (
-        <div class="mega">
-          <div class="mega__grid" style={`--cols: ${panel.columns}`}>
+        <div class="mega" style={`--cols: ${panel.columns}`}>
+          <div class="mega__grid">
             {panel.kind === 'grouped' ? (
               panel.groups.map((g) => (
                 <div class="mega__col">
-                  {headLinks(g.href) ? (
+                  {isLinkHref(g.href) ? (
                     <a class="mega__head" href={g.href} target={g.target || undefined} rel={linkRel(g.target)}>
                       {g.title}
                     </a>
@@ -51,11 +49,16 @@ const linkAttrs = {
                       ))}
                     </ul>
                   )}
+                  {g.more && (
+                    <a class="mega__more" href={g.more} target={g.target || undefined} rel={linkRel(g.target)} aria-label={`Sjá allt: ${g.title}`}>
+                      Sjá allt
+                    </a>
+                  )}
                 </div>
               ))
             ) : (
               <div class="mega__col mega__col--flow" style={`--flow: ${panel.flow}`}>
-                {headLinks(panel.href) ? (
+                {isLinkHref(panel.href) ? (
                   <a class="mega__head" href={panel.href} target={panel.target || undefined} rel={linkRel(panel.target)}>
                     {panel.title}
                   </a>
@@ -70,6 +73,13 @@ const linkAttrs = {
               </div>
             )}
           </div>
+          {panel.all && (
+            <div class="mega__foot">
+              <a class="mega__all" href={panel.all} {...(item.target ? { target: item.target } : {})} rel={linkRel(item.target, item.external)}>
+                Sjá allt: {item.title}
+              </a>
+            </div>
+          )}
         </div>
       )}
     </li>

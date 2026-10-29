@@ -79,6 +79,36 @@ const WOO_DEFAULT_PAGES = new Map([
   ['shop', '/verslun/'],
 ]);
 
+/** Categories the catalog tidy-up (mos_clean_category_ops in wp-mu-plugins/mos-catalog-clean.php — keep the two in
+ *  step) removed, by their last slug: sports became the sport filter, clubs the club filter, Didriksons the brand. */
+const MOVED_CATEGORIES = new Map([
+  ['ithrott', '/verslun/'],
+  ...[
+    ['hjol', 'hjol'], ['pilates-barre', 'pilates'], ['blak', 'blak'], ['crossfit', 'crossfit'],
+    ['fimleikar-ithrott', 'fimleikar'], ['fotbolti', 'fotbolti'], ['frjalsar', 'frjalsar'], ['golf', 'golf'],
+    ['handbolti', 'handbolti'], ['hlaup-ithrott', 'hlaup'], ['joga', 'yoga'], ['korfubolti', 'korfubolti'],
+    ['skidi', 'skidi'], ['snjobretti', 'snjobretti'], ['sund', 'sund'],
+  ].map(([cat, sport]) => [cat, `/verslun/?ithrott=${sport}`]),
+  ['stjarnan', '/verslun/?team=stjarnan'],
+  ['fh', '/verslun/?team=fh'],
+  ['fimleikafelagid-bjork', '/verslun/?team=bjork'],
+  ['didriksons', '/brand/didriksons/'],
+  ['boltar-2', '/voruflokkur/aefingarvorur/boltar-aefingarvorur/'],
+  ['felag-lid', '/voruflokkur/fatnadur/lidafatnadur-fatnadur-2/'],
+] as [string, string][]);
+
+/** Where a removed category's URL now lives (its last slug decides), with the request's filters carried over —
+ *  the target's own query wins. Null for a category that was never moved. */
+export function movedCategoryTarget(segments: string[], search: string): string | null {
+  const target = MOVED_CATEGORIES.get(segments[segments.length - 1] ?? '');
+  if (!target) return null;
+  const [path, query = ''] = target.split('?');
+  const params = new URLSearchParams(query);
+  for (const [key, value] of new URLSearchParams(search)) if (!params.has(key)) params.append(key, value);
+  const merged = params.toString();
+  return merged ? `${path}?${merged}` : path;
+}
+
 /** WordPress-style product search on the home URL (/?s=<q>&post_type=product): the search results (page 1) for a
  *  query, the shop for an empty or blank one (WordPress shows the shop then), nothing without `s`. */
 export function homeSearch(search: string): { rewrite: string } | { redirect: string } | null {

@@ -7,7 +7,7 @@ import { loadArchive } from '../../lib/archive';
 import { filterTitle } from '../../lib/facets';
 import { loadCatalogTerms } from '../../lib/catalogTerms';
 import { resolveCategoryPath } from '../../lib/categoryTree';
-import { archiveHref, pageLinks, splitPagination } from '../../lib/paths';
+import { archiveHref, movedCategoryTarget, pageLinks, splitPagination } from '../../lib/paths';
 import { markUnavailable } from '../../lib/http';
 import { ld, breadcrumbList } from '../../lib/jsonld';
 
@@ -25,6 +25,9 @@ if (!split && segments.length >= 2) {
   if (base && segments[segments.length - 1] === '1') return Astro.redirect(archiveHref(base.path, 1, params), 301);
 }
 if (split && resolved && !resolved.canonical) return Astro.redirect(archiveHref(resolved.path, split.page, params), 301);
+// A category the catalog tidy-up removed → where its products are now (a filter, a brand or the merged category).
+const moved = !resolved && !terms.degraded ? movedCategoryTarget(split?.segments ?? segments, Astro.url.search) : null;
+if (moved) return Astro.redirect(moved, 301);
 
 const page = split?.page ?? 1;
 const archive = resolved ? await loadArchive(params, page, { categoryId: resolved.term.id }) : null;

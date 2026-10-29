@@ -193,7 +193,7 @@
   .nav-item--parent:not([data-suppress]):focus-within > .mega { transition-delay: 0s; }   /* keyboard: no hover intent */
   /* Escape (data-suppress) hides the panel at once: no 0.4s visibility tail in which Tab could land inside it */
   .nav-item--parent[data-suppress] > .mega { visibility: hidden; transition: none; }
-  .mega__grid { display: grid; grid-template-columns: repeat(auto-fill, 210px); gap: 32px 16px; width: 100%; max-width: calc(var(--cols, 4) * 226px - 16px); margin-inline: auto; }
+  .mega__grid { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); gap: 32px 16px; width: 100%; max-width: calc(var(--cols, 4) * 226px - 16px); margin-inline: auto; }
   .mega__col { min-width: 0; }
   .mega__col--flow { grid-column: span var(--flow, 1); }
   .mega__col--flow .mega__list { columns: var(--flow, 1); column-gap: 16px; }
@@ -203,6 +203,10 @@
   .mega__sub { padding-left: 12px; }
   .mega__link { display: inline-block; padding: 3px 0; color: var(--meta); font-size: 14px; font-weight: 400; line-height: 20px; }   /* 26px rows; a wrapped name keeps 20px lines */
   .mega__link:hover, .mega__head:hover, .mega__link[aria-current='page'] { color: var(--ink); }
+  .mega__more { display: inline-block; margin-top: 8px; color: var(--ink); font-size: 14px; font-weight: 500; line-height: 20px; text-decoration: underline; text-underline-offset: 3px; }
+  .mega__foot { width: 100%; max-width: calc(var(--cols, 4) * 226px - 16px); margin: 32px auto 0; padding-top: 16px; border-top: 1px solid var(--line); }
+  .mega__all { color: var(--ink); font-size: 16px; font-weight: 500; line-height: 24px; text-decoration: underline; text-underline-offset: 3px; }
+  .mega__more:hover, .mega__all:hover { text-decoration-thickness: 2px; }
 
   /* The WordPress menu is long (10 items, ~875px at 16px), so the bar steps down (measured, nav-fit.mjs):
      ≥1400 the full bar; 1200–1399 the search pill becomes an icon and items sit 16px apart; 992–1199 the menu
@@ -241,7 +245,8 @@
   .sliding__list a svg { flex: none; width: 24px; height: 24px; }
   .sliding__list--sub a { font-size: 20px; line-height: 28px; }
   .sliding__back { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 0 0 8px -4px; padding: 0 4px; border: 0; background: none; color: var(--ink); font-size: 16px; font-weight: 500; }
-  .sliding__title { display: block; padding: 0 0 12px; color: var(--ink); font-size: 24px; font-weight: 500; line-height: 32px; }
+  .sliding__title { display: block; margin: 0; padding: 0 0 12px; color: var(--ink); font-size: 24px; font-weight: 500; line-height: 32px; }
+  .sliding__list a.sliding__all { text-decoration: underline; text-underline-offset: 4px; }
   .side-menu__foot { margin-top: auto; padding-top: 40px; }
   .side-menu__cta { display: flex; flex-wrap: wrap; gap: 12px; }
   .side-menu__cta .btn { min-height: 44px; padding: 0 16px; }

@@ -35,6 +35,16 @@ check('kyn karl', mos_clean_gender_from_attrs(['karl'], ['fullordin-n']), ['karl
 check('kyn unisex adult', mos_clean_gender_from_attrs(['unisex'], []), ['karlar', 'konur']);
 check('kyn none', mos_clean_gender_from_attrs([], ['fullordin-n']), []);
 
+// Category fallback: only Kyn/sale (ignored) or nothing left → the product needs the fallback category.
+check('fallback: nothing left', mos_clean_needs_fallback([], [5, 6]), true);
+check('fallback: only ignored left', mos_clean_needs_fallback([5], [5, 6]), true);
+check('fallback: a real category left', mos_clean_needs_fallback([5, 9], [5, 6]), false);
+
+// Sports fold: category children → pa_ithrott slug (null = no sport term for it).
+check('sport fold mapped', mos_clean_sport_for_category('hlaup-ithrott'), 'hlaup');
+check('sport fold joga', mos_clean_sport_for_category('joga'), 'yoga');
+check('sport fold unknown', mos_clean_sport_for_category('nope'), null);
+
 // Brand from name.
 $keys = ['speedo' => 'speedo', 'karitraa' => 'kari-traa', 'nike' => 'nike'];
 check('brand first word', mos_clean_brand_from_name(mos_clean_tokens('SPEEDO BOYS DIVE - Sundskýla barna'), $keys), 'speedo');

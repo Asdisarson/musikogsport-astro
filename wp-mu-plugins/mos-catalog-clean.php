@@ -79,14 +79,44 @@ function mos_clean_term_ops(): array {
     ];
 }
 
+/**
+ * Category tidy-up, applied in order after the term hygiene. op:
+ *  - merge: products move from one category to another; the source is deleted once empty;
+ *  - to_attr / to_brand: the category becomes an attribute term / brand on its products, then is deleted;
+ *  - sports: every child of `root` becomes its pa_ithrott term (mos_clean_sport_cats()), then the tree is deleted;
+ *  - reparent, rename, delete_empty (the default category is never deleted).
+ * `fallback`: the category a product gets when the op would leave it with none besides Kyn/sale.
+ * Storefront 301s for the removed URLs: MOVED_CATEGORIES in src/lib/paths.ts (keep the two in step).
+ *
+ * @return list<array<string,mixed>>
+ */
+function mos_clean_category_ops(): array {
+    $clubs = 'lidafatnadur-fatnadur-2';
+    return [
+        // Clubs first: they may sit under felag-lid, which can only go once it has no subcategories.
+        ['op' => 'to_attr', 'from' => 'stjarnan', 'tax' => 'pa_felag-lid', 'to' => 'stjarnan', 'fallback' => $clubs],
+        ['op' => 'to_attr', 'from' => 'fh', 'tax' => 'pa_felag-lid', 'to' => 'fh', 'fallback' => $clubs],
+        ['op' => 'to_attr', 'from' => 'fimleikafelagid-bjork', 'tax' => 'pa_felag-lid', 'to' => 'bjork', 'fallback' => $clubs],
+        ['op' => 'merge', 'from' => 'boltar-2', 'to' => 'boltar-aefingarvorur'],
+        ['op' => 'merge', 'from' => 'felag-lid', 'to' => $clubs],
+        ['op' => 'to_brand', 'from' => 'didriksons', 'to' => 'didriksons', 'fallback' => 'vetur'],
+        ['op' => 'sports', 'root' => 'ithrott'],
+        ['op' => 'reparent', 'slug' => 'sumar', 'parent' => 'aefingarvorur'],
+        ['op' => 'rename', 'tax' => 'product_cat', 'slug' => 'vetur', 'name' => 'Regn- og vetrarfatnaður'],
+        ['op' => 'delete_empty', 'slugs' => ['unisex', 'uncategorized', 'oflokkad']],
+    ];
+}
+
 /** Terms this plugin may create when a rule needs them: taxonomy → slug → name. */
 function mos_clean_created_terms(): array {
     return [
         'pa_ithrott' => ['hjol' => 'Hjól', 'pilates' => 'Pilates'],
+        'product_brand' => ['didriksons' => 'Didriksons'],   // the Didriksons category becomes this brand
     ];
 }
 
-/** product_cat slug → pa_ithrott slug. */
+/** product_cat slug → pa_ithrott slug (gap-filling and the Íþrótt category fold; after the fold some of these
+ *  categories no longer exist, which is harmless). */
 function mos_clean_sport_cats(): array {
     return [
         'fotbolti' => 'fotbolti', 'fotboltaskor-ithrottaskor' => 'fotbolti', 'fotboltamyndir-og-fl' => 'fotbolti',
@@ -296,6 +326,17 @@ function mos_clean_brand_display_name(string $name): string {
         : $name;
 }
 
+/** Whether a product left with these category ids has none besides the ignored ones (Kyn, sale).
+ *  @param int[] $remaining @param int[] $ignored */
+function mos_clean_needs_fallback(array $remaining, array $ignored): bool {
+    return array_diff($remaining, $ignored) === [];
+}
+
+/** The pa_ithrott slug a sports category folds into, or null. */
+function mos_clean_sport_for_category(string $slug): ?string {
+    return mos_clean_sport_cats()[$slug] ?? null;
+}
+
 /* ------------------------------------------------------------------------
  * 3. WordPress readers and writers.
  * --------------------------------------------------------------------- */
@@ -436,7 +477,7 @@ function mos_clean_delete_term(WP_Term $t, MOS_Clean_Journal $journal): bool {
  */
 final class MOS_Clean_Journal {
     /** @var array<string,mixed> */
-    private array $data = ['version' => 1, 'products' => [], 'created' => [], 'renamed' => [], 'deleted' => []];
+    private array $data = ['version' => 1, 'products' => [], 'created' => [], 'renamed' => [], 'deleted' => [], 'reparented' => []];
 
     public function __construct(private ?string $file) {
         $this->data['started'] = gmdate('c');
@@ -458,7 +499,14 @@ final class MOS_Clean_Journal {
     public function renamed(string $tax, int $term_id, string $old): void { $this->data['renamed'][] = ['tax' => $tax, 'term_id' => $term_id, 'name' => $old]; }
 
     public function deleted(WP_Term $t): void {
-        $this->data['deleted'][] = ['tax' => $t->taxonomy, 'slug' => $t->slug, 'name' => $t->name, 'description' => $t->description];
+        $parent = $t->parent ? get_term((int) $t->parent, $t->taxonomy) : null;
+        $this->data['deleted'][] = ['tax' => $t->taxonomy, 'slug' => $t->slug, 'name' => $t->name, 'description' => $t->description,
+            'parent' => $parent instanceof WP_Term ? $parent->slug : ''];
+    }
+
+    public function reparented(WP_Term $t): void {
+        $parent = $t->parent ? get_term((int) $t->parent, $t->taxonomy) : null;
+        $this->data['reparented'][] = ['tax' => $t->taxonomy, 'term_id' => (int) $t->term_id, 'parent' => $parent instanceof WP_Term ? $parent->slug : ''];
     }
 
     public function save(): void {
@@ -587,6 +635,188 @@ function mos_clean_delete_unused_colours(?MOS_Clean_Journal $journal, array $emp
         if ($journal === null || mos_clean_delete_term($t, $journal)) { $n++; }
     }
     return $n;
+}
+
+/**
+ * Run the category tidy-up (mos_clean_category_ops). A preview ($journal null) only counts. A source category is
+ * deleted once nothing carries it; products whose target attribute is used for variations keep the category.
+ *
+ * @return array{changed:int[],skipped:list<string>,log:list<string>}
+ */
+function mos_clean_run_category_ops(?MOS_Clean_Journal $journal): array {
+    $changed = [];
+    $skipped = [];
+    $log = [];
+    $emptied = [];   // term ids emptied (in a preview: that would be)
+    foreach (mos_clean_expand_category_ops() as $op) {
+        if ($op['op'] === 'rename') {
+            $line = mos_clean_rename_term($op, $journal);
+            if ($line !== null) { $log[] = $line; }
+        } elseif ($op['op'] === 'reparent') {
+            $line = mos_clean_reparent_category($op, $journal);
+            if ($line !== null) { $log[] = $line; }
+        } elseif ($op['op'] === 'delete_empty') {
+            foreach ($op['slugs'] as $slug) {
+                $line = mos_clean_delete_empty_category($slug, $journal, $emptied);
+                if ($line !== null) { $log[] = $line; }
+            }
+        } else {
+            $from = get_term_by('slug', $op['from'], 'product_cat');
+            if (!$from instanceof WP_Term) { continue; }
+            $r = mos_clean_move_category($op, $from, $journal);
+            $log[] = $r['log'];
+            $skipped = array_merge($skipped, $r['skipped']);
+            $changed += array_fill_keys($r['changed'], true);
+            $subcategories = get_term_children((int) $from->term_id, 'product_cat');
+            $is_empty = $journal === null ? !$r['skipped'] : mos_clean_products_with('product_cat', (int) $from->term_id) === [];
+            if (!$r['moved']) {
+                // target missing: logged by mos_clean_move_category, the category stays
+            } elseif (is_array($subcategories) && array_diff(array_map('intval', $subcategories), array_keys($emptied))) {
+                // Deleting it would lift its subcategories to the top level, which the journal can't put back.
+                $log[] = "keep product_cat/{$op['from']}: still has subcategories";
+            } elseif (!$is_empty) {
+                $log[] = "keep product_cat/{$op['from']}: still has products";
+            } elseif ($journal === null || mos_clean_delete_term($from, $journal)) {
+                $log[] = "delete product_cat/{$op['from']}";
+                $emptied[(int) $from->term_id] = true;
+            }
+        }
+        $journal?->save();
+    }
+    if ($journal !== null && function_exists('wc_recount_all_terms')) { wc_recount_all_terms(); }
+    return ['changed' => array_keys($changed), 'skipped' => $skipped, 'log' => $log];
+}
+
+/** mos_clean_category_ops() with each `sports` op expanded into one to_attr op per child, then the root's delete. */
+function mos_clean_expand_category_ops(): array {
+    $ops = [];
+    foreach (mos_clean_category_ops() as $op) {
+        if ($op['op'] !== 'sports') { $ops[] = $op; continue; }
+        $root = get_term_by('slug', $op['root'], 'product_cat');
+        if (!$root instanceof WP_Term) { continue; }
+        $children = get_terms(['taxonomy' => 'product_cat', 'parent' => (int) $root->term_id, 'hide_empty' => false]);
+        foreach (is_array($children) ? $children : [] as $child) {
+            $sport = mos_clean_sport_for_category($child->slug);
+            $ops[] = $sport === null
+                ? ['op' => 'delete_empty', 'slugs' => [$child->slug]]
+                : ['op' => 'to_attr', 'from' => $child->slug, 'tax' => 'pa_ithrott', 'to' => $sport];
+        }
+        $ops[] = ['op' => 'delete_empty', 'slugs' => [$op['root']]];
+    }
+    return $ops;
+}
+
+/**
+ * Move every product off one category: onto another category (merge), an attribute term (to_attr) or a brand
+ * (to_brand); a product left with no category besides Kyn/sale gets the op's fallback.
+ *
+ * @return array{changed:int[],skipped:list<string>,moved:bool,log:string}
+ */
+function mos_clean_move_category(array $op, WP_Term $from, ?MOS_Clean_Journal $journal): array {
+    $kind = $op['op'];
+    $target_tax = ['merge' => 'product_cat', 'to_attr' => $op['tax'] ?? '', 'to_brand' => 'product_brand'][$kind] ?? '';
+    $to_id = taxonomy_exists($target_tax) ? mos_clean_term_id($target_tax, $op['to'], $journal) : null;
+    $fallback_id = isset($op['fallback']) ? mos_clean_term_id('product_cat', $op['fallback']) : null;
+    $label = sprintf('%s product_cat/%s → %s/%s', $kind, $op['from'], $target_tax, $op['to']);
+    // A preview creates nothing, so a target this plugin would create counts as there (-1).
+    if ($to_id === null && $journal === null && isset(mos_clean_created_terms()[$target_tax][$op['to']])) { $to_id = -1; }
+    if ($to_id === null || (isset($op['fallback']) && $fallback_id === null)) {
+        return ['changed' => [], 'skipped' => [], 'moved' => false, 'log' => "skip $label: target missing"];
+    }
+    $ignored = mos_clean_ignored_category_ids();
+    $ids = mos_clean_products_with('product_cat', (int) $from->term_id);
+    $changed = [];
+    $skipped = [];
+    $fallbacks = 0;
+    $orphans = 0;   // left with no category but Kyn/sale (WooCommerce then files them under the default category)
+    foreach ($ids as $id) {
+        $p = wc_get_product($id);
+        if (!$p instanceof WC_Product) { continue; }
+        $variation = $kind === 'to_attr' && ($p->get_attributes()[$target_tax] ?? null)?->get_variation();
+        if ($variation && !in_array($to_id, mos_clean_attribute_ids($p, $target_tax), true)) {
+            $skipped[] = "$id $label: used for variations";
+            continue;
+        }
+        $rest = array_values(array_diff(array_map('intval', $p->get_category_ids()), [(int) $from->term_id]));
+        if ($kind === 'merge') { $rest[] = $to_id; }
+        if (mos_clean_needs_fallback($rest, $ignored)) {
+            if ($fallback_id !== null) { $rest[] = $fallback_id; $fallbacks++; } else { $orphans++; }
+        }
+        if ($journal === null) { $changed[] = $id; continue; }
+        try {
+            $journal->snapshot($id);
+            if ($kind === 'to_attr' && !$variation) {   // a variation attribute already carrying the term stays as it is
+                mos_clean_set_attribute($p, $target_tax, array_merge(mos_clean_attribute_ids($p, $target_tax), [$to_id]));
+            }
+            $before = array_map('intval', $p->get_category_ids());
+            $p->set_category_ids(array_values(array_unique($rest)));
+            $p->save();
+            // product_brand is not part of WC_Product's data, so it is set after the save (as in fill_product); if
+            // that fails the category goes back, so the product never ends up with neither.
+            if ($kind === 'to_brand') {
+                $done = wp_set_object_terms($id, [$to_id], 'product_brand', true);
+                if (is_wp_error($done)) {
+                    $p->set_category_ids($before);
+                    $p->save();
+                    throw new RuntimeException($done->get_error_message());
+                }
+            }
+            $changed[] = $id;
+        } catch (\Throwable $e) {
+            $skipped[] = "$id $label: " . $e->getMessage();
+        }
+    }
+    $log = sprintf('%s: %d of %d products%s%s', $label, count($changed), count($ids),
+        $fallbacks ? " ($fallbacks get fallback {$op['fallback']})" : '', $orphans ? " ($orphans left with no category)" : '');
+    return ['changed' => $changed, 'skipped' => $skipped, 'moved' => true, 'log' => $log];
+}
+
+/** Kyn (and its children) and the sale category: a product in only these has no real category. @return int[] */
+function mos_clean_ignored_category_ids(): array {
+    $ids = [];
+    foreach (['kyn', 'sale'] as $slug) {
+        $t = get_term_by('slug', $slug, 'product_cat');
+        if (!$t instanceof WP_Term) { continue; }
+        $ids[] = (int) $t->term_id;
+        $children = get_term_children((int) $t->term_id, 'product_cat');
+        if (is_array($children)) { $ids = array_merge($ids, array_map('intval', $children)); }
+    }
+    return $ids;
+}
+
+/** Move a category under another parent (its slug, and so its storefront URL's last part, stays). */
+function mos_clean_reparent_category(array $op, ?MOS_Clean_Journal $journal): ?string {
+    $term = get_term_by('slug', $op['slug'], 'product_cat');
+    $parent = get_term_by('slug', $op['parent'], 'product_cat');
+    if (!$term instanceof WP_Term || !$parent instanceof WP_Term || (int) $term->parent === (int) $parent->term_id) { return null; }
+    $line = "reparent product_cat/{$op['slug']} under {$op['parent']}";
+    if ($journal === null) { return $line; }
+    $old = clone $term;
+    $done = wp_update_term((int) $term->term_id, 'product_cat', ['parent' => (int) $parent->term_id]);
+    if (is_wp_error($done)) {
+        mos_clean_warn("$line failed: " . $done->get_error_message());
+        return "$line (failed)";
+    }
+    $journal->reparented($old);
+    return $line;
+}
+
+/** Delete a category nothing carries (never the default category).
+ *  @param array<int,true> $emptied categories already emptied/deleted in this run (a preview deletes nothing) */
+function mos_clean_delete_empty_category(string $slug, ?MOS_Clean_Journal $journal, array &$emptied): ?string {
+    $t = get_term_by('slug', $slug, 'product_cat');
+    if (!$t instanceof WP_Term) { return null; }
+    if ((int) $t->term_id === (int) get_option('default_product_cat')) { return "keep product_cat/$slug: the default category"; }
+    if (!isset($emptied[(int) $t->term_id]) && mos_clean_products_with('product_cat', (int) $t->term_id) !== []) {
+        return "keep product_cat/$slug: still has products";
+    }
+    $children = get_term_children((int) $t->term_id, 'product_cat');
+    if (is_array($children) && array_diff(array_map('intval', $children), array_keys($emptied))) {
+        return "keep product_cat/$slug: still has subcategories";
+    }
+    if ($journal !== null && !mos_clean_delete_term($t, $journal)) { return "delete product_cat/$slug (failed)"; }
+    $emptied[(int) $t->term_id] = true;
+    return "delete product_cat/$slug";
 }
 
 /**
@@ -788,9 +1018,12 @@ if (defined('WP_CLI') && WP_CLI) {
             $GLOBALS['mos_clean_running'] = true;
             try {
                 $deleted = 0;
-                foreach ((array) ($data['deleted'] ?? []) as $t) {
+                // Newest first: a parent category is deleted after its children, so it comes back before them.
+                foreach (array_reverse((array) ($data['deleted'] ?? [])) as $t) {
                     if (!isset($t['tax'], $t['slug'], $t['name']) || get_term_by('slug', $t['slug'], $t['tax'])) { continue; }
-                    $made = wp_insert_term(html_entity_decode($t['name'], ENT_QUOTES, 'UTF-8'), $t['tax'], ['slug' => $t['slug'], 'description' => $t['description'] ?? '']);
+                    $parent = ($t['parent'] ?? '') !== '' ? get_term_by('slug', $t['parent'], $t['tax']) : null;
+                    $made = wp_insert_term(html_entity_decode($t['name'], ENT_QUOTES, 'UTF-8'), $t['tax'], ['slug' => $t['slug'], 'description' => $t['description'] ?? '',
+                        'parent' => $parent instanceof WP_Term ? (int) $parent->term_id : 0]);
                     if (is_wp_error($made)) { $warn("re-create {$t['tax']}/{$t['slug']}: " . $made->get_error_message()); continue; }
                     $deleted++;
                 }
@@ -800,6 +1033,14 @@ if (defined('WP_CLI') && WP_CLI) {
                     $done = wp_update_term((int) $r['term_id'], $r['tax'], ['name' => html_entity_decode($r['name'], ENT_QUOTES, 'UTF-8')]);
                     if (is_wp_error($done)) { $warn("rename back {$r['tax']}/{$r['term_id']}: " . $done->get_error_message()); continue; }
                     $renamed++;
+                }
+                $reparented = 0;
+                foreach (array_reverse((array) ($data['reparented'] ?? [])) as $r) {
+                    if (!isset($r['tax'], $r['term_id'], $r['parent']) || !get_term((int) $r['term_id'], $r['tax']) instanceof WP_Term) { continue; }
+                    $parent = $r['parent'] !== '' ? get_term_by('slug', $r['parent'], $r['tax']) : null;
+                    $done = wp_update_term((int) $r['term_id'], $r['tax'], ['parent' => $parent instanceof WP_Term ? (int) $parent->term_id : 0]);
+                    if (is_wp_error($done)) { $warn("reparent back {$r['tax']}/{$r['term_id']}: " . $done->get_error_message()); continue; }
+                    $reparented++;
                 }
                 $products = (array) ($data['products'] ?? []);
                 $n = 0;
@@ -825,7 +1066,7 @@ if (defined('WP_CLI') && WP_CLI) {
             } finally {
                 $GLOBALS['mos_clean_running'] = false;
             }
-            $summary = sprintf('Restored %d of %d products, %d deleted terms, %d renames; removed %d created terms.', $n, count($products), $deleted, $renamed, $removed);
+            $summary = sprintf('Restored %d of %d products, %d deleted terms, %d renames, %d reparents; removed %d created terms.', $n, count($products), $deleted, $renamed, $reparented, $removed);
             if ($failed) { WP_CLI::warning("$summary $failed problems, listed above."); return; }
             WP_CLI::success($summary);
         }
@@ -866,6 +1107,12 @@ if (defined('WP_CLI') && WP_CLI) {
                 foreach ($ops['log'] as $line) { WP_CLI::log("  $line"); }
                 foreach ($ops['skipped'] as $line) { WP_CLI::log("  skipped: $line"); }
                 $journal?->save();
+
+                WP_CLI::log('— Categories' . ($dry ? ' (preview)' : ''));
+                $cats = mos_clean_run_category_ops($journal);
+                foreach ($cats['log'] as $line) { WP_CLI::log("  $line"); }
+                foreach ($cats['skipped'] as $line) { WP_CLI::log("  skipped: $line"); }
+                $ops['changed'] = array_merge($ops['changed'], $cats['changed']);
 
                 WP_CLI::log('— Filling empty fields' . ($dry ? ' (preview: before the hygiene above, so sport counts can differ slightly)' : ''));
                 $keys = $journal ? $this->create_brands($ids, $journal) : mos_clean_brand_keys();

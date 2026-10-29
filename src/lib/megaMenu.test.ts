@@ -30,6 +30,17 @@ describe('megaPanel', () => {
     expect(panel.groups[0].links[0].children).toHaveLength(5);
   });
 
+  it('links "Sjá allt" under a column and across the panel only where the heading is a real link', () => {
+    const fatnadur = item(21, 'Fatnaður', leaves(3));
+    const urval = { ...item(22, 'Úrval', leaves(2, 200)), href: '#' };
+    const panel = megaPanel(item(2, 'Konur', [fatnadur, urval]));
+    if (panel?.kind !== 'grouped') throw new Error('expected grouped');
+    expect(panel.groups.map((g) => g.more)).toEqual(['/21/', null]);
+    expect(panel.all).toBe('/2/');
+    expect(megaPanel({ ...item(7, 'Vörumerki', [fatnadur]), href: '#' })?.all).toBeNull();
+    expect(megaPanel({ ...item(8, 'Gamalt', [fatnadur]), href: '/' })?.all).toBeNull();
+  });
+
   it('uses at least four column slots and at most six for groups', () => {
     const few = megaPanel(item(4, 'A', [item(41, 'x', leaves(2))]));
     const many = megaPanel(item(5, 'B', Array.from({ length: 8 }, (_, i) => item(50 + i, `g${i}`, leaves(1, 500 + i * 10)))));

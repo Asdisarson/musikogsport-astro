@@ -11,11 +11,15 @@ export interface MegaGroup {
   href: string;
   target: string;
   links: MenuItem[];
+  /** "Sjá allt" under the column: the heading's link, or null when the heading is not a link. */
+  more: string | null;
 }
 
 interface PanelBase {
   /** Column slots the panel grid reserves (at least MIN_COLUMNS, so short menus keep the same rhythm). */
   columns: number;
+  /** "Sjá allt" across the panel: the top item's link, or null when it is only a heading. */
+  all: string | null;
 }
 export type MegaPanel =
   | (PanelBase & { kind: 'grouped'; groups: MegaGroup[] })
@@ -28,6 +32,9 @@ const FLOW_ROWS = 7;
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
+/** A menu href that leads somewhere: '#' and the home page are WordPress menu headings ("Vörumerki", "Úrval"). */
+export const isLinkHref = (href?: string | null): href is string => Boolean(href) && href !== '/' && href !== '#';
+
 /** The item's mega-menu panel, or null when it has no children (a plain link). */
 export function megaPanel(item: MenuItem): MegaPanel | null {
   const kids = item.children;
@@ -36,12 +43,17 @@ export function megaPanel(item: MenuItem): MegaPanel | null {
     return {
       kind: 'grouped',
       columns: clamp(kids.length, MIN_COLUMNS, MAX_COLUMNS),
-      groups: kids.map((k) => ({ title: k.title, href: k.href, target: k.target, links: k.children })),
+      all: isLinkHref(item.href) ? item.href : null,
+      groups: kids.map((k) => ({
+        title: k.title, href: k.href, target: k.target, links: k.children,
+        more: isLinkHref(k.href) && k.children.length ? k.href : null,
+      })),
     };
   }
   return {
     kind: 'flat',
     columns: MIN_COLUMNS,
+    all: null,   // the flowed list's heading already links there
     title: item.title,
     href: item.href,
     target: item.target,

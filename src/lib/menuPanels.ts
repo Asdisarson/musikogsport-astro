@@ -1,5 +1,6 @@
 // Flatten a nav-menu tree into the sliding panels of live's side/mobile menu: a root panel,
-// then one panel per item that has children. Pure (siteChrome is imported for its type only).
+// then one panel per item that has children. Pure (siteChrome is imported for its type only; megaMenu is pure).
+import { isLinkHref } from './megaMenu';
 import type { MenuItem } from './siteChrome';
 
 export interface PanelEntry {
@@ -13,8 +14,9 @@ export interface PanelEntry {
 export interface MenuPanel {
   id: string;
   parent: string | null;
-  /** Parent item's title/link shown at the top of a sub-panel; null on the root panel. */
+  /** Parent item's title shown at the top of a sub-panel; null on the root panel. */
   title: string | null;
+  /** The sub-panel's "Sjá allt" link (the parent item's page); null on the root panel or for a heading-only parent. */
   href: string | null;
   items: PanelEntry[];
 }
@@ -28,7 +30,7 @@ export function buildPanels(tree: MenuItem[]): MenuPanel[] {
       id,
       parent,
       title: owner?.title ?? null,
-      href: owner?.href ?? null,
+      href: isLinkHref(owner?.href) ? owner.href : null,
       items: items.map((i) => ({ title: i.title, href: i.href, target: i.target, panel: i.children.length ? panelId(i) : null })),
     });
     for (const i of items) if (i.children.length) add(panelId(i), id, i, i.children);

@@ -359,9 +359,9 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    `jwt-authentication-for-wp-rest-api`.
 2. **Upload** to `wp-content/mu-plugins/`: `mos-posturinn-droppoints.php`, `headless-bridge.php`,
    `mos-headless-api.php`, `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`,
-   `mos-size-index.php`, `mos-catalog-clean.php`. **Never `headless-bridge-local.php`** (the local-dev shim rewrites
+   `mos-size-index.php`, `mos-catalog-clean.php`, `mos-nav.php`. **Never `headless-bridge-local.php`** (the local-dev shim rewrites
    redirects to localhost).
-   Check: `wp plugin list --status=must-use` shows exactly those eight, and `ls wp-content/mu-plugins` has no
+   Check: `wp plugin list --status=must-use` shows exactly those nine, and `ls wp-content/mu-plugins` has no
    `-local` file. `mos-headless-mode.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), so uploading
    it before cutover is safe; the others act at once but only add routes and fields.
 3. **Size index backfill**: `wp mos-size reindex` (seconds; rerunnable). Until it runs, size filters match nothing.
@@ -375,8 +375,17 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    undoes that run (not later save-time fills; the SQL export covers those). The folder gets an `.htaccess` deny;
    on nginx, block `/wp-content/uploads/mos-clean/` in the server config (or move the journal off the server). From then on new and edited products are filled
    on save, never refilling a field the owner cleared. `wp mos-size reindex` is not needed again (sizes are untouched).
-   Check: a second `wp mos-clean preview` sets 0 brand/gender/sport/colour, and
+   The same apply also tidies the categories (`mos_clean_category_ops`): the Íþrótt tree becomes the sport filter,
+   the club categories (Stjarnan, FH, Fimleikafélagið Björk) the club filter, the top-level Didriksons the brand,
+   Boltar and Félag/lið merge into Æfingavörur › Boltar and Liðafatnaður, Sumar moves under Æfingavörur, empty
+   categories go. The storefront 301s every removed category URL (`MOVED_CATEGORIES` in `src/lib/paths.ts`), so
+   deploy the storefront first or together.
+   Check: a second `wp mos-clean preview` sets 0 brand/gender/sport/colour and lists no category changes, and
    `python3 wp-mu-plugins/tests/store_api_colour_test.py https://<wp-host>` passes.
+3c. **Main menu** (after 3b, which it counts): `wp mos-nav preview` (prints the menu with product counts), then
+   `wp mos-nav apply`: writes the menu "Aðalvalmynd 2026" and puts it in the primary location; the old menu stays.
+   Rollback: Útlit → Valmyndir → Stjórna staðsetningum → Aðalvalmynd. Rerun `apply` when the catalog changes a lot
+   (it rebuilds the menu, dropping hand edits made to it). Check: every menu link opens a page with products.
 4. **`wp-config.php` constants** (at cutover, not before): `MOS_STOREFRONT_URL` = `https://musikogsport.is`,
    `MOS_HEADLESS_REDIRECT_STATUS` = `301`.
    Check: `wp eval 'echo MOS_STOREFRONT_URL, " ", MOS_HEADLESS_REDIRECT_STATUS;'`, and

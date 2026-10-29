@@ -28,6 +28,11 @@ describe('buildPanels', () => {
     expect(panels[2]).toMatchObject({ parent: 'm2', title: 'Fatnaður' });
   });
 
+  it('gives a sub-panel no "Sjá allt" link when its parent is only a heading', () => {
+    const headed = buildPanels([item(3, 'Vörumerki', '#', [item(31, 'Nike', '/brand/nike/')]), item(4, 'Gamalt', '/', [item(41, 'x', '/x/')])]);
+    expect(headed.map((p) => p.href)).toEqual([null, null, null]);
+  });
+
   it('links each parent entry to its panel and leaves leaves unlinked', () => {
     const konur = panels[0].items.find((i) => i.title === 'Konur');
     const verslun = panels[0].items.find((i) => i.title === 'Verslun');

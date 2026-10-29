@@ -1,5 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { archiveHref, categoryPath, isCurrentMenuHref, legacyCheckoutTarget, pageLinks, productPath, slashRedirect, splitPagination, homeSearch, legacySearchTarget, wooDefaultPageTarget } from './paths';
+import { archiveHref, categoryPath, isCurrentMenuHref, legacyCheckoutTarget, pageLinks, productPath, slashRedirect, splitPagination, homeSearch, legacySearchTarget, wooDefaultPageTarget, movedCategoryTarget } from './paths';
+
+describe('movedCategoryTarget', () => {
+  it('sends a folded sports category to the sport filter, keeping the visitor’s filters', () => {
+    expect(movedCategoryTarget(['ithrott', 'hlaup-ithrott'], '?kyn=konur')).toBe('/verslun/?ithrott=hlaup&kyn=konur');
+    expect(movedCategoryTarget(['ithrott', 'joga'], '')).toBe('/verslun/?ithrott=yoga');
+    expect(movedCategoryTarget(['ithrott'], '')).toBe('/verslun/');
+  });
+
+  it('sends club categories to the club filter and the brand category to the brand page', () => {
+    expect(movedCategoryTarget(['stjarnan'], '')).toBe('/verslun/?team=stjarnan');
+    expect(movedCategoryTarget(['aefingarvorur', 'fimleikafelagid-bjork'], '')).toBe('/verslun/?team=bjork');
+    expect(movedCategoryTarget(['didriksons'], '?kyn=born')).toBe('/brand/didriksons/?kyn=born');
+  });
+
+  it('sends merged categories to their target, and the target’s own query wins over the request’s', () => {
+    expect(movedCategoryTarget(['boltar-2'], '')).toBe('/voruflokkur/aefingarvorur/boltar-aefingarvorur/');
+    expect(movedCategoryTarget(['ithrott', 'sund'], '?ithrott=golf&lager=1')).toBe('/verslun/?ithrott=sund&lager=1');
+  });
+
+  it('leaves unknown categories alone', () => {
+    expect(movedCategoryTarget(['skor', 'nope'], '')).toBeNull();
+    expect(movedCategoryTarget([], '')).toBeNull();
+  });
+});
 
 describe('productPath', () => {
   it('turns a Woo permalink into a storefront path on any host', () => {

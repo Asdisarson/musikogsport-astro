@@ -121,8 +121,19 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
     run: puts back the products' categories, brands and attributes, re-creates deleted terms, reverts renames, removes
     created terms; restore several journals newest first; fills made later by the save hook are not undone). Local run 2026-10-29, published products: brand 86.4 → 93.1%,
     gender 62.6 → 93.2%, sport 8.7 → 37.0%, colour 1.5 → 39.4%.
+  - Category tidy-up (`mos_clean_category_ops()`, same preview/apply/restore): merges, category → attribute term
+    (clubs → `pa_felag-lid`, the Íþrótt tree → `pa_ithrott`), category → brand, reparent, rename, delete empty (never
+    the default category). A product the op would leave with no category besides Kyn/sale gets the op's fallback.
+    The journal records deleted categories' parents and reparents, so restore rebuilds the tree. Storefront 301s for
+    removed URLs: `MOVED_CATEGORIES` in `src/lib/paths.ts` (keep in step).
   - Tests: `php tests/mos_clean_rules_test.php` (the pure rules) and `python3 tests/store_api_colour_test.py`
     (after an apply: colour counts match the filtered listings).
+- **mos-nav.php** — builds the main menu from the catalog: `wp mos-nav preview` prints it with product counts,
+  `wp mos-nav apply` writes it as "Aðalvalmynd 2026" in the primary location (the previous menu is kept for
+  rollback). Konur/Karlar/Börn get the same columns (Fatnaður, Skór, Íþróttir, Félagslið, Vörumerki, Úrval); links
+  are ranked by product count, at most 8 per column, none under 5 products; sports and clubs link to the filters
+  (`?ithrott=`, `?team=`). An ordinary menu afterwards (editable in wp-admin; a later apply rebuilds it).
+  Tests: `php tests/mos_nav_rules_test.php` (the pure builder).
 
 Other tests (all read-only; the `wp eval-file` ones run against the local site's installed copies, so copy first):
 - `php tests/mos_headless_api_test.php`: link guard, Reply-To header, `mos_and_cat` parser, user-enumeration helpers.
@@ -143,9 +154,9 @@ Other tests (all read-only; the `wp eval-file` ones run against the local site's
   `158 158`: menu 158 holds the five links live's footer shows (839 is a stale four-item copy).
 
 Deploy: copy `mos-posturinn-droppoints.php`, `headless-bridge.php`, `mos-headless-api.php`,
-`mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`, `mos-size-index.php` and
-`mos-catalog-clean.php` to `wp-content/mu-plugins/` on the WP host (never the `-local` shim), then run
-`wp mos-size reindex` once, and `wp db export` → `wp mos-clean preview` → `wp mos-clean apply` (keep the journal). Requires ACF (free) for the Forsíða fields. In `wp-config.php` define
+`mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`, `mos-size-index.php`,
+`mos-catalog-clean.php` and `mos-nav.php` to `wp-content/mu-plugins/` on the WP host (never the `-local` shim), then run
+`wp mos-size reindex` once, and `wp db export` → `wp mos-clean preview` → `wp mos-clean apply` (keep the journal) → `wp mos-nav apply`. Requires ACF (free) for the Forsíða fields. In `wp-config.php` define
 `MOS_STOREFRONT_URL` (the storefront's origin) and `MOS_HEADLESS_REDIRECT_STATUS` (`301`): without
 `MOS_STOREFRONT_URL` headless mode does nothing, and card-payment returns, which WooCommerce builds on
 `WP_HOME` (the WordPress host), never reach the storefront.

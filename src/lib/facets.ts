@@ -21,10 +21,12 @@ export function matchCountFromStock(stock: ReadonlyMap<string, number> | null | 
 
 const norm = (s: string) => s.normalize('NFC').toLocaleLowerCase('is').replace(/\s+/g, ' ').trim();
 
-/** Slug of the clubs root ("Félag/lið"): a category grouping club merchandise, not a product type. */
+/** Slug of the clubs root ("Félag/lið"): a category grouping club merchandise, not a product type. The catalog
+ *  tidy-up (mos-catalog-clean) merges it into Liðafatnaður; kept for a site that hasn't run it. */
 const CLUBS_ROOT_SLUG = 'felag-lid';
 /** Slug of the sports root ("Íþrótt"): its children are sports, exempt from the club rule because the Félag/Lið
- *  attribute carries stray sport terms ("Fótbolti", "Körfubolti"). */
+ *  attribute carries stray sport terms ("Fótbolti", "Körfubolti"). The tidy-up folds this tree into the sport
+ *  filter; kept for a site that hasn't run it. */
 const SPORTS_ROOT_SLUG = 'ithrott';
 
 /** Merchandising buckets that a toggle already covers: NETTILBOD (`sale`) is the Útsala toggle. Hidden like the
