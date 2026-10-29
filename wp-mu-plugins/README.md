@@ -134,6 +134,16 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
   are ranked by product count, at most 8 per column, none under 5 products; sports and clubs link to the filters
   (`?ithrott=`, `?team=`). An ordinary menu afterwards (editable in wp-admin; a later apply rebuilds it).
   Tests: `php tests/mos_nav_rules_test.php` (the pure builder).
+- **mos-stillingar.php** — "Stillingar", the first item of the wp-admin sidebar (for anyone who can edit the front
+  page): the front page's pictures on one screen — header and footer logo, the eight banners, each hero slide's
+  product and picture — laid out as a small copy of the storefront's front page, computed from the saved values with
+  the storefront's rules (`src/lib/homeLayout.ts`: the first banner with a picture on top, or the slides when none
+  has one; the other banners paired between the product rows); unused slides and empty banners wait under the
+  footer. It shows the existing ACF "Forsíða" fields of `mos-headless-api.php` for the front page (`acf_form()`), so
+  it stores nothing of its own; texts, product rows and footer stay on the Forsíða edit screen. Needs ACF and a front
+  page (otherwise it says so); when the slides are on top it warns about one the storefront would leave out
+  (unpublished product or no picture). If `homeLayout.ts` changes, change `mos_stillingar_layout()` with it. Changes
+  reach the storefront within a few minutes (the front-page caches). Test: `wp eval-file tests/mos_stillingar_wp_test.php`.
 
 Other tests (all read-only; the `wp eval-file` ones run against the local site's installed copies, so copy first):
 - `php tests/mos_headless_api_test.php`: link guard, Reply-To header, `mos_and_cat` parser, user-enumeration helpers.
@@ -155,7 +165,7 @@ Other tests (all read-only; the `wp eval-file` ones run against the local site's
 
 Deploy: copy `mos-posturinn-droppoints.php`, `headless-bridge.php`, `mos-headless-api.php`,
 `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`, `mos-size-index.php`,
-`mos-catalog-clean.php` and `mos-nav.php` to `wp-content/mu-plugins/` on the WP host (never the `-local` shim), then run
+`mos-catalog-clean.php`, `mos-nav.php` and `mos-stillingar.php` to `wp-content/mu-plugins/` on the WP host (never the `-local` shim), then run
 `wp mos-size reindex` once, and `wp db export` → `wp mos-clean preview` → `wp mos-clean apply` (keep the journal) → `wp mos-nav apply`. Requires ACF (free) for the Forsíða fields. In `wp-config.php` define
 `MOS_STOREFRONT_URL` (the storefront's origin) and `MOS_HEADLESS_REDIRECT_STATUS` (`301`): without
 `MOS_STOREFRONT_URL` headless mode does nothing, and card-payment returns, which WooCommerce builds on

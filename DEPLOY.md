@@ -359,11 +359,11 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    `jwt-authentication-for-wp-rest-api`.
 2. **Upload** to `wp-content/mu-plugins/`: `mos-posturinn-droppoints.php`, `headless-bridge.php`,
    `mos-headless-api.php`, `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`,
-   `mos-size-index.php`, `mos-catalog-clean.php`, `mos-nav.php`. **Never `headless-bridge-local.php`** (the local-dev shim rewrites
-   redirects to localhost).
-   Check: `wp plugin list --status=must-use` shows exactly those nine, and `ls wp-content/mu-plugins` has no
+   `mos-size-index.php`, `mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`. **Never
+   `headless-bridge-local.php`** (the local-dev shim rewrites redirects to localhost).
+   Check: `wp plugin list --status=must-use` shows exactly those ten, and `ls wp-content/mu-plugins` has no
    `-local` file. `mos-headless-mode.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), so uploading
-   it before cutover is safe; the others act at once but only add routes and fields.
+   it before cutover is safe; the others act at once but only add routes, fields and the wp-admin "Stillingar" page.
 3. **Size index backfill**: `wp mos-size reindex` (seconds; rerunnable). Until it runs, size filters match nothing.
    Check: it prints per-group counts, and
    `curl -s 'https://<wp-host>/wp-json/wc/store/v1/products/collection-data?mos_size_counts=1' | jq '.mos_size_counts | length'`

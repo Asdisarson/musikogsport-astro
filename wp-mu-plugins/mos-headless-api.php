@@ -571,7 +571,8 @@ add_action('acf/init', static function () {
     ];
     for ($i = 1; $i <= MOS_HERO_SLIDES; $i++) {
         $fields[] = $field("hero_slide_{$i}_product", "Glæra {$i} — vara", 'post_object', [
-            'post_type' => ['product'], 'return_format' => 'id', 'allow_null' => 1, 'ui' => 1, 'wrapper' => ['width' => 50],
+            // Published only: mos_hero_slide() drops a slide whose product isn't.
+            'post_type' => ['product'], 'post_status' => ['publish'], 'return_format' => 'id', 'allow_null' => 1, 'ui' => 1, 'wrapper' => ['width' => 50],
         ]);
         $fields[] = $image("hero_slide_{$i}_image", "Glæra {$i} — mynd (valfrjálst, annars vörumynd)");
     }
@@ -599,10 +600,9 @@ add_action('acf/init', static function () {
     }
 
     $fields[] = $tab('banners', 'Borðar');
-    $layout = [1 => 'Röð A vinstri', 2 => 'Röð A hægri', 3 => 'Röð B (heil breidd)', 4 => 'Röð C vinstri',
-               5 => 'Röð C hægri', 6 => 'Röð D vinstri', 7 => 'Röð D miðja', 8 => 'Röð D hægri'];
+    // The storefront places them (src/lib/homeLayout.ts): the first with a picture on top, the rest in pairs.
     for ($i = 1; $i <= MOS_BANNER_SLOTS; $i++) {
-        $fields[] = $image("banner_{$i}_image", "Borði {$i} ({$layout[$i]}) — mynd");
+        $fields[] = $image("banner_{$i}_image", "Borði {$i} — mynd");
         $fields[] = $field("banner_{$i}_title", "Borði {$i} — fyrirsögn", 'text', ['wrapper' => ['width' => 50]]);
         $fields[] = $field("banner_{$i}_link", "Borði {$i} — slóð", 'text', ['wrapper' => ['width' => 50]]);
     }
