@@ -1,0 +1,37 @@
+---
+// The 36px utility bar above the header (scrolls away). Left: WordPress's campaign messages (Goya "global
+// campaign"); right: small store links. Phones show the first message only, one line. No close button: a 36px
+// bar can't hold a 44px target, and the links must never be hidden with the message.
+import { glueBreaks, nowrapRanges } from '../lib/text';
+
+interface Props {
+  text: string;
+  textRight: string;
+}
+const { text, textRight } = Astro.props;
+const messages = [text, textRight].filter(Boolean);
+const links = [
+  { label: 'Verslunin', href: '/hafa-samband/' },   // the store itself (address, map); the menu's "Verslun" is the shop
+  { label: 'Opnunartími', href: '/opnunartimi/' },
+  { label: 'Hjálp', href: '/hafa-samband/' },
+];
+---
+
+<div class="utility" role="region" aria-label="Tilkynning og flýtileiðir">
+  <div class="utility__inner">
+    {
+      messages.length > 0 && (
+        <div class="utility__msgs">
+          {/* opening hours like "10-18" stay on one line however narrow the bar gets */}
+          {messages.map((m) => (
+            <p class="utility__msg campaign__item">{nowrapRanges(glueBreaks(m)).map((s) => (s.nowrap ? <span class="nowrap">{s.text}</span> : s.text))}</p>
+          ))}
+        </div>
+      )
+    }
+    <ul class="utility__links">
+      {links.map((l) => <li><a href={l.href}>{l.label}</a></li>)}
+      <li><a href="/min-sida/" data-login-link data-login-label>Innskráning</a></li>
+    </ul>
+  </div>
+</div>

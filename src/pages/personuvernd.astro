@@ -11,7 +11,7 @@ export const prerender = true;
 >
   <div class="container">
     <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Persónuvernd' }]} />
-    <div class="page-head">
+    <div class="page-head page-head--center">
       <p class="eyebrow">Persónuvernd</p>
       <h1>Persónuverndarstefna</h1>
       <p>Við berum virðingu fyrir persónuupplýsingum þínum og förum með þær í samræmi við gildandi lög.</p>
@@ -44,15 +44,17 @@ export const prerender = true;
       <h2>Tilgangur og lagagrundvöllur</h2>
       <ul>
         <li>Að afgreiða pantanir og veita þjónustu — grundvöllur: framkvæmd samnings.</li>
-        <li>Að senda fréttabréf eða tilkynningar um vörur á lager — grundvöllur: samþykki þitt, sem þú getur dregið til baka hvenær sem er.</li>
+        <li>Að senda tilkynningar þegar vara kemur aftur á lager (biðlisti) — grundvöllur: samþykki þitt, sem þú getur dregið til baka hvenær sem er.</li>
         <li>Að reka og bæta vefverslunina og tryggja öryggi hennar — grundvöllur: lögmætir hagsmunir.</li>
       </ul>
 
       <h2>Vefkökur</h2>
       <p>
-        Við notum nauðsynlega vefköku (<code>Cart-Token</code>) til að halda utan um innkaupakörfuna þína á meðan þú
-        verslar. Auk þess geymum við í vafranum þínum val um þema og afhendingarstað. Þessar upplýsingar eru ekki notaðar
-        til auglýsinga og ekki deilt með þriðja aðila.
+        Við notum eingöngu nauðsynlegar vefkökur: <code>wc_cart_token</code> heldur utan um innkaupakörfuna þína á meðan
+        þú verslar, <code>mos_order</code> geymir nýgerða pöntun í tvær klukkustundir svo staðfestingin birtist, og
+        <code>mos_auth</code> og <code>mos_li</code> halda þér innskráðum á Mínum síðum. Auk þess geymum við í vafranum
+        þínum óskalistann, valinn afhendingarstað og hvaða tilkynningum þú hefur lokað. Þessar upplýsingar eru ekki
+        notaðar til auglýsinga og ekki deilt með þriðja aðila.
       </p>
 
       <h2>Miðlun til þriðja aðila</h2>

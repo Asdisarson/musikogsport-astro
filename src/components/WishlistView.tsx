@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
-import { splitBrand } from '../lib/brand';
+import { useEffect, useRef, useState } from 'react';
 import { PLACEHOLDER } from '../lib/img';
+import { cardFillProps } from '../lib/photoBg';
+import { formatSaleBadge } from '../lib/price';
+import { cardLabel } from '../lib/productCard';
 import { WISHLIST_MAX_IDS } from '../lib/wishlist';
 import type { ProductSummary } from '../lib/types';
 
@@ -9,11 +11,16 @@ import type { ProductSummary } from '../lib/types';
 interface Stored {
   id: number;
   slug: string;
+  /** Live /verslun/<cat>/<slug>/ URL; absent on snapshots saved before the live-URL switch. */
+  path?: string;
   name: string;
   image: string;
 }
 
 const WKEY = 'mos-wishlist';
+// The cards' image width (measured 130–557px): 3 columns from 992px, one third of the window up to the 1800px
+// frame (557px images), 2 columns below (a little over half the window).
+const WISHLIST_SIZES = '(min-width: 992px) min(33vw, 560px), 50vw';
 
 function readStore(): Stored[] {
   try {
@@ -38,6 +45,10 @@ export default function WishlistView() {
   // Ids we actually asked the API to resolve (capped to WISHLIST_MAX_IDS, matching the server).
   // Only THESE are eligible for the "gone" verdict; items past the cap fall back to their snapshot.
   const [attempted, setAttempted] = useState<Set<number>>(new Set());
+  // After a removal: the polite announcement, and where focus goes (the removed card's button is gone).
+  const [announce, setAnnounce] = useState('');
+  const [focusAt, setFocusAt] = useState<number | null>(null);
+  const root = useRef<HTMLDivElement>(null);
 
   async function load() {
     const s = readStore();
@@ -56,6 +67,7 @@ export default function WishlistView() {
     try {
       const res = await fetch(`/api/products?ids=${sentIds.join(',')}`, {
         headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(10000), // a hung request falls back to the stored snapshot, not "Sæki…" for ever
       });
       if (res.ok) {
         const arr: ProductSummary[] = await res.json();
@@ -79,7 +91,15 @@ export default function WishlistView() {
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  function remove(id: number) {
+  // Focus the next card's remove button (the previous one at the end), or the empty state's link.
+  useEffect(() => {
+    if (focusAt === null || !root.current) return;
+    const buttons = root.current.querySelectorAll<HTMLElement>('.wish-btn');
+    (buttons[Math.min(focusAt, buttons.length - 1)] ?? root.current.querySelector<HTMLElement>('a'))?.focus();
+    setFocusAt(null);
+  }, [focusAt]);
+
+  function remove(id: number, name: string, index: number) {
     const next = readStore().filter((x) => x.id !== id);
     try {
       localStorage.setItem(WKEY, JSON.stringify(next));
@@ -88,43 +108,67 @@ export default function WishlistView() {
     }
     window.dispatchEvent(new CustomEvent('mos:wishlist')); // header count re-syncs
     setStored(next);
+    setAnnounce(`„${name}“ fjarlægð af óskalista.`);
+    setFocusAt(index);
   }
+
+  const status = (
+    <p className="visually-hidden" role="status">
+      {announce}
+    </p>
+  );
 
   if (!ready) return <p className="muted">Sæki óskalista…</p>;
 
   if (stored.length === 0) {
     return (
-      <div className="panel" style={{ textAlign: 'center', padding: '3rem 1.5rem' }}>
+      <div ref={root} className="panel" style={{ textAlign: 'center', padding: '3rem 1.5rem' }}>
+        {status}
         <p className="muted" style={{ marginBottom: '1rem' }}>Óskalistinn þinn er tómur.</p>
-        <a className="btn btn--accent" href="/verslun">Skoða vörur</a>
+        <a className="btn btn--accent" href="/verslun/">Skoða vörur</a>
       </div>
     );
   }
 
   const heartIcon = (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 20.3 10.55 19C5.4 14.24 2 11.16 2 7.5 2 4.42 4.42 2 7.5 2c1.74 0 3.41.81 4.5 2.09C13.09 2.81 14.76 2 16.5 2 19.58 2 22 4.42 22 7.5c0 3.66-3.4 6.74-8.55 11.5L12 20.3Z" />
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20 10.6 18.7C5.8 14.4 3 11.8 3 8.6 3 6 5 4 7.6 4c1.6 0 3.2.8 4.4 2.1C13.2 4.8 14.8 4 16.4 4 19 4 21 6 21 8.6c0 3.2-2.8 5.8-7.6 10.1L12 20Z" />
     </svg>
   );
-  // Render the price, splitting any "frá " prefix into the muted .price__from span so it
-  // matches PriceTag on every other card surface (rather than bold-display the whole string).
-  const priceEl = (text: string) =>
-    text.startsWith('frá ') ? (
+  // The price line as the wall cards draw it: the price (a "frá " prefix muted), the struck original, then the
+  // green "-N%".
+  const priceLine = (c: ProductSummary) => (
+    <div className="product-card__price">
       <span className="price">
-        <span className="price__from">frá </span>
-        {text.slice(4)}
+        {c.priceText?.startsWith('frá ') ? (
+          <>
+            <span className="price__from">frá </span>
+            {c.priceText.slice(4)}
+          </>
+        ) : (
+          c.priceText
+        )}
+        {c.wasText && <del>{c.wasText}</del>}
       </span>
-    ) : (
-      <span className="price">{text}</span>
-    );
-  const img = (src: string) => (
+      {c.percent != null && <span className="product-card__off">{formatSaleBadge(c.percent)}</span>}
+    </div>
+  );
+  // A failed srcset candidate first falls back to the plain src (with a srcset the browser ignores src), then to
+  // the placeholder, as ProductImage does.
+  const img = (src: string, srcset?: string) => (
     <img
       src={src || PLACEHOLDER}
+      srcSet={srcset || undefined}
+      sizes={srcset ? WISHLIST_SIZES : undefined}
       alt=""
       loading="lazy"
       decoding="async"
       onError={(e) => {
         const el = e.currentTarget as HTMLImageElement;
+        if (el.hasAttribute('srcset')) {
+          el.removeAttribute('srcset');
+          return;
+        }
         if (!el.src.endsWith(PLACEHOLDER)) {
           el.src = PLACEHOLDER;
           el.onerror = null;
@@ -133,70 +177,59 @@ export default function WishlistView() {
     />
   );
 
+  // Same anatomy as ProductCard (SPEC § Wall): image, label, title, subtitle, price; the heart removes the item.
   return (
-    <ul className="product-grid">
-      {stored.map((s) => {
+    <div ref={root}>
+    {status}
+    <ul className="product-grid product-grid--wish">
+      {stored.map((s, index) => {
         const c = fresh[s.id];
         // A successful fetch that omits an ATTEMPTED id means the product was unpublished/deleted —
         // show it as unavailable (no dead link to a 404 PDP). Ids past the cap weren't attempted,
         // so they keep their stored snapshot rather than being mislabeled gone.
         const gone = fetchOk && attempted.has(s.id) && !c;
         const name = c?.name || s.name;
-        const { brand, rest } = splitBrand(name);
         const image = c?.image || s.image;
+        const srcset = c?.image ? c.srcset : undefined; // the stored snapshot has no srcset
+        // the stored snapshot has no tile fill either: none. Same attributes as ProductCard's tile.
+        const tileBg = c?.image ? cardFillProps(c.photoFill) : {};
+        // A snapshot saved before the live-URL switch has no path: the legacy /vara/<slug>/ route 301s to the product.
+        const href = c?.path ?? s.path ?? `/vara/${encodeURIComponent(s.slug)}/`;
+        const label = gone ? { text: 'Ekki í boði', tone: 'muted' } : c ? cardLabel({ discounted: c.percent != null, outOfStock: Boolean(c.outOfStock) }) : null;
         const removeBtn = (
-          <button
-            className="wish-btn"
-            type="button"
-            aria-pressed="true"
-            onClick={() => remove(s.id)}
-            aria-label={`Fjarlægja „${name}“ af óskalista`}
-          >
+          <button className="wish-btn" type="button" onClick={() => remove(s.id, name, index)} aria-label={`Fjarlægja „${name}“ af óskalista`}>
             {heartIcon}
           </button>
         );
 
-        if (gone) {
-          return (
-            <li key={s.id}>
-              <div className="product-card-wrap wish-gone">
-                <div className="product-card">
-                  <div className="product-card__media">
-                    {img(image)}
-                    <span className="badge badge--muted">Ekki í boði</span>
-                  </div>
-                  <div className="product-card__body">
-                    {brand && <span className="product-card__brand">{brand}</span>}
-                    <h3 className="product-card__title">{rest}</h3>
-                    <span className="muted wish-gone__note">Ekki lengur fáanleg</span>
-                  </div>
-                </div>
-                {removeBtn}
-              </div>
-            </li>
-          );
-        }
-
         return (
           <li key={s.id}>
-            <div className="product-card-wrap">
-              <a className="product-card" href={`/vara/${s.slug}`}>
-                <div className="product-card__media">
-                  {img(image)}
-                  {c?.outOfStock && <span className="badge badge--muted">Uppselt</span>}
-                  {c && !c.outOfStock && c.onSale && <span className="badge badge--sale">Tilboð</span>}
+            <div className={gone ? 'product-card-wrap wish-gone' : 'product-card-wrap'}>
+              <div className="product-card">
+                {gone ? (
+                  <div className="product-card__media" {...tileBg}>{img(image, srcset)}</div>
+                ) : (
+                  <a className="product-card__media" href={href} tabIndex={-1} aria-hidden="true" {...tileBg}>
+                    {img(image, srcset)}
+                  </a>
+                )}
+                <div className="product-card__caption">
+                  {label && <span className={`product-card__label product-card__label--${label.tone}`}>{label.text}</span>}
+                  <h3 className="product-card__title">{gone ? name : <a href={href}>{name}</a>}</h3>
+                  {gone ? (
+                    <span className="product-card__cats">Ekki lengur fáanleg</span>
+                  ) : (
+                    c?.subtitle && <span className="product-card__cats">{c.subtitle}</span>
+                  )}
+                  {!gone && c?.priceText && <div className="product-card__after">{priceLine(c)}</div>}
                 </div>
-                <div className="product-card__body">
-                  {brand && <span className="product-card__brand">{brand}</span>}
-                  <h3 className="product-card__title">{rest}</h3>
-                  {c?.priceText && priceEl(c.priceText)}
-                </div>
-              </a>
+              </div>
               {removeBtn}
             </div>
           </li>
         );
       })}
     </ul>
+    </div>
   );
 }

@@ -1,0 +1,101 @@
+---
+// The home hero (nike-look): full-bleed under the header, text bottom-left over a lower-left gradient,
+// a white pill CTA. The image is the first WP banner with an image; without one, the "Forsíða" product
+// slides on #F5F5F5 (ink text, no gradient), stepped by two round arrows when there are several.
+// planHome() (lib/homeLayout) decides which.
+import type { HeroPlan } from '../lib/homeLayout';
+import { mediaUrl } from '../lib/img';
+import { photoBgFor } from '../lib/photoBgServer';
+
+interface Props {
+  plan: HeroPlan;
+}
+const { plan } = Astro.props;
+const slides = plan.kind === 'product' ? plan.slides : [];
+const many = slides.length > 1;
+---
+
+{
+  plan.kind === 'banner' ? (
+    <section class="hero hero--banner" data-hero>
+      <img class="hero__img" src={plan.image.url} alt="" width={plan.image.width} height={plan.image.height} loading="eager" fetchpriority="high" decoding="async" />
+      <div class="hero__copy">
+        <h1 class="hero__title">{plan.headline}</h1>
+        {plan.text && <p class="hero__text">{plan.text}</p>}
+        <a class="pill hero__cta" href={plan.cta.href}>{plan.cta.label}</a>
+      </div>
+    </section>
+  ) : (
+    <section
+      class="hero hero--product"
+      data-hero
+      aria-roledescription={many ? 'carousel' : undefined}
+      aria-label={many ? 'Nýjar vörur' : undefined}
+    >
+      {slides.map((s, i) => (
+        <div
+          class="hero__slide"
+          data-hero-slide
+          data-active={i === 0 ? 'true' : undefined}
+          aria-roledescription={many ? 'slide' : undefined}
+          aria-label={many ? `${i + 1} af ${slides.length}` : undefined}
+          aria-hidden={i === 0 ? undefined : 'true'}
+          {...photoBgFor(mediaUrl(s.image.url))}
+        >
+          <a class="hero__media" href={s.href} tabindex="-1" aria-hidden="true">
+            <img src={s.image.url} alt="" width={s.image.width} height={s.image.height} loading={i === 0 ? 'eager' : 'lazy'} fetchpriority={i === 0 ? 'high' : undefined} decoding="async" />
+          </a>
+          {!plan.headline && (
+            <div class="hero__copy">
+              <h2 class="hero__title"><a href={s.href}>{s.name}</a></h2>
+              {plan.text && <p class="hero__text">{plan.text}</p>}
+              <a class="pill pill--ink hero__cta" href={plan.cta.href}>{plan.cta.label}</a>
+            </div>
+          )}
+        </div>
+      ))}
+      {plan.headline && (
+        <div class="hero__copy">
+          <h1 class="hero__title">{plan.headline}</h1>
+          {plan.text && <p class="hero__text">{plan.text}</p>}
+          <a class="pill pill--ink hero__cta" href={plan.cta.href}>{plan.cta.label}</a>
+        </div>
+      )}
+      {many && (
+        <div class="hero__arrows">
+          <button class="round-btn" type="button" data-hero-step="-1" aria-label="Fyrri vara">
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+          </button>
+          <button class="round-btn" type="button" data-hero-step="1" aria-label="Næsta vara">
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+          </button>
+        </div>
+      )}
+    </section>
+  )
+}
+
+<script>
+  // Product-slide hero only: the arrows step through the slides (no autoplay, as on nike.com).
+  const hero = document.querySelector<HTMLElement>('[data-hero]');
+  const slides = hero ? Array.from(hero.querySelectorAll<HTMLElement>('[data-hero-slide]')) : [];
+  if (hero && slides.length > 1) {
+    let index = 0;
+    const show = (next: number) => {
+      index = (next + slides.length) % slides.length;
+      slides.forEach((s, i) => {
+        if (i === index) {
+          s.dataset.active = 'true';
+          s.removeAttribute('aria-hidden');
+        } else {
+          delete s.dataset.active;
+          s.setAttribute('aria-hidden', 'true');
+        }
+      });
+    };
+    hero.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-hero-step]');
+      if (btn) show(index + Number(btn.dataset.heroStep));
+    });
+  }
+</script>

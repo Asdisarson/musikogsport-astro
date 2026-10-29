@@ -1,0 +1,37 @@
+---
+// /verslun/page/N/ — WordPress-style shop pagination (live URL shape).
+import Base from '../../../layouts/Base.astro';
+import ArchiveView from '../../../components/ArchiveView.astro';
+import NotFound from '../../../components/NotFound.astro';
+import { loadArchive } from '../../../lib/archive';
+import { filterTitle } from '../../../lib/facets';
+import { archiveHref, pageLinks, splitPagination } from '../../../lib/paths';
+import { markUnavailable } from '../../../lib/http';
+
+export const prerender = false;
+
+const params = Astro.url.searchParams;
+const raw = Astro.params.n ?? '';
+const pageOne = raw === '1' ? archiveHref('/verslun/', 1, params) : null;
+if (pageOne) return Astro.redirect(pageOne, 301);
+const split = splitPagination(['page', raw]);
+const page = split?.page ?? 0;
+const archive = page > 1 ? await loadArchive(params, page) : null;
+const found = archive !== null && !archive.unavailable && page <= Math.max(1, archive.result.totalPages);
+const down = Boolean(archive?.unavailable);
+if (down) markUnavailable(Astro.response);
+else if (!found) Astro.response.status = 404;
+const crumbs = [{ label: 'Heim', href: '/' }, { label: 'Verslun', href: '/verslun/' }, { label: `Síða ${page}` }];
+---
+
+{
+  found && archive ? (
+    <Base pageLinks={pageLinks('/verslun/', page, archive.result.totalPages, params)} title={`${filterTitle('Verslun', archive.activeLabels)} — síða ${page}`}>
+      <ArchiveView title="Verslun" navCategoryId={0} crumbs={crumbs} basePath="/verslun/" params={params} archive={archive} page={page} />
+    </Base>
+  ) : (
+    <Base title={down ? 'Tímabundin bilun' : 'Síða fannst ekki'}>
+      <NotFound unavailable={down} title="Síða fannst ekki" message="Þessi síða er ekki til." />
+    </Base>
+  )
+}

@@ -8,80 +8,58 @@
 // semantic. It needs no consumer keys. We map its product shape back onto the
 // WooProduct card subset so ProductGrid/ProductCard/PriceTag render unchanged.
 import { WP_INTERNAL_URL } from 'astro:env/server';
-import { scaleMinor } from './format';
-import { FACET_GROUPS } from './facets';
+import { createTtlMap } from './cache';
+import { upstreamGet } from './upstream';
+import { log } from './logger';
+import { createLimiter } from './rateLimit';
+import { matchCountFromStock } from './facets';
+import { COLOUR_TAXONOMY, SPORT_TAXONOMY, TEAM_TAXONOMY, type SizeRef } from './liveFilters';
+import { mapStoreProduct, type StoreProductRaw } from './storeMap';
 import type { AttributeFilter, Paged, WooProduct } from './types';
 
 const BASE = `${WP_INTERNAL_URL}/wp-json/wc/store/v1`;
 
-interface StorePrices {
-  price: string;
-  regular_price: string;
-  sale_price: string;
-  currency_minor_unit: number;
-  price_range?: { min_amount: string; max_amount: string } | null;
-}
-interface StoreProductRaw {
-  id: number;
-  name: string;
-  slug: string;
-  type: WooProduct['type'];
-  prices: StorePrices;
-  price_html?: string;
-  on_sale: boolean;
-  is_in_stock: boolean;
-  images?: { src: string; thumbnail?: string; alt?: string }[];
-}
+/** The store currency's minor unit as the last product response gave it (`prices.currency_minor_unit`); 0 (ISK)
+ *  until one has. Price filters are sent in this unit (liveFilters.presetBounds). */
+let minorUnit = 0;
+export const currencyMinorUnit = (): number => minorUnit;
+/** Live's catalog grid: woocommerce_catalog_columns (3) × woocommerce_catalog_rows (9). */
+export const CATALOG_PER_PAGE = 27;
 
 export interface StoreQuery {
   page?: number;
   per_page?: number;
-  category?: number;
+  /** Main product_cat clause (OR). */
+  categoryIds?: number[];
+  /** Extra AND'ed product_cat clause (OR within) — the mos_and_cat extension (live's `kyn`). */
+  andCategoryIds?: number[];
   brandIds?: number[];
+  tagIds?: number[];
   attributes?: AttributeFilter[];
+  /** mos_size index slugs (OR) — the size filter of wp-mu-plugins/mos-size-index.php. */
+  sizeSlugs?: string[];
+  /** Inclusive price bounds in the currency's minor unit (the Store API's; ISK has none: whole krónur). */
+  minPrice?: number;
+  maxPrice?: number;
+  stockStatus?: string[];
   on_sale?: boolean;
-  instock?: boolean;
   orderby?: string;
   order?: 'asc' | 'desc';
   search?: string;
 }
 
-/** Map a Store API product onto the WooProduct fields the catalog cards consume. */
-function mapStoreProduct(p: StoreProductRaw): WooProduct {
-  const mu = p.prices?.currency_minor_unit ?? 0;
-  const toMajor = (v: string | undefined) => (v == null || v === '' ? '' : String(scaleMinor(v, mu)));
-  // Variable parents: show "frá {min}" exactly like the REST v3 path (search/home/related),
-  // which returns the min `price` but blank regular/sale. Keep the min price, but BLANK
-  // regular/sale so PriceTag can't draw a strikethrough from a min-sale and min-regular
-  // pulled from *different* variations (the incoherent "frá X / was Y" bug). Net: every
-  // surface renders a variable product identically as "frá {min}".
-  const isVariable = p.type === 'variable';
-  return {
-    id: p.id,
-    name: p.name,
-    slug: p.slug,
-    type: p.type,
-    price: toMajor(p.prices?.price),
-    regular_price: isVariable ? '' : toMajor(p.prices?.regular_price),
-    sale_price: isVariable ? '' : toMajor(p.prices?.sale_price),
-    on_sale: Boolean(p.on_sale),
-    price_html: p.price_html,
-    stock_status: p.is_in_stock ? 'instock' : 'outofstock',
-    // Keep src raw — productImage()/mediaUrl() rewrites local hosts at render time.
-    images: (p.images ?? []).map((im) => ({ src: im.src, alt: im.alt ?? '' })),
-    categories: [],
-  };
-}
-
-/** Append the shared catalog FILTER params (category / brand / attributes / sale / stock /
- *  search) that both the product grid and the facet-count request must mirror, so the badge
- *  counts always match the grid. `omitBrand` drops the brand filter — used for OR-within brand
- *  counts, since the count endpoint self-applies an active brand. */
-function appendFilters(usp: URLSearchParams, q: StoreQuery, opts: { omitBrand?: boolean } = {}): void {
-  if (q.category) usp.set('category', String(q.category));
-  if (!opts.omitBrand && q.brandIds?.length) usp.set('brand', q.brandIds.join(','));
+/** Append the shared catalog FILTER params that both the product grid and the facet-count
+ *  requests must mirror, so the badge counts always match the grid. */
+function appendFilters(usp: URLSearchParams, q: StoreQuery): void {
+  if (q.categoryIds?.length) usp.set('category', q.categoryIds.join(','));
+  if (q.andCategoryIds?.length) usp.set('mos_and_cat', q.andCategoryIds.join(','));
+  if (q.brandIds?.length) usp.set('brand', q.brandIds.join(','));
+  if (q.tagIds?.length) usp.set('tag', q.tagIds.join(','));
+  if (q.sizeSlugs?.length) usp.set('mos_size', q.sizeSlugs.join(','));
+  if (q.minPrice !== undefined) usp.set('min_price', String(q.minPrice));
+  if (q.maxPrice !== undefined) usp.set('max_price', String(q.maxPrice));
+  for (const status of q.stockStatus ?? []) usp.append('stock_status[]', status);
   if (q.on_sale) usp.set('on_sale', 'true');
-  if (q.instock) usp.set('stock_status', 'instock');
   if (q.search) usp.set('search', q.search);
 
   const attrs = (q.attributes ?? []).filter((a) => a.taxonomy && a.termIds.length);
@@ -92,9 +70,34 @@ function appendFilters(usp: URLSearchParams, q: StoreQuery, opts: { omitBrand?: 
   if (attrs.length) usp.set('attribute_relation', 'and');
 }
 
+/** Boundary fetch for this client: log once (the `[tag]` convention storeApi/woo follow), then
+ *  re-throw unchanged so callers keep degrading through their existing `.catch`. Without this an
+ *  outage renders an empty shop with no server-side trace at all. */
+async function catalogFetch(url: string, what: string): Promise<Response> {
+  let res: Response;
+  try {
+    res = await upstreamGet(url, 6000);
+  } catch (err) {
+    log.warn(`[store-catalog] ${what} transport failure`, { err });
+    throw err;
+  }
+  if (!res.ok) {
+    log.warn(`[store-catalog] ${what} -> ${res.status} ${res.statusText}`);
+    throw new Error(`Store API ${what} -> ${res.status} ${res.statusText}`);
+  }
+  return res;
+}
+
+// The grid is never cached, but while WordPress fails it mustn't be asked (and waited on) by every render: concurrent
+// identical requests share one call, and a failed one is remembered for a few seconds per URL (the caller degrades as
+// it does for any failure). Per process, like the other caches.
+const PRODUCTS_FAIL_MEMO_MS = 10 * 1000;
+const productsInflight = new Map<string, Promise<Paged<WooProduct>>>();
+const productsFailed = createTtlMap<string, unknown>(500, () => Date.now());
+
 export async function storeProducts(q: StoreQuery = {}): Promise<Paged<WooProduct>> {
   const page = q.page && q.page > 0 ? q.page : 1;
-  const per_page = q.per_page ?? 24;
+  const per_page = q.per_page ?? CATALOG_PER_PAGE;
   const usp = new URLSearchParams();
   usp.set('page', String(page));
   usp.set('per_page', String(per_page));
@@ -102,12 +105,26 @@ export async function storeProducts(q: StoreQuery = {}): Promise<Paged<WooProduc
   usp.set('order', q.order ?? 'desc');
   appendFilters(usp, q);
 
-  const res = await fetch(`${BASE}/products?${usp.toString()}`, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(6000),
-  });
-  if (!res.ok) throw new Error(`Store API products -> ${res.status} ${res.statusText}`);
+  const url = `${BASE}/products?${usp.toString()}`;
+  const failed = productsFailed.get(url);
+  if (failed?.fresh) throw failed.value;
+  const pending = productsInflight.get(url);
+  if (pending) return pending;
+  const load = fetchProducts(url, page)
+    .catch((err: unknown) => {
+      productsFailed.set(url, err, PRODUCTS_FAIL_MEMO_MS);
+      throw err;
+    })
+    .finally(() => productsInflight.delete(url));
+  productsInflight.set(url, load);
+  return load;
+}
+
+async function fetchProducts(url: string, page: number): Promise<Paged<WooProduct>> {
+  const res = await catalogFetch(url, 'products');
   const data = (await res.json()) as StoreProductRaw[];
+  const mu = data[0]?.prices?.currency_minor_unit;
+  if (typeof mu === 'number' && Number.isInteger(mu) && mu >= 0 && mu <= 4) minorUnit = mu;
   // Mirror wooGet's 0/0 fallback: if the pagination headers are ever absent, surface a
   // visible "0 vörur" rather than silently capping the catalog to one page of results.
   return {
@@ -118,69 +135,157 @@ export async function storeProducts(q: StoreQuery = {}): Promise<Paged<WooProduc
   };
 }
 
-// The attribute facets shown in the shop UI, derived from the single source of truth in facets.ts
-// (so adding a facet there automatically counts it here). Counted with query_type=or so each count
-// EXCLUDES its own facet selection (OR within) while APPLYING the others (AND across) — the
-// standard layered-nav semantic.
-const FACET_ATTR_TAXONOMIES = FACET_GROUPS.map((g) => g.taxonomy);
-// Brand is a taxonomy, not a pa_* attribute, so it's counted via calculate_taxonomy_counts.
-const BRAND_TAXONOMY = 'product_brand';
-
 interface CollectionData {
-  attribute_counts: { term: number; count: number }[] | null;
-  taxonomy_counts: { term: number; count: number }[] | null;
+  attribute_counts?: { term: number; count: number }[] | null;
+  taxonomy_counts?: { term: number; count: number }[] | null;
+  stock_status_counts?: { status: string; count: number | string }[] | null;
+  /** Added by mos-size-index.php when `mos_size_counts=1`: sizes for the filters minus the size filter. */
+  mos_size_counts?: (SizeRef & { count: number })[] | null;
+  /** Added by mos-size-index.php when `mos_extra_counts=1`: products per requested price range (`mos_price_ranges`)
+   *  and, with `mos_sale_count=1`, on sale — each within every other filter. */
+  mos_extra_counts?: { price?: (number | null)[] | null; on_sale?: number | null } | null;
 }
 
-async function fetchCollectionData(usp: URLSearchParams): Promise<CollectionData> {
-  const res = await fetch(`${BASE}/products/collection-data?${usp.toString()}`, {
-    headers: { Accept: 'application/json' },
-    signal: AbortSignal.timeout(6000),
+/** Inclusive Store API price bounds (minor units); undefined = open. */
+export interface PriceRange {
+  min: number | undefined;
+  max: number | undefined;
+}
+
+export interface CountsRequest {
+  /** Taxonomies to count (e.g. product_cat, product_brand). An active filter on the same taxonomy
+   *  self-applies, so OR-within counts need a request with that filter omitted. */
+  taxonomies?: string[];
+  /** pa_* attributes to count with query_type=or (count excludes its own selection). */
+  attributes?: string[];
+  /** Per-size counts (`mos_size_counts=1`); they leave the size filter out already. */
+  sizes?: boolean;
+  /** Stock-status counts (instock / outofstock / onbackorder). */
+  stock?: boolean;
+  /** Match counts the size plugin adds in the same request (`mos_extra_counts=1`): one per price range, with that
+   *  range in place of the query's own price filter, and (onSale) with on_sale added. */
+  extra?: { priceRanges: PriceRange[]; onSale: boolean };
+}
+
+export interface CountsResult {
+  taxonomy: Map<number, number>;
+  attribute: Map<number, number>;
+  stock: Map<string, number>;
+  /** Sizes with products for the query, sorted shoe → letter → kids → other; null when not asked for or the size
+   *  index isn't installed. */
+  sizes: (SizeRef & { count: number })[] | null;
+  /** The `extra` counts in request order (undefined where one couldn't be counted); null when not asked for or the
+   *  size plugin didn't answer them (not deployed): the caller then counts each with its own request. */
+  extra: { price: (number | undefined)[]; onSale: number | undefined } | null;
+}
+
+const toMap = (rows: { term: number; count: number }[] | null | undefined) => new Map((rows ?? []).map((r) => [r.term, r.count]));
+
+// Facet counts change only when the catalog does, and every filter click asks for a handful of them: a short
+// in-process cache (keyed by the request URL) keeps sorting, "Sýna fleiri" and back/forward from asking again.
+// The product grid itself is never cached, so a count can trail a stock change by at most this long.
+const COUNTS_TTL_MS = 30 * 1000; // 30 s: a shorter window for a stale dead-end option after a stock change
+const clock = () => Date.now();
+const countsCache = createTtlMap<string, CountsResult>(500, clock);
+/** Requests in flight by URL: concurrent renders of the same filter combination share one. */
+const countsInflight = new Map<string, Promise<CountsResult | null>>();
+/** A failed count request is remembered this long per URL, so an outage isn't re-sent by every render. */
+const COUNTS_FAIL_MEMO_MS = 15 * 1000;
+const countsFailed = createTtlMap<string, true>(500, clock);
+const COLLECTION_DATA_PATH = '/wc/store/v1/products/collection-data';
+
+/** Cold collection-data requests (no fresh cached answer, none in flight) this process may send per minute. Every
+ *  filter combination is a new URL and a cold filtered render sends up to 9, so a crawler walking combinations would
+ *  otherwise multiply load on WordPress's PHP workers. Past it a listing renders without counts — the same path as
+ *  a failed count request (options listed, no badges; the grid itself is unaffected) — or with stale ones. 240 is
+ *  about 27 fully cold filtered renders a minute; cached combinations cost nothing. Per process (one instance). */
+export const COLD_COUNTS_PER_MINUTE = 240;
+const coldBudget = createLimiter(COLD_COUNTS_PER_MINUTE, 60 * 1000, clock);
+let lastCapWarn = -Infinity;
+const countOrUndefined = (n: unknown): number | undefined => (n == null ? undefined : typeof n === 'number' && Number.isFinite(n) ? n : Number(n) || 0);
+const rangeParam = (r: PriceRange) => `${r.min ?? ''}:${r.max ?? ''}`;
+
+/** Term counts (term_id -> products) for the products matching `q`, via the Store API collection-data endpoint —
+ *  the same filters as the grid, so badges match it. Null when the request failed (the rail then lists options
+ *  without counts); an empty result is empty maps, never null, so the rail can hide options without products. */
+export async function collectionCounts(q: StoreQuery, req: CountsRequest): Promise<CountsResult | null> {
+  const usp = new URLSearchParams();
+  appendFilters(usp, q);
+  (req.attributes ?? []).forEach((tax, i) => {
+    usp.set(`calculate_attribute_counts[${i}][taxonomy]`, tax);
+    usp.set(`calculate_attribute_counts[${i}][query_type]`, 'or');
   });
-  if (!res.ok) throw new Error(`Store API collection-data -> ${res.status} ${res.statusText}`);
-  return (await res.json()) as CollectionData;
+  (req.taxonomies ?? []).forEach((tax, i) => usp.set(`calculate_taxonomy_counts[${i}]`, tax));
+  if (req.stock) usp.set('calculate_stock_status_counts', 'true');
+  if (req.sizes) usp.set('mos_size_counts', '1');
+  if (req.extra) {
+    usp.set('mos_extra_counts', '1');
+    if (req.extra.priceRanges.length) usp.set('mos_price_ranges', req.extra.priceRanges.map(rangeParam).join(','));
+    if (req.extra.onSale) usp.set('mos_sale_count', '1');
+  }
+  const url = `${BASE}/products/collection-data?${usp.toString()}`;
+  const hit = countsCache.get(url);
+  if (hit?.fresh) return hit.value;
+  const pending = countsInflight.get(url);
+  if (pending) return pending;
+  if (countsFailed.get(url)?.fresh) return hit?.value ?? null;
+  if (!coldBudget.take('collection-data')) {
+    if (clock() - lastCapWarn >= 60 * 1000) {
+      lastCapWarn = clock();
+      log.warn('[store-catalog] cold count budget spent; rendering listings without counts', { limit: COLD_COUNTS_PER_MINUTE });
+    }
+    return hit?.value ?? null;
+  }
+  const load = fetchCounts(url, req)
+    .then((counts) => {
+      if (counts) countsCache.set(url, counts, COUNTS_TTL_MS);
+      else countsFailed.set(url, true, COUNTS_FAIL_MEMO_MS);
+      return counts ?? hit?.value ?? null; // a stale count beats none
+    })
+    .finally(() => countsInflight.delete(url));
+  countsInflight.set(url, load);
+  return load;
 }
 
-/** Context-aware facet counts (WP term_id -> count) that MATCH the product grid, via the Store
- *  API collection-data endpoint, mirroring the same filters as `q`. Attribute facets use
- *  query_type=or (count excludes its own facet, applies the others). Brand self-applies an active
- *  brand filter, so when a brand is selected a 2nd brand-omitted request supplies OR-within brand
- *  counts. Returns an EMPTY map on any failure — the caller then renders no badge rather than the
- *  stale GLOBAL REST counts this replaces (those over-count by ~40%, up to 28x on category pages). */
-export async function loadFacetCounts(q: StoreQuery = {}): Promise<Map<number, number>> {
-  const brandActive = (q.brandIds?.length ?? 0) > 0;
-
-  const p1 = new URLSearchParams();
-  appendFilters(p1, q);
-  FACET_ATTR_TAXONOMIES.forEach((tax, i) => {
-    p1.set(`calculate_attribute_counts[${i}][taxonomy]`, tax);
-    p1.set(`calculate_attribute_counts[${i}][query_type]`, 'or');
-  });
-  // When a brand is active, p1's brand counts would collapse to just that brand; defer brand
-  // counting to p2 (brand omitted). Otherwise p1 can carry them.
-  if (!brandActive) p1.set('calculate_taxonomy_counts[0]', BRAND_TAXONOMY);
-
-  let p2: URLSearchParams | null = null;
-  if (brandActive) {
-    p2 = new URLSearchParams();
-    appendFilters(p2, q, { omitBrand: true });
-    p2.set('calculate_taxonomy_counts[0]', BRAND_TAXONOMY);
+/** One collection-data request; null when it failed (catalogFetch logs transport and HTTP failures, this logs a
+ *  body that isn't the expected JSON, by path only: the query holds nothing secret, but it is noise). */
+async function fetchCounts(url: string, req: CountsRequest): Promise<CountsResult | null> {
+  let res: Response;
+  try {
+    res = await catalogFetch(url, 'collection-data');
+  } catch {
+    return null;
   }
-
-  // allSettled (not all): a transient failure of one request must not blank EVERY badge. If only
-  // p2 (brand) fails we still show the attribute counts from p1, and vice-versa; only a term whose
-  // count genuinely wasn't fetched loses its badge.
-  const counts = new Map<number, number>();
-  const [r1s, r2s] = await Promise.allSettled([
-    fetchCollectionData(p1),
-    p2 ? fetchCollectionData(p2) : Promise.resolve(null),
-  ]);
-  if (r1s.status === 'fulfilled') {
-    for (const a of r1s.value.attribute_counts ?? []) counts.set(a.term, a.count);
-    // When no brand is active, p1 also carried the brand counts.
-    if (!p2) for (const b of r1s.value.taxonomy_counts ?? []) counts.set(b.term, b.count);
+  try {
+    const data = (await res.json()) as CollectionData;
+    const extra = data.mos_extra_counts;
+    return {
+      taxonomy: toMap(data.taxonomy_counts),
+      attribute: toMap(data.attribute_counts),
+      stock: new Map((data.stock_status_counts ?? []).map((r) => [r.status, Number(r.count) || 0])),
+      sizes: req.sizes && Array.isArray(data.mos_size_counts) ? data.mos_size_counts : null,
+      extra:
+        req.extra && extra && typeof extra === 'object' && Array.isArray(extra.price)
+          ? { price: req.extra.priceRanges.map((_, i) => countOrUndefined(extra.price?.[i])), onSale: req.extra.onSale ? countOrUndefined(extra.on_sale) : undefined }
+          : null,
+    };
+  } catch (err) {
+    log.error(`[store-catalog] ${COLLECTION_DATA_PATH}: unexpected response`, { err });
+    return null;
   }
-  if (p2 && r2s.status === 'fulfilled' && r2s.value) {
-    for (const b of r2s.value.taxonomy_counts ?? []) counts.set(b.term, b.count);
-  }
-  return counts;
 }
+
+/** How many products match `q` — collection-data's stock-status counts summed (cheaper than a per_page=1 product
+ *  query: ~43 ms against ~78 ms locally). Undefined when the request failed. */
+export async function matchCount(q: StoreQuery): Promise<number | undefined> {
+  const counts = await collectionCounts(q, { stock: true });
+  return matchCountFromStock(counts?.stock, q.stockStatus);
+}
+
+export const COUNT_TAXONOMIES = {
+  category: 'product_cat',
+  brand: 'product_brand',
+  team: TEAM_TAXONOMY,
+  sport: SPORT_TAXONOMY,
+  colour: COLOUR_TAXONOMY,
+} as const;

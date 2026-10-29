@@ -1,23 +1,29 @@
 ---
-import Icon from './Icon.astro';
+// Not found / server error / unavailable (nike-look): a centred uppercase display headline, a 16px line, then a
+// black "Á forsíðu" pill and an outline "Í verslun" pill. The status code stays as a small grey line above.
 interface Props {
   title?: string;
   message?: string;
   code?: string;
+  /** WordPress is unreachable (the route answered 503): say so instead of "not found". */
+  unavailable?: boolean;
 }
+const unavailable = Astro.props.unavailable ?? false;
 const {
   title = 'Síða fannst ekki',
   message = 'Síðan sem þú leitar að er ekki til eða hefur verið fjarlægð.',
   code = '404',
-} = Astro.props;
+} = unavailable
+  ? { title: 'Tímabundin bilun', message: 'Vefverslunin svarar ekki í augnablikinu. Reyndu aftur eftir smástund.', code: '503' }
+  : Astro.props;
 ---
 
 <section class="container notfound">
-  <p class="notfound__code">{code}</p>
-  <h1>{title}</h1>
-  <p class="lead" style="max-width:46ch;margin-inline:auto">{message}</p>
-  <div class="cluster" style="justify-content:center;margin-top:1.75rem">
-    <a class="btn btn--primary" href="/">Á forsíðu <Icon name="arrow-right" size={18} /></a>
-    <a class="btn btn--ghost" href="/verslun">Skoða verslun</a>
+  <p class="notfound__code">Villa {code}</p>
+  <h1 class="notfound__title">{title}</h1>
+  <p class="notfound__text">{message}</p>
+  <div class="notfound__actions">
+    <a class="btn btn--primary" href="/">Á forsíðu</a>
+    <a class="btn btn--ghost" href="/verslun/">Í verslun</a>
   </div>
 </section>

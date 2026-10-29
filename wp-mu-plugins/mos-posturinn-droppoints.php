@@ -43,9 +43,13 @@ function mos_posturinn_droppoints(WP_REST_Request $req) {
     if (is_array($cached)) {
         return new WP_REST_Response(['ok' => true, 'cached' => true, 'items' => $cached], 200);
     }
+    if ($cached === 'failed') {
+        return new WP_REST_Response(['ok' => false, 'code' => 'upstream_error', 'items' => []], 502);
+    }
 
     $api   = new POSTIS_API();
     $items = [];
+    $resp  = null;
 
     if ($type === 'postbox') {
         // Individual DPO/DNO lockers near the postcode come from the shipping-calc response
@@ -53,9 +57,10 @@ function mos_posturinn_droppoints(WP_REST_Request $req) {
         $resp = $api->calculate_shipping_api_request(['postCode' => $postcode, 'countryCode' => 'IS']);
         if (!is_wp_error($resp) && (int) wp_remote_retrieve_response_code($resp) === 200) {
             $decoded  = json_decode(wp_remote_retrieve_body($resp), true);
-            $services = is_array($decoded) && isset($decoded['deliveryServicesAndPrices'])
+            $services = is_array($decoded) && is_array($decoded['deliveryServicesAndPrices'] ?? null)
                 ? $decoded['deliveryServicesAndPrices'] : [];
             foreach ($services as $s) {
+                if (!is_array($s)) { continue; }
                 $id   = (string) ($s['deliveryServiceId'] ?? '');
                 $base = substr($id, 0, 3);
                 if ($base === 'DPO' || $base === 'DNO') {
@@ -68,7 +73,8 @@ function mos_posturinn_droppoints(WP_REST_Request $req) {
         $resp = $api->parcelpoints_api_request();
         if (!is_wp_error($resp) && (int) wp_remote_retrieve_response_code($resp) === 200) {
             $decoded = json_decode(wp_remote_retrieve_body($resp), true);
-            $points  = is_array($decoded) && isset($decoded['parcelPoints']) ? $decoded['parcelPoints'] : [];
+            $points  = is_array($decoded) && is_array($decoded['parcelPoints'] ?? null) ? $decoded['parcelPoints'] : [];
+            $points  = array_values(array_filter($points, 'is_array'));
             $pc = (int) $postcode;
             usort($points, static function ($a, $b) use ($pc) {
                 return abs($pc - (int) ($a['postcode'] ?? 0)) - abs($pc - (int) ($b['postcode'] ?? 0));
@@ -81,6 +87,15 @@ function mos_posturinn_droppoints(WP_REST_Request $req) {
                 $items[] = ['id' => $name, 'name' => $label];
             }
         }
+    }
+
+    // Pósturinn didn't answer: say so (the picker shows a retry message, and nothing caches an empty list as
+    // the truth), remembered for a minute so repeated calls during an outage don't each hit Iceland Post.
+    if (is_wp_error($resp) || (int) wp_remote_retrieve_response_code($resp) !== 200) {
+        $why = is_wp_error($resp) ? $resp->get_error_message() : 'HTTP ' . wp_remote_retrieve_response_code($resp);
+        error_log("[mos-droppoints] Pósturinn {$type} lookup for {$postcode} failed: {$why}");
+        set_transient($cache_key, 'failed', MINUTE_IN_SECONDS);
+        return new WP_REST_Response(['ok' => false, 'code' => 'upstream_error', 'items' => []], 502);
     }
 
     // Cache successes for an hour; also cache empties briefly so a public caller

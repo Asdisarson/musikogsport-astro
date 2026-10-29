@@ -1,0 +1,47 @@
+---
+import AccountLayout from '../../../components/AccountLayout.astro';
+import { currentUser } from '../../../lib/auth';
+import { loadCustomer, UNAVAILABLE_TEXT } from '../../../lib/account';
+import { markUnavailable } from '../../../lib/http';
+import { addressLines } from '../../../lib/accountFormat';
+
+export const prerender = false;
+Astro.response.headers.set('Cache-Control', 'no-store');
+
+// WooCommerce's "Heimilisföng" endpoint: both saved addresses with "Breyta" links.
+const user = await currentUser(Astro.cookies);
+if (!user) return Astro.redirect('/min-sida/');
+const loaded = await loadCustomer(user.id);
+// WooCommerce down: a 503 with the outage notice, not "no address saved".
+const down = loaded === 'unavailable';
+if (down) markUnavailable(Astro.response);
+const customer = down ? null : loaded;
+const cards = [
+  { type: 'billing', title: 'Greiðsluheimilisfang', lines: addressLines(customer?.billing ?? {}) },
+  { type: 'shipping', title: 'Sendingarheimilisfang', lines: addressLines(customer?.shipping ?? {}) },
+];
+const notice = down
+  ? { kind: 'error' as const, text: UNAVAILABLE_TEXT }
+  : Astro.url.searchParams.get('saved') === '1' ? { kind: 'success' as const, text: 'Heimilisfangi breytt.' } : null;
+---
+
+<AccountLayout title="Heimilisföng" current="edit-address" notice={notice}>
+  {!down && (
+  <>
+  <p>Eftirfarandi heimilisföng verða notuð sjálfgefið á greiðslusíðunni.</p>
+  <div class="account-addresses">
+    {
+      cards.map((c) => (
+        <section>
+          <header class="account-addresses__head">
+            <h2 class="account__h2">{c.title}</h2>
+            <a href={`/min-sida/edit-address/${c.type}/`}>{c.lines.length ? 'Breyta' : 'Bæta við'}</a>
+          </header>
+          {c.lines.length ? <address>{c.lines.map((l) => <span>{l}</span>)}</address> : <p>Þú hefur ekki enn sett upp heimilisfang af þessari gerð.</p>}
+        </section>
+      ))
+    }
+  </div>
+  </>
+  )}
+</AccountLayout>

@@ -4,6 +4,7 @@
 // CORS blocks the browser from calling WP directly, so all traffic flows through us.
 import { WP_INTERNAL_URL } from 'astro:env/server';
 import type { Address, Cart, CheckoutPayload, OrderResult } from './types';
+import { STORE_API_TIMEOUT_MS } from './timeouts';
 
 const STORE_BASE = `${WP_INTERNAL_URL}/wp-json/wc/store/v1`;
 
@@ -13,6 +14,9 @@ export interface StoreResult<T> {
   data: T;
   /** Latest Cart-Token from the response header (persist & resend it). */
   cartToken: string | null;
+  /** Set when WordPress never answered (our time-out or a dropped connection): WooCommerce may still have done the
+   *  work, so a checkout in this state is recovered (LM-01), never reported as a plain failure. */
+  transportFailure?: 'timeout' | 'network';
 }
 
 async function storeFetch<T>(
@@ -24,19 +28,22 @@ async function storeFetch<T>(
   if (opts.cartToken) headers['Cart-Token'] = opts.cartToken;
   const method = opts.method ?? 'GET';
 
+  // Both the request and the reading of its body can fail on the transport: the time-out can fire (or the connection
+  // reset) after the headers arrived, and the body read then rejects. Either way WordPress may have done the work.
   let res: Response;
+  let text: string;
   try {
     res = await fetch(`${STORE_BASE}${path}`, {
       method,
       headers,
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-      // Generous backstop only — this path is request-scoped (/api/* routes, never page SSR),
-      // and shipping calc + order placement call Pósturinn's external rate API which can take
-      // several seconds (some postcodes ~4s warm). A tight timeout would abort valid checkouts.
-      signal: AbortSignal.timeout(25000),
+      // Generous backstop only (lib/timeouts): this path is request-scoped (/api/* routes, never page SSR), and
+      // shipping calc + order placement call Pósturinn's external rate API, which can take several seconds.
+      signal: AbortSignal.timeout(STORE_API_TIMEOUT_MS),
     });
+    text = await res.text();
   } catch (err) {
-    // Transport failure, or the 25s timeout firing (AbortSignal.timeout → TimeoutError). Don't
+    // Transport failure, or the time-out firing (AbortSignal.timeout → TimeoutError). Don't
     // throw: callers (checkout/cart routes) hand us straight to respondCart, which would otherwise
     // surface a raw 500 with no trace on the money path. Log once here and return a non-ok result
     // so respondCart emits a localized {message} and a real HTTP status. cartToken stays null —
@@ -50,11 +57,11 @@ async function storeFetch<T>(
       ok: false,
       data: { message: 'Þjónustan svaraði ekki, reyndu aftur.' } as T,
       cartToken: null,
+      transportFailure: timedOut ? 'timeout' : 'network',
     };
   }
 
   const cartToken = res.headers.get('Cart-Token');
-  const text = await res.text();
   let data: unknown = null;
   if (text) {
     try {
@@ -93,5 +100,8 @@ export const applyCoupon = (body: { code: string }, token?: string | null) =>
 export const removeCoupon = (body: { code: string }, token?: string | null) =>
   storeFetch<Cart>('/cart/remove-coupon', { method: 'POST', body, cartToken: token });
 
+// Always a guest checkout: Straumur signs its return URL with a nonce for the user WordPress sees here,
+// and the shopper's browser comes back from the gateway without the storefront's token — a signed-in
+// checkout would die on that nonce. A signed-in customer's order is attached afterwards (/api/checkout).
 export const checkout = (body: CheckoutPayload, token?: string | null) =>
   storeFetch<OrderResult>('/checkout', { method: 'POST', body, cartToken: token });

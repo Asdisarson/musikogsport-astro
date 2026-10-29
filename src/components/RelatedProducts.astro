@@ -1,25 +1,20 @@
 ---
+// The product page's related products (live: "Tengdar vörur", five of them) as the home tile carousel:
+// "Þér gæti líkað" in the uppercase display face, round arrows top-right, square #F5F5F5 tiles from the page gutter
+// bleeding off the right edge. The wrapper sets the --edge the home rows read (.home sets it on the home page).
 import type { WooProduct } from '../lib/types';
-import ProductGrid from './ProductGrid.astro';
+import ProductRow from './ProductRow.astro';
 
 interface Props {
   products: WooProduct[];
-  title?: string;
-  eyebrow?: string;
 }
-const { products, title = 'Þér gæti einnig líkað', eyebrow = 'Tengdar vörur' } = Astro.props;
+const { products } = Astro.props;
 ---
 
 {
   products.length > 0 && (
-    <section class="section--tight container container--wide related">
-      <div class="section__head">
-        <div>
-          <p class="eyebrow">{eyebrow}</p>
-          <h2>{title}</h2>
-        </div>
-      </div>
-      <ProductGrid products={products} />
-    </section>
+    <div class="pdp-related">
+      <ProductRow title="Þér gæti líkað" products={products} />
+    </div>
   )
 }

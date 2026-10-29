@@ -1,0 +1,44 @@
+---
+// Renders parsed WPBakery rows (wpbakery.ts) the way live's Goya/WPBakery pages lay them out.
+import type { Row } from '../lib/wpbakery';
+import { sanitizeHtml } from '../lib/sanitize';
+import { rewriteMediaHosts } from '../lib/img';
+import ContactForm from './ContactForm.astro';
+import Icon from './Icon.astro';
+import WishlistView from './WishlistView.tsx';
+
+interface Props {
+  rows: Row[];
+}
+const { rows } = Astro.props;
+// Links inside WP content point at the WP origin; make them storefront-relative. Media keeps the
+// production host (same rule as product images).
+const prepare = (html: string) =>
+  sanitizeHtml(rewriteMediaHosts(html.replace(/(href=")https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\//gi, '$1/')));
+---
+
+{
+  rows.map((row) => (
+    <div class:list={['vc-row', row.fullWidth && 'vc-row--full']}>
+      {row.cols.map((col) => (
+        <div class="vc-col" style={`--span:${col.span}`}>
+          {col.blocks.map((b) =>
+            b.type === 'html' ? (
+              <div class="vc-text" set:html={prepare(b.html)} />
+            ) : b.type === 'icon' ? (
+              <span class="vc-icon" aria-hidden="true">
+                <Icon name={b.glyph} size={24} stroke-width={1.5} />
+              </span>
+            ) : b.type === 'map' ? (
+              <iframe class="vc-map" src={b.src} loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Kort" />
+            ) : b.type === 'form' ? (
+              <ContactForm />
+            ) : (
+              <WishlistView client:load />
+            ),
+          )}
+        </div>
+      ))}
+    </div>
+  ))
+}

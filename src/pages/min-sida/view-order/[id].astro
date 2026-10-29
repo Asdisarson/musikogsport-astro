@@ -1,0 +1,113 @@
+---
+import AccountLayout from '../../../components/AccountLayout.astro';
+import Base from '../../../layouts/Base.astro';
+import NotFound from '../../../components/NotFound.astro';
+import { currentUser } from '../../../lib/auth';
+import { getOwnOrder, STATUS_LABELS, UNAVAILABLE_TEXT } from '../../../lib/account';
+import { markUnavailable } from '../../../lib/http';
+import { addressLines } from '../../../lib/accountFormat';
+import { formatISK } from '../../../lib/format';
+import { isPosInt } from '../../../lib/validate';
+
+export const prerender = false;
+Astro.response.headers.set('Cache-Control', 'no-store');
+
+// WooCommerce's view-order endpoint. Someone else's order gets the same 404 as a missing one.
+const user = await currentUser(Astro.cookies);
+if (!user) return Astro.redirect('/min-sida/');
+const id = Number(Astro.params.id);
+const found = isPosInt(id) ? await getOwnOrder(user.id, id) : null;
+// WooCommerce down: a 503 "try again", not "Pöntun fannst ekki".
+const down = found === 'unavailable';
+const order = down ? null : found;
+if (down) markUnavailable(Astro.response);
+else if (!order) Astro.response.status = 404;
+const date = order?.date_created
+  ? new Intl.DateTimeFormat('is-IS', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(order.date_created))
+  : '';
+const subtotal = (order?.line_items ?? []).reduce((n, li) => n + Number(li.total), 0);
+const shippingTotal = (order?.shipping_lines ?? []).reduce((n, s) => n + Number(s.total), 0);
+// `amount` never wraps; `text` (a shipping title, the payment method) may, so a long bacs label fits a phone.
+const rows: { label: string; amount?: string; text?: string }[] = order
+  ? [
+      { label: 'Millisamtala:', amount: formatISK(subtotal) },
+      ...(Number(order.discount_total) > 0 ? [{ label: 'Afsláttur:', amount: `-${formatISK(order.discount_total)}` }] : []),
+      ...(order.shipping_lines.length
+        ? [{ label: 'Vörusendingar:', amount: shippingTotal > 0 ? formatISK(shippingTotal) : undefined, text: order.shipping_lines.map((s) => s.title).join(', ') }]
+        : []),
+      ...(order.payment_method_title ? [{ label: 'Greiðslumáti:', text: order.payment_method_title }] : []),
+    ]
+  : [];
+const billing = order ? addressLines(order.billing) : [];
+const shipping = order ? addressLines(order.shipping) : [];
+---
+
+{
+  order ? (
+    <AccountLayout title={`Pöntun #${order.number}`} current="orders">
+      <p class="account-order__lead">
+        Pöntun #<mark>{order.number}</mark> var gerð þann <mark>{date}</mark> og er nú <mark>{STATUS_LABELS[order.status] ?? order.status}</mark>.
+      </p>
+      <h2 class="account__h2">Pöntunarupplýsingar</h2>
+      <table class="review-table">
+        <thead>
+          <tr>
+            <th>Vara</th>
+            <th>Samtals</th>
+          </tr>
+        </thead>
+        <tbody>
+          {order.line_items.map((li) => (
+            <tr>
+              <td>
+                {li.name}{' '}<strong class="review-table__qty">× {li.quantity}</strong>
+              </td>
+              <td>{formatISK(li.total)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          {rows.map((r) => (
+            <tr>
+              <th>{r.label}</th>
+              <td class={r.text ? 'review-table__text' : undefined}>
+                {r.amount && <span class="review-table__amount">{r.amount}</span>}{r.amount && r.text ? ' ' : ''}{r.text}
+              </td>
+            </tr>
+          ))}
+          <tr class="review-table__total-row">
+            <th>Samtals:</th>
+            <td>
+              <strong>{formatISK(order.total)}</strong>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+      {order.customer_note && (
+        <p class="account-order__note">
+          <strong>Athugasemd:</strong>{' '}{order.customer_note}
+        </p>
+      )}
+      <div class="account-addresses">
+        <section>
+          <h2 class="account__h2">Greiðsluheimilisfang</h2>
+          <address>{billing.map((l) => <span>{l}</span>)}</address>
+        </section>
+        {shipping.length > 0 && (
+          <section>
+            <h2 class="account__h2">Sendingarheimilisfang</h2>
+            <address>{shipping.map((l) => <span>{l}</span>)}</address>
+          </section>
+        )}
+      </div>
+    </AccountLayout>
+  ) : (
+    down ? (
+      <AccountLayout title="Pöntun" current="orders" notice={{ kind: 'error', text: UNAVAILABLE_TEXT }} />
+    ) : (
+      <Base title="Pöntun fannst ekki" noindex>
+        <NotFound title="Pöntun fannst ekki" message="Þessi pöntun er ekki til eða tilheyrir ekki þínum aðgangi." />
+      </Base>
+    )
+  )
+}

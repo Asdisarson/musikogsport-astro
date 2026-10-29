@@ -1,239 +1,28 @@
 ---
+// Legacy app-astro product URL → 301 to live's /verslun/<category path>/<slug>/.
 import Base from '../../layouts/Base.astro';
-import Breadcrumbs from '../../components/Breadcrumbs.astro';
-import ProductImage from '../../components/ProductImage.astro';
-import PriceTag from '../../components/PriceTag.astro';
 import NotFound from '../../components/NotFound.astro';
-import ProductPurchase from '../../components/ProductPurchase.tsx';
-import RelatedProducts from '../../components/RelatedProducts.astro';
-import RecentlyViewed from '../../components/RecentlyViewed.tsx';
-import Icon from '../../components/Icon.astro';
-import { getProductBySlug, getVariations, getProductsByIds } from '../../lib/woo';
-import { productImage } from '../../lib/img';
-import { mediaUrl } from '../../lib/img';
-import { formatISK } from '../../lib/format';
-import { splitBrand } from '../../lib/brand';
-import { decodeEntities, stripShortcodes } from '../../lib/decode';
-import { sanitizeHtml } from '../../lib/sanitize';
-import { ld, productLd, breadcrumbList } from '../../lib/jsonld';
-import type { PdpVariation } from '../../lib/types';
+import { getProductBySlug } from '../../lib/woo';
+import { productPath } from '../../lib/paths';
+import { markUnavailable } from '../../lib/http';
 
 export const prerender = false;
 
 const slug = Astro.params.slug ?? '';
-const product = slug ? await getProductBySlug(slug).catch(() => null) : null;
-if (!product) {
-  Astro.response.status = 404;
-}
-
-let variationAttrs: { name: string; options: string[] }[] = [];
-let variationsFailed = false;
-let variations: PdpVariation[] = [];
-
-if (product && product.type === 'variable') {
-  variationAttrs = (product.attributes ?? [])
-    .filter((a) => a.variation)
-    .map((a) => ({ name: a.name, options: a.options }));
-  const raw = await getVariations(product.id).catch(() => {
-    variationsFailed = true;
-    return [];
-  });
-  variations = raw.map((v) => ({
-    id: v.id,
-    attributes: v.attributes.map((a) => ({ name: a.name, option: a.option })),
-    price: v.price,
-    regular_price: v.regular_price,
-    sale_price: v.sale_price,
-    on_sale: v.on_sale,
-    stock_status: v.stock_status,
-    image: v.image?.src ? { src: mediaUrl(v.image.src), alt: v.image.alt ?? '' } : null,
-  }));
-}
-
-// Related products ("Þér gæti einnig líkað"), key-fields only, current item excluded.
-// Exclude self BEFORE the fetch caps to 8, so a self-referential related_id (some WC
-// setups inject one) can't consume a slot and silently leave the strip one short.
-const relatedIds = (product?.related_ids ?? []).filter((id) => id !== product?.id);
-const related = product && relatedIds.length ? await getProductsByIds(relatedIds, 8).catch(() => []) : [];
-
-// Pre-rendered current-price text for the recently-viewed card (so it needs no client
-// fetch). A single price only — no "was"/sale state, which would go stale in localStorage.
-let recentPriceText = '';
-if (product) {
-  if (product.on_sale && product.sale_price) {
-    recentPriceText = formatISK(product.sale_price);
-  } else if (product.price && Number.isFinite(Number(product.price))) {
-    recentPriceText = (product.type === 'variable' ? 'frá ' : '') + formatISK(product.price);
-  } else {
-    const varPrices = variations.map((v) => Number(v.price)).filter((n) => n > 0);
-    if (varPrices.length) recentPriceText = 'frá ' + formatISK(Math.min(...varPrices));
-  }
-}
-
-// Minimum price for a VARIABLE PDP before any swatch is chosen — mirrors what the shop card /
-// PriceTag shows, so the price no longer vanishes on the PDP. ProductPurchase renders it as
-// "frá {min}" and swaps in the exact variation price once a selection resolves.
-let basePriceMin: number | undefined;
-if (product?.type === 'variable') {
-  if (product.price && Number.isFinite(Number(product.price))) {
-    basePriceMin = Number(product.price);
-  } else {
-    const varPrices = variations.map((v) => Number(v.price)).filter((n) => n > 0);
-    if (varPrices.length) basePriceMin = Math.min(...varPrices);
-  }
-}
-
-const name = product ? decodeEntities(product.name) : '';
-const { brand, rest } = product ? splitBrand(product.name) : { brand: undefined, rest: '' };
-const img = product ? productImage(product) : { src: '', alt: '' };
-const inStock = product?.stock_status === 'instock';
-const cat = product?.categories?.[0];
-const gallery = product ? product.images.slice(0, 6) : [];
-
-const crumbs: { label: string; href?: string }[] = [
-  { label: 'Forsíða', href: '/' },
-  { label: 'Verslun', href: '/verslun' },
-];
-if (cat) crumbs.push({ label: decodeEntities(cat.name), href: `/verslun/${cat.slug}` });
-if (product) crumbs.push({ label: name });
-
-// Structured data for the product detail page.
-const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? 'https://musikogsport.is/').href;
-let productLdObj: ReturnType<typeof productLd> | null = null;
-let breadcrumbLdObj: ReturnType<typeof breadcrumbList> | null = null;
-if (product) {
-  const images = (gallery.length ? gallery.map((im) => mediaUrl(im.src) || im.src) : [img.src]).filter(Boolean);
-  const plainDesc = decodeEntities((product.short_description || product.description || '').replace(/<[^>]*>/g, ' '))
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 500);
-  const varPrices = variations.map((v) => Number(v.price)).filter((n) => n > 0);
-  productLdObj = productLd({
-    name,
-    url: canonicalUrl,
-    images,
-    description: plainDesc || undefined,
-    sku: product.sku,
-    brand,
-    inStock,
-    price: product.price,
-    priceRange:
-      product.type === 'variable' && varPrices.length
-        ? { low: Math.min(...varPrices), high: Math.max(...varPrices), count: varPrices.length }
-        : undefined,
-  });
-  breadcrumbLdObj = breadcrumbList(crumbs, Astro.site?.href ?? 'https://musikogsport.is/', canonicalUrl);
-}
+// A failed lookup is an outage (a missing slug is an empty list), so it answers 503, not 404.
+let down = false;
+const product = slug
+  ? await getProductBySlug(slug).catch(() => {
+      down = true;
+      return null;
+    })
+  : null;
+const redirectTo = product ? productPath(product.permalink, product.slug) : null;
+if (redirectTo) return Astro.redirect(redirectTo, 301);
+if (down) markUnavailable(Astro.response);
+else Astro.response.status = 404;
 ---
 
-{
-  product ? (
-    <Base
-      title={name}
-      description={decodeEntities((product.short_description ?? '').replace(/<[^>]*>/g, '').slice(0, 150))}
-      image={img.src}
-      ogType="product"
-    >
-      {productLdObj && <script type="application/ld+json" is:inline slot="head" set:html={ld(productLdObj)} />}
-      {breadcrumbLdObj && <script type="application/ld+json" is:inline slot="head" set:html={ld(breadcrumbLdObj)} />}
-      <div class="container container--wide">
-        <Breadcrumbs items={crumbs} />
-      </div>
-      <div class="container container--wide pdp">
-        <div class="pdp__gallery">
-          <div class="pdp__main">
-            <ProductImage id="pdp-main" src={img.src} alt={img.alt} loading="eager" />
-          </div>
-          {gallery.length > 1 && (
-            <div class="pdp__thumbs">
-              {gallery.map((im, idx) => (
-                <button
-                  class="pdp__thumb"
-                  type="button"
-                  data-full={mediaUrl(im.src) || img.src}
-                  data-alt={im.alt || name}
-                  aria-current={idx === 0 ? 'true' : undefined}
-                  aria-label={`Mynd ${idx + 1} af ${name}`}
-                >
-                  <ProductImage src={im.src} alt="" />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div class="pdp__info">
-          {brand && <p class="pdp__brand">{brand}</p>}
-          <h1 class="pdp__title">{brand ? rest : name}</h1>
-          {product.type !== 'variable' && (
-            <div class="pdp__price">
-              <PriceTag product={product} />
-            </div>
-          )}
-
-          <ProductPurchase
-            client:load
-            productId={product.id}
-            type={product.type}
-            inStock={inStock}
-            variationAttrs={variationAttrs}
-            variations={variations}
-            variationsFailed={variationsFailed}
-            baseImage={{ src: img.src, alt: img.alt }}
-            basePriceMin={basePriceMin}
-          />
-
-          <button
-            class="btn btn--ghost btn--block wish-pdp"
-            type="button"
-            data-wish
-            data-id={product.id}
-            data-slug={product.slug}
-            data-name={name}
-            data-image={img.src}
-            aria-pressed="false"
-          >
-            <Icon name="heart" size={18} />
-            <span class="wish-pdp__off">Setja á óskalista</span>
-            <span class="wish-pdp__on">Á óskalista</span>
-          </button>
-
-          <a class="pdp__sizeguide" href="/staerdir">Sjá stærðartöflu</a>
-
-          {product.short_description && (
-            <div class="form-note" style="margin-top:1.5rem;" set:html={sanitizeHtml(stripShortcodes(product.short_description))} />
-          )}
-
-          <ul class="pdp__trust">
-            <li><Icon name="truck" /> Frí sending á höfuðborgarsvæðinu yfir 15.000 kr.</li>
-            <li><Icon name="refresh" /> <a href="/skilmalar">30 daga skilaréttur</a> — einföld skil og skipti.</li>
-            <li><Icon name="shield" /> Öruggar greiðslur með Visa, Mastercard og Apple Pay.</li>
-          </ul>
-        </div>
-      </div>
-
-      {product.description && (
-        <div class="container container--wide">
-          <div class="pdp__desc" set:html={sanitizeHtml(stripShortcodes(product.description))} />
-        </div>
-      )}
-
-      <RelatedProducts products={related} />
-
-      <RecentlyViewed
-        client:idle
-        current={{
-          id: product.id,
-          slug: product.slug,
-          name: product.name,
-          image: img.src,
-          priceText: recentPriceText,
-        }}
-      />
-    </Base>
-  ) : (
-    <Base title="Vara fannst ekki">
-      <NotFound title="Vara fannst ekki" message="Þessi vara er ekki til eða hefur verið fjarlægð." />
-    </Base>
-  )
-}
+<Base title={down ? 'Tímabundin bilun' : 'Vara fannst ekki'}>
+  <NotFound unavailable={down} title="Vara fannst ekki" message="Þessi vara er ekki til eða hefur verið fjarlægð." />
+</Base>

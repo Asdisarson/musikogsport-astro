@@ -1,0 +1,48 @@
+---
+// Any published WordPress page at its live URL (/hafa-samband/, /skilmalar/, /opnunartimi/,
+// /staerdir/ …), rendered from its WPBakery content. Static routes (cart, checkout, account,
+// wishlist, …) take precedence over this one.
+import Base from '../layouts/Base.astro';
+import WpContent from '../components/WpContent.astro';
+import NotFound from '../components/NotFound.astro';
+import { getWpPage, WpUnavailable } from '../lib/wp';
+import { markUnavailable } from '../lib/http';
+import { wooDefaultPageTarget } from '../lib/paths';
+
+export const prerender = false;
+
+// WooCommerce system pages are served by their own routes, never as plain content.
+const SYSTEM_PAGES = new Set(['verslun', 'karfa', 'gera-upp', 'min-sida', 'oskalisti']);
+const slug = Astro.params.slug ?? '';
+// WooCommerce's English default pages (/cart/, /checkout/, /my-account/, /shop/): 301 to the Icelandic routes.
+const wooTarget = wooDefaultPageTarget(slug);
+if (wooTarget) return Astro.redirect(wooTarget, 301);
+let down = false;
+const page =
+  /^[a-z0-9-]+$/.test(slug) && !SYSTEM_PAGES.has(slug)
+    ? await getWpPage(slug).catch((err) => {
+        if (!(err instanceof WpUnavailable)) throw err;
+        down = true;
+        return null;
+      })
+    : null;
+if (down) markUnavailable(Astro.response);
+else if (!page) Astro.response.status = 404;
+---
+
+{
+  page ? (
+    <Base title={page.title}>
+      <header class="page-header">
+        <h1 class="page-title">{page.title}</h1>
+      </header>
+      <div class="wp-page container">
+        <WpContent rows={page.rows} />
+      </div>
+    </Base>
+  ) : (
+    <Base title={down ? 'Tímabundin bilun' : 'Síða fannst ekki'}>
+      <NotFound unavailable={down} title="Síða fannst ekki" message="Þessi síða er ekki til." />
+    </Base>
+  )
+}

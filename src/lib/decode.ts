@@ -18,12 +18,14 @@ export function stripShortcodes(html: string | null | undefined): string {
 
 export function decodeEntities(input: string | null | undefined): string {
   if (!input) return input ?? '';
-  return input.replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]*);/g, (match, code: string) => {
+  return input.replace(/&(#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]*);/g, (match, code: string) => {
     if (code[0] === '#') {
       const num = code[1] === 'x' || code[1] === 'X' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
       // Guard the valid Unicode range — String.fromCodePoint throws RangeError above 0x10FFFF
       // (e.g. a malformed &#9999999;), which would otherwise crash SSR frontmatter mid-render.
-      return Number.isFinite(num) && num >= 0 && num <= 0x10ffff ? String.fromCodePoint(num) : match;
+      // A control character (NUL, ESC, DEL …; tab, newline and CR excepted) is kept as written, never produced.
+      const control = (num < 0x20 && num !== 0x09 && num !== 0x0a && num !== 0x0d) || num === 0x7f;
+      return Number.isFinite(num) && num >= 0 && num <= 0x10ffff && !control ? String.fromCodePoint(num) : match;
     }
     return NAMED[code] ?? match;
   });

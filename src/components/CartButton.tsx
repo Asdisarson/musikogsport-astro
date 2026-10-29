@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { cartCount, ensureLoaded, openCart } from '../lib/cartStore';
+import { countWord } from '../lib/plural';
 
 export default function CartButton() {
   const count = useStore(cartCount);
@@ -33,7 +34,7 @@ export default function CartButton() {
       type="button"
       className="icon-btn cart-link"
       onClick={openCart}
-      aria-label={shown > 0 ? `Opna körfu (${shown} vörur)` : 'Opna körfu'}
+      aria-label={shown > 0 ? `Opna körfu (${countWord(shown, 'vara', 'vörur')})` : 'Opna körfu'}
     >
       <svg
         width="24"
@@ -41,16 +42,17 @@ export default function CartButton() {
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        strokeWidth={1.8}
+        strokeWidth={1.5}
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden="true"
         focusable="false"
       >
-        <path d="M6.5 8h11l-1 11.5a1 1 0 0 1-1 .9H8.5a1 1 0 0 1-1-.9L6.5 8Z" />
-        <path d="M9 8a3 3 0 0 1 6 0" />
+        {/* the `bag` glyph of Icon.astro */}
+        <path d="M4.5 8.5h15l-1.2 11.6a1 1 0 0 1-1 .9H6.7a1 1 0 0 1-1-.9L4.5 8.5Z" />
+        <path d="M8.5 8.5V7a3.5 3.5 0 0 1 7 0v1.5" />
       </svg>
-      <span className="cart-count" data-count={shown} data-pop={pop ? 'true' : undefined}>
+      <span className="cart-count icon-count" data-count={shown} data-pop={pop ? 'true' : undefined}>
         {shown > 0 ? shown : ''}
       </span>
     </button>

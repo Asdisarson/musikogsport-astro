@@ -1,0 +1,9 @@
+---
+// Old app-astro checkout URLs → live's: /utskra → /gera-upp/, /utskra/takk → the order-received
+// endpoint, /utskra/villa → the checkout's payment notice.
+import { legacyCheckoutTarget } from '../../lib/paths';
+
+export const prerender = false;
+const target = legacyCheckoutTarget(Astro.url.pathname, Astro.url.searchParams);
+if (target) return Astro.redirect(target, 301);
+---

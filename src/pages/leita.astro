@@ -1,47 +1,10 @@
 ---
-import Base from '../layouts/Base.astro';
-import ProductGrid from '../components/ProductGrid.astro';
-import Pagination from '../components/Pagination.astro';
-import Breadcrumbs from '../components/Breadcrumbs.astro';
-import Icon from '../components/Icon.astro';
-import { searchProducts } from '../lib/woo';
-import { pageHref } from '../lib/query';
-import type { Paged, WooProduct } from '../lib/types';
+// Legacy app-astro search URL (/leita?q=) → 301 to live's WordPress-style /?s=<q>&post_type=product.
+import { legacySearchTarget } from '../lib/paths';
 
 export const prerender = false;
 
-const params = Astro.url.searchParams;
-const q = (params.get('q') ?? '').trim();
-const page = Math.max(1, Number(params.get('page')) || 1);
-
-const empty: Paged<WooProduct> = { items: [], total: 0, totalPages: 0, page };
-const result = q ? await searchProducts(q, page).catch(() => empty) : empty;
-
-const baseParams = new URLSearchParams();
-if (q) baseParams.set('q', q);
-const hrefFor = (n: number) => pageHref('/leita', baseParams, n);
+const target = legacySearchTarget(Astro.url.searchParams.get('q'));
+// Always true; kept because astro check counts nothing read only by an unconditional frontmatter `return`.
+if (target) return Astro.redirect(target, 301);
 ---
-
-<Base title={q ? `Leit: ${q}` : 'Leit'}>
-  <div class="container container--wide">
-    <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Leit' }]} />
-    <div class="page-head">
-      <p class="eyebrow">Leit</p>
-      <h1>{q ? `„${q}“` : 'Leita að vörum'}</h1>
-      <form class="search-page" action="/leita" method="get" role="search">
-        <div class="search-inline">
-          <Icon name="search" />
-          <input type="search" name="q" value={q} placeholder="Leita að vörum…" aria-label="Leita að vörum" autofocus={!q} />
-        </div>
-        <button class="btn btn--accent" type="submit">Leita</button>
-      </form>
-      {q && <p class="muted" style="margin-top:1rem">{result.total.toLocaleString('is-IS')} vörur fundust.</p>}
-    </div>
-  </div>
-  <div class="section--tight container container--wide">
-    <ProductGrid products={result.items} eagerCount={4} empty={q ? 'Engar vörur fundust — prófaðu annað leitarorð.' : 'Sláðu inn leitarorð hér að ofan.'} />
-  </div>
-  <div class="container container--wide">
-    <Pagination page={result.page} totalPages={result.totalPages} hrefFor={hrefFor} />
-  </div>
-</Base>

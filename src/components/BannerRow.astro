@@ -1,0 +1,28 @@
+---
+// One row of home story tiles (nike-look) from the WP banners: two half-width 4:5 tiles, or one full-width
+// tile when a banner is left over. The whole tile is the link; the title is an uppercase display headline
+// bottom-left over a lower gradient, with a white "Skoða" pill (a span, so links don't nest).
+// A banner without an image keeps ink text on #F5F5F5.
+import type { Banner } from '../lib/frontPage';
+
+interface Props {
+  banners: Banner[];
+}
+const { banners } = Astro.props;
+---
+
+{
+  banners.length > 0 && (
+    <div class:list={['story-row', banners.length === 1 && 'story-row--single']}>
+      {banners.map((b) => (
+        <a class:list={['story', !b.image && 'story--plain']} href={b.href || '/verslun/'}>
+          {b.image && <img class="story__img" src={b.image.url} alt="" width={b.image.width} height={b.image.height} loading="lazy" decoding="async" />}
+          <div class="story__copy">
+            <h2 class="story__title">{b.title}</h2>
+            <span class:list={['pill', !b.image && 'pill--ink']}>Skoða</span>
+          </div>
+        </a>
+      ))}
+    </div>
+  )
+}

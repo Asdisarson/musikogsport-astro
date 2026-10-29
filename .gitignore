@@ -4,7 +4,7 @@ dist/
 .astro/
 
 # dependencies
-node_modules/
+node_modules
 
 # logs
 npm-debug.log*
@@ -22,3 +22,15 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+# Playwright MCP artefacts (screenshots, snapshots, console logs)
+.playwright-mcp/
+
+# Refined Goya review harness (not part of the app)
+.scratch/**/node_modules/
+.scratch/refined-goya/harness/shots/
+.scratch/refined-goya/harness/skep1tmp/
+.scratch/refined-goya/review/img/
+.scratch/nike-look/reference/*.png
+.scratch/nike-look/reference/out.json
+.scratch/nike-look/harness/shots/

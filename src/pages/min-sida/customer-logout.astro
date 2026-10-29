@@ -1,0 +1,16 @@
+---
+import Base from '../../layouts/Base.astro';
+
+export const prerender = false;
+Astro.response.headers.set('Cache-Control', 'no-store');
+// WooCommerce asks for confirmation when a logout link has no nonce; signing out is a POST here.
+---
+
+<Base title="Útskráning" noindex>
+  <div class="login-wrap">
+    <h1 class="login-wrap__title">Mín Síða</h1>
+    <form class="woo-notice woo-notice--info" method="post" action="/api/account/logout">
+      Ertu viss um að þú viljir skrá þig út? <button class="link-button" type="submit">Staðfesta og skrá út</button>
+    </form>
+  </div>
+</Base>

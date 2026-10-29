@@ -1,384 +1,517 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
-import { cart, cartLoading, ensureLoaded, resetCart, selectShipping, setCustomer } from '../lib/cartStore';
-import { droppoint, rateNeedsPostbox } from '../lib/droppointStore';
-import { formatStoreMoney } from '../lib/format';
+import { cart, cartLoading, ensureLoaded, resetCart, selectShipping, setCustomer, cartError, withCartLock } from '../lib/cartStore';
+import { droppoint, postboxReady, rateNeedsPostbox, verifiedDroppoint } from '../lib/droppointStore';
+import { formatISK, formatStoreMoney } from '../lib/format';
 import { decodeEntities } from '../lib/decode';
+import { cartSubtotal, cartViewState, lineSubtotal } from '../lib/cartView';
+import { CHECKING_MESSAGE, addressFor, checkoutBody, pollCheckoutStatus, submitCheckout, type FormAddress } from '../lib/checkoutFlow';
+import { newAttemptId } from '../lib/attemptId';
+import { CHECKOUT_CLIENT_TIMEOUT_MS } from '../lib/timeouts';
+import { onPageRestored } from '../lib/pageLifecycle';
+import { CartLoadError, LineImage } from './CartParts';
 import DroppointSelect from './DroppointSelect';
-import CouponField from './CouponField';
+import CouponField, { CouponRows } from './CouponField';
 
-interface FormState {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  address1: string;
-  city: string;
-  postcode: string;
+// The checkout (WooCommerce classic, distraction-free; nike-look): billing fields with their labels above on the
+// left, "Þín pöntun" (the cart summary's anatomy), the discount code, payment and "Panta" on the right. Fields use
+// Woo's form-row-first/last/wide floats, paired as Kennitala + company and Póstnúmer + Borg / Bær.
+// The order review re-quotes Pósturinn shipping once the address is complete, like Woo's
+// update_order_review.
+
+type Width = 'first' | 'last' | 'wide';
+type Address = FormAddress;
+interface FieldDef {
+  key: keyof Address;
+  label: string;
+  width: Width;
+  required?: boolean;
+  type?: string;
+  autoComplete?: string;
+  inputMode?: 'numeric' | 'tel' | 'email';
 }
 
-const EMPTY: FormState = {
-  firstName: '',
-  lastName: '',
-  email: '',
-  phone: '',
-  address1: '',
-  city: '',
-  postcode: '',
-};
+const EMPTY: Address = { first_name: '', last_name: '', company: '', address_1: '', address_2: '', postcode: '', city: '', phone: '', email: '' };
 
-// Display copy for the gateways the Store API exposes via cart.payment_methods.
-// Order matters: card first (the IS market default), bank transfer second.
-const PAYMENT_META: Record<string, { label: string; desc: string }> = {
-  straumur: { label: 'Greiðslukort', desc: 'Visa · Mastercard — örugg greiðsla hjá Straumur.' },
+// Live's field order (WooCommerce Checkout Field Editor config); widths pair related fields.
+const BILLING_BEFORE_COUNTRY: FieldDef[] = [
+  { key: 'first_name', label: 'Eiginnafn', width: 'first', required: true, autoComplete: 'given-name' },
+  { key: 'last_name', label: 'Eftirnafn', width: 'last', required: true, autoComplete: 'family-name' },
+];
+const BILLING_AFTER_COUNTRY: FieldDef[] = [
+  { key: 'address_1', label: 'Heimilisfang', width: 'wide', required: true, autoComplete: 'address-line1' },
+  { key: 'address_2', label: 'Íbúð, hæð o.fl.', width: 'wide', autoComplete: 'address-line2' },
+  { key: 'postcode', label: 'Póstnúmer', width: 'first', required: true, inputMode: 'numeric', autoComplete: 'postal-code' },
+  { key: 'city', label: 'Borg / Bær', width: 'last', required: true, autoComplete: 'address-level2' },
+  { key: 'phone', label: 'Sími', width: 'wide', required: true, type: 'tel', inputMode: 'tel', autoComplete: 'tel' },
+  { key: 'email', label: 'Netfang', width: 'wide', required: true, type: 'email', inputMode: 'email', autoComplete: 'email' },
+];
+const SHIPPING_FIELDS: FieldDef[] = [
+  { key: 'first_name', label: 'Eiginnafn', width: 'first', required: true, autoComplete: 'shipping given-name' },
+  { key: 'last_name', label: 'Eftirnafn', width: 'last', required: true, autoComplete: 'shipping family-name' },
+  { key: 'company', label: 'Nafn fyrirtækis', width: 'wide', autoComplete: 'shipping organization' },
+  { key: 'address_1', label: 'Heimilisfang', width: 'wide', required: true, autoComplete: 'shipping address-line1' },
+  { key: 'address_2', label: 'Íbúð, hæð o.fl.', width: 'wide', autoComplete: 'shipping address-line2' },
+  { key: 'postcode', label: 'Póstnúmer', width: 'first', required: true, inputMode: 'numeric', autoComplete: 'shipping postal-code' },
+  { key: 'city', label: 'Borg / Bær', width: 'last', required: true, autoComplete: 'shipping address-level2' },
+];
+
+// Copy for the local gateways the Store API offers (live itself runs a single card gateway).
+const PAYMENT_META: Record<string, { label: string; desc: string; cards?: boolean }> = {
+  straumur: { label: 'Greiðslukort', desc: 'Gera upp með kreditkorti', cards: true },
   bacs: { label: 'Bankamillifærsla', desc: 'Greiðsluupplýsingar fylgja í staðfestingarpósti.' },
 };
 const PAYMENT_ORDER = ['straumur', 'bacs'];
 
-// Hosts we'll follow a post-payment redirect to, besides our own origin. The card gateway
-// (Straumur) hands back a hosted-checkout URL; the bank-transfer flow returns to our own
-// /utskra/takk. Anything else (a tampered backend response) is bounced to /utskra/villa.
-// TODO(go-live): confirm the EXACT Straumur hosted-checkout host before enabling card payments
-// and pin it here — *.straumur.is is a conservative guess, not a verified domain.
-const STRAUMUR_HOSTS = ['straumur.is'];
-
-/** True iff `url` is same-origin or an https URL on an allowlisted Straumur host. */
-function isAllowedRedirect(url: string): boolean {
-  try {
-    const u = new URL(url, window.location.origin);
-    if (u.origin === window.location.origin) return true;
-    if (u.protocol !== 'https:') return false;
-    return STRAUMUR_HOSTS.some((h) => u.hostname === h || u.hostname.endsWith(`.${h}`));
-  } catch {
-    return false;
-  }
+function FloatField({
+  id,
+  def,
+  value,
+  invalid,
+  onChange,
+}: {
+  id: string;
+  def: Omit<FieldDef, 'key'>;
+  value: string;
+  invalid: boolean;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <p
+      className={`form-row form-row-${def.width}${value ? ' has-val' : ''}${invalid ? ' is-invalid' : ''}`}
+      id={`${id}_field`}
+    >
+      <input
+        id={id}
+        className="input-text"
+        type={def.type ?? 'text'}
+        value={value}
+        inputMode={def.inputMode}
+        autoComplete={def.autoComplete}
+        aria-required={def.required ? 'true' : undefined}
+        aria-invalid={invalid ? 'true' : undefined}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <label htmlFor={id}>
+        {def.label}
+        {def.required ? <abbr className="required" title="nauðsynlegt"> *</abbr> : <span className="optional"> (valfrjálst)</span>}
+      </label>
+    </p>
+  );
 }
 
-export default function CheckoutForm() {
+function CountryField({ id, width }: { id: string; width: Width }) {
+  return (
+    <p className={`form-row form-row-${width} has-val`} id={`${id}_field`}>
+      <select id={id} className="input-text" value="IS" onChange={() => {}} aria-required="true">
+        <option value="IS">Ísland</option>
+      </select>
+      <label htmlFor={id}>
+        Land<abbr className="required" title="nauðsynlegt">*</abbr>
+      </label>
+    </p>
+  );
+}
+
+const CardLogos = () => (
+  <span className="pay-logos" aria-hidden="true">
+    <svg viewBox="0 0 48 16" width="42" height="14"><text x="0" y="13" fontFamily="Arial, sans-serif" fontWeight="900" fontStyle="italic" fontSize="15" fill="#1a1f71">VISA</text></svg>
+    <svg viewBox="0 0 32 20" width="30" height="19"><circle cx="11" cy="10" r="9" fill="#eb001b" /><circle cx="21" cy="10" r="9" fill="#f79e1b" fillOpacity="0.9" /></svg>
+    <svg viewBox="0 0 32 20" width="30" height="19"><circle cx="11" cy="10" r="9" fill="#0099df" /><circle cx="21" cy="10" r="9" fill="#e60012" fillOpacity="0.85" /></svg>
+  </span>
+);
+
+export default function CheckoutForm({ status = '', initialBilling }: { status?: string; initialBilling?: Partial<Record<keyof Address, string>> }) {
   const $cart = useStore(cart);
   const loading = useStore(cartLoading);
   const $droppoint = useStore(droppoint);
-  const [form, setForm] = useState<FormState>(EMPTY);
-  const [addressDone, setAddressDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [placing, setPlacing] = useState(false);
+  const $verifiedDroppoint = useStore(verifiedDroppoint);
+  // A signed-in customer starts from their saved billing address, as with WooCommerce.
+  const [billing, setBilling] = useState<Address>(() => {
+    const start = { ...EMPTY };
+    for (const k of Object.keys(EMPTY) as (keyof Address)[]) if (typeof initialBilling?.[k] === 'string') start[k] = initialBilling[k]!;
+    return start;
+  });
+  const [shipping, setShipping] = useState<Address>(EMPTY);
+  const [shipDiff, setShipDiff] = useState(false);
+  const [kennitala, setKennitala] = useState('');
+  const [skiptimidi, setSkiptimidi] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [terms, setTerms] = useState(false);
+  const [couponOpen, setCouponOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('');
+  const [errors, setErrors] = useState<string[]>([]);
+  // Failed re-quotes and shipping-rate changes land in the shared cartError; show them with the
+  // order errors (coupon errors stay inline under the coupon field).
+  const cartErr = useStore(cartError);
+  const shownErrors = [...new Set([...(cartErr ? [cartErr] : []), ...errors])];
+  const [invalid, setInvalid] = useState<Set<string>>(new Set());
+  const [placing, setPlacing] = useState(false);
+  // While the page asks whether an order whose answer was lost went through (LM-01).
+  const [checking, setChecking] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const lastQuote = useRef('');
+  // The debounced re-quote waiting to fire, if any (Panta runs it at once instead).
+  const quoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     ensureLoaded();
   }, []);
 
+  // Back from the payment page can restore this page from the back/forward cache exactly as it was left: "Panta"
+  // disabled mid-order. Make it usable again (CO-04); the cart store re-reads the cart itself (CO-05).
+  useEffect(
+    () =>
+      onPageRestored(() => {
+        setPlacing(false);
+        setChecking(false);
+      }),
+    [],
+  );
+
   const items = $cart?.items ?? [];
   const totals = $cart?.totals;
+  const minor = totals?.currency_minor_unit ?? 0;
   const needsShipping = $cart?.needs_shipping ?? false;
   const needsPayment = $cart?.needs_payment ?? false;
   const rates = $cart?.shipping_rates?.[0]?.shipping_rates ?? [];
   const selectedRate = rates.find((r) => r.selected) ?? null;
   const cartPostcode = $cart?.shipping_address?.postcode ?? '';
   const needsPostbox = rateNeedsPostbox(selectedRate?.rate_id);
-  const postboxChosen = needsPostbox && $droppoint != null && $droppoint.postcode === cartPostcode;
+  // A locker chosen for this postcode and confirmed in Pósturinn's current list (CO-03).
+  const postboxChosen = needsPostbox && postboxReady($droppoint, $verifiedDroppoint, cartPostcode);
+  const ship = shipDiff ? shipping : billing;
 
-  // Drive the payment options from what the backend actually offers, known
-  // gateways first. (cart.payment_methods had zero readers before this.)
-  const availableMethods = $cart?.payment_methods ?? [];
-  const orderedMethods = [
-    ...PAYMENT_ORDER.filter((m) => availableMethods.includes(m)),
-    ...availableMethods.filter((m) => !PAYMENT_ORDER.includes(m)),
-  ];
-
-  // Default to card (straumur) when offered, else the first available gateway.
+  const available = $cart?.payment_methods ?? [];
+  const methods = [...PAYMENT_ORDER.filter((m) => available.includes(m)), ...available.filter((m) => !PAYMENT_ORDER.includes(m))];
   useEffect(() => {
-    if (orderedMethods.length === 0) return;
-    if (!orderedMethods.includes(paymentMethod)) {
-      setPaymentMethod(orderedMethods.includes('straumur') ? 'straumur' : orderedMethods[0]);
-    }
-  }, [orderedMethods.join(',')]);
+    if (methods.length && !methods.includes(paymentMethod)) setPaymentMethod(methods.includes('straumur') ? 'straumur' : methods[0]);
+  }, [methods.join(',')]);
 
-  function update<K extends keyof FormState>(key: K, value: string) {
-    setForm((f) => ({ ...f, [key]: value }));
-    setError(null);
-  }
+  // An empty cart can't check out — live bounces to /karfa/ (unless we're showing a payment notice).
+  useEffect(() => {
+    if ($cart && items.length === 0 && !placing && !status) window.location.replace('/karfa/');
+  }, [$cart, items.length, placing, status]);
 
-  function addressObj() {
-    return {
-      first_name: form.firstName,
-      last_name: form.lastName,
-      address_1: form.address1,
-      city: form.city,
-      state: '',
-      postcode: form.postcode,
-      country: 'IS',
-      phone: form.phone,
-    };
-  }
-
-  function validate(): boolean {
-    if (!form.firstName || !form.lastName || !form.email || !form.address1 || !form.city || !form.postcode) {
-      setError('Vinsamlegast fylltu út alla nauðsynlega reiti.');
-      return false;
-    }
-    if (!/^\S+@\S+\.\S+$/.test(form.email)) {
-      setError('Sláðu inn gilt netfang.');
-      return false;
-    }
-    return true;
-  }
-
-  async function handleCalcShipping() {
-    if (!validate()) return;
-    try {
-      await setCustomer({
-        billing_address: { ...addressObj(), email: form.email },
-        shipping_address: addressObj(),
+  // Re-quote shipping once the delivery address is complete (debounced, only when it changed).
+  useEffect(() => {
+    if (!needsShipping || !/^\d{3}$/.test(ship.postcode.trim()) || !ship.address_1.trim() || !ship.city.trim()) return;
+    const signature = JSON.stringify([ship.address_1, ship.postcode, ship.city].map((s) => s.trim()));
+    if (signature === lastQuote.current) return;
+    const t = setTimeout(() => {
+      quoteTimer.current = null;
+      lastQuote.current = signature;
+      void setCustomer({ shipping_address: addressFor(ship, billing.phone) }).catch(() => {
+        lastQuote.current = '';
       });
-      setAddressDone(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Villa við útreikning sendingar.');
+    }, 600);
+    quoteTimer.current = t;
+    return () => {
+      clearTimeout(t);
+      if (quoteTimer.current === t) quoteTimer.current = null;
+    };
+  }, [needsShipping, ship.address_1, ship.postcode, ship.city]);
+
+  function validate(): { messages: string[]; fields: Set<string> } {
+    const messages: string[] = [];
+    const fields = new Set<string>();
+    const check = (prefix: 'billing' | 'shipping', a: Address, defs: FieldDef[], heading: string) => {
+      for (const d of defs) {
+        if (d.required && !a[d.key].trim()) {
+          messages.push(`${heading} ${d.label} er nauðsynlegur reitur.`);
+          fields.add(`${prefix}_${d.key}`);
+        }
+      }
+    };
+    check('billing', billing, [...BILLING_BEFORE_COUNTRY, ...BILLING_AFTER_COUNTRY], 'Greiðsluupplýsingar');
+    if (shipDiff) check('shipping', shipping, SHIPPING_FIELDS, 'Sendingarupplýsingar');
+    if (billing.email.trim() && !/^\S+@\S+\.\S+$/.test(billing.email.trim())) {
+      messages.push('Ógilt netfang.');
+      fields.add('billing_email');
     }
+    if (kennitala.trim() && kennitala.replace(/\D/g, '').length !== 10) {
+      messages.push('Kennitala á að vera 10 tölustafir.');
+      fields.add('billing_kennitala');
+    }
+    if (needsShipping && !selectedRate) messages.push('Veldu sendingarmáta.');
+    if (needsPostbox && !postboxChosen) messages.push('Veldu póstbox fyrir sendinguna.');
+    if (needsPayment && !paymentMethod) messages.push('Veldu greiðslumáta.');
+    if (!terms) messages.push('Vinsamlegast lestu og samþykktu skilmálana til að halda áfram með pöntunina.');
+    return { messages, fields };
   }
 
-  async function handlePlaceOrder() {
-    if (!validate()) return;
-    if (items.length === 0) {
-      setError('Karfan er orðin tóm.');
+  async function placeOrder() {
+    // An address change whose re-quote is still waiting: run it now, then let the shopper see the result
+    // (rates and totals may change) before placing the order. If the re-quote fails, its error shows and
+    // the next press goes ahead (the Store API recalculates shipping at checkout anyway).
+    if (quoteTimer.current !== null) {
+      clearTimeout(quoteTimer.current);
+      quoteTimer.current = null;
+      lastQuote.current = JSON.stringify([ship.address_1, ship.postcode, ship.city].map((s) => s.trim()));
+      const ok = await setCustomer({ shipping_address: addressFor(ship, billing.phone) }).then(() => true, () => false);
+      setErrors(ok ? ['Sendingarkostnaður var uppfærður. Athugaðu pöntunina og smelltu aftur á „Panta“.'] : []);
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
-    // Pósturinn "Pakki Póstbox" requires a chosen locker + phone number.
-    const extra: Record<string, string> = {};
-    if (needsPostbox) {
-      if (!postboxChosen || !$droppoint) {
-        setError('Veldu póstbox fyrir sendinguna.');
-        return;
-      }
-      if (!form.phone.trim()) {
-        setError('Símanúmer er nauðsynlegt fyrir afhendingu í póstbox.');
-        return;
-      }
-      extra.postis_dpo_postbox = $droppoint.id;
-      extra.postis_dpo_phonenumber = form.phone.trim();
+    const { messages, fields } = validate();
+    setErrors(messages);
+    setInvalid(fields);
+    if (messages.length) {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
     }
-    // paymentMethod is required by canPlace whenever payment is needed; the fallbacks
-    // only matter for a zero-total order (needs_payment=false) with no selectable gateway.
-    const method = paymentMethod || orderedMethods[0] || 'bacs';
     setPlacing(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          billing_address: { ...addressObj(), email: form.email },
-          shipping_address: addressObj(),
-          payment_method: method,
-          payment_data: [],
-          ...extra,
-        }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.order_id) {
-        // Decode server entities (e.g. &quot;) so the inline error reads cleanly. `data` is
-        // untyped JSON, so only decode an actual string — a non-string message would make
-        // decodeEntities (.replace) throw and surface a raw JS error instead of the fallback.
-        const msg = typeof data?.message === 'string' ? decodeEntities(data.message) : '';
-        throw new Error(msg || 'Ekki tókst að ganga frá pöntun.');
-      }
-      // Redirect gateways (e.g. Straumur hosted checkout) hand back a URL to send
-      // the shopper to. The server-side cart is already emptied at order creation,
-      // so we do NOT resetCart() here — just hand off and keep the button disabled.
-      const redirectUrl = data.payment_result?.redirect_url;
-      if (redirectUrl) {
-        // Follow only a same-origin URL (the bank-transfer return to /utskra/takk, http on local
-        // dev) or an https URL on an allowlisted Straumur host. Blocks javascript:/data:/cross-origin
-        // and arbitrary external https if a backend response is tampered with. See isAllowedRedirect.
-        window.location.href = isAllowedRedirect(redirectUrl) ? redirectUrl : '/utskra/villa';
-        return;
-      }
-      // Non-redirect gateways (bank transfer): straight to the local thank-you page. Pass the
-      // id + key takk.astro actually reads, so the receipt resolves from the URL on refresh /
-      // bookmark / share — not only from the one-shot mos_order cookie. Only append order_key when
-      // present — never emit a literal `order_key=undefined`, which would fail the Woo lookup.
-      resetCart();
-      const okey = data.order_key ? `&order_key=${encodeURIComponent(data.order_key)}` : '';
-      window.location.href = `/utskra/takk?order_id=${data.order_id}${okey}`;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ekki tókst að ganga frá pöntun.');
-      setPlacing(false);
+    const attempt = newAttemptId();
+    const body = checkoutBody({
+      billing, ship, notes, paymentMethod, needsPayment, kennitala, skiptimidi, attempt,
+      postbox: needsPostbox && $droppoint ? $droppoint.id : null,
+    });
+    const outcome = await submitCheckout(body, attempt, {
+      // In the cart queue: a re-quote or rate change still in flight must not race the order. The wait outlasts the
+      // server's own (lib/timeouts), so its answer, or its recovery of a lost one, normally arrives first.
+      send: (init) => withCartLock(() => fetch('/api/checkout', { ...init, signal: AbortSignal.timeout(CHECKOUT_CLIENT_TIMEOUT_MS) })),
+      poll: (id) => pollCheckoutStatus(id),
+      origin: window.location.origin,
+      onRecovering: () => {
+        setErrors([]);
+        setChecking(true);
+      },
+    });
+    setChecking(false);
+    if (outcome.kind === 'go') {
+      // The payment page, or the receipt. The button stays disabled while the page leaves.
+      if (outcome.resetCart) resetCart();
+      window.location.href = outcome.url;
+      return;
     }
+    setErrors([outcome.message]);
+    setPlacing(false);
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  if ($cart && items.length === 0 && !placing) {
+  // The first load failed: say so, with a retry, instead of "Sæki pöntun…" for ever (CO-01).
+  if (cartViewState($cart, cartErr) === 'error') return <CartLoadError message={cartErr!} />;
+  if (!$cart) return <p className="checkout-loading">Sæki pöntun…</p>;
+  if (items.length === 0 && !placing) {
     return (
-      <div className="panel" style={{ textAlign: 'center', marginTop: '1rem' }}>
-        <p className="muted" style={{ marginBottom: '1rem' }}>Karfan þín er tóm.</p>
-        <a className="btn btn--accent" href="/verslun">Skoða vörur</a>
+      <div className="checkout-empty">
+        <p>Karfan þín er í augnablikinu tóm.</p>
+        <a className="btn-outline" href="/verslun/">Til baka í vefverslun</a>
       </div>
     );
   }
 
-  const canPlace =
-    addressDone &&
-    (!needsShipping || Boolean(selectedRate)) &&
-    (!needsPostbox || (postboxChosen && form.phone.trim() !== '')) &&
-    (!needsPayment || paymentMethod !== '') &&
-    !placing &&
-    items.length > 0;
+  const field = (prefix: 'billing' | 'shipping', a: Address, set: (fn: (a: Address) => Address) => void) => (def: FieldDef) => (
+    <FloatField
+      key={`${prefix}_${def.key}`}
+      id={`${prefix}_${def.key}`}
+      def={def}
+      value={a[def.key]}
+      invalid={invalid.has(`${prefix}_${def.key}`)}
+      onChange={(v) => set((prev) => ({ ...prev, [def.key]: v }))}
+    />
+  );
+  const billingField = field('billing', billing, setBilling);
 
   return (
-    <div className="layout-2col" style={{ marginTop: '1rem' }}>
-      <div>
-        <form
-          className="panel"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void handleCalcShipping();
-          }}
-        >
-          <h2>Afhendingarupplýsingar</h2>
-          <div className="form-grid">
-            <div className="form-field">
-              <label htmlFor="fn">Fornafn *</label>
-              <input id="fn" aria-required="true" value={form.firstName} onChange={(e) => update('firstName', e.target.value)} autoComplete="given-name" />
-            </div>
-            <div className="form-field">
-              <label htmlFor="ln">Eftirnafn *</label>
-              <input id="ln" aria-required="true" value={form.lastName} onChange={(e) => update('lastName', e.target.value)} autoComplete="family-name" />
-            </div>
-            <div className="form-field">
-              <label htmlFor="em">Netfang *</label>
-              <input id="em" type="email" aria-required="true" value={form.email} onChange={(e) => update('email', e.target.value)} autoComplete="email" />
-            </div>
-            <div className="form-field">
-              <label htmlFor="ph">Sími</label>
-              <input id="ph" value={form.phone} onChange={(e) => update('phone', e.target.value)} autoComplete="tel" />
-            </div>
-            <div className="form-field full">
-              <label htmlFor="ad">Heimilisfang *</label>
-              <input id="ad" aria-required="true" value={form.address1} onChange={(e) => update('address1', e.target.value)} autoComplete="address-line1" />
-            </div>
-            <div className="form-field">
-              <label htmlFor="pc">Póstnúmer *</label>
-              <input id="pc" aria-required="true" value={form.postcode} onChange={(e) => update('postcode', e.target.value)} autoComplete="postal-code" />
-            </div>
-            <div className="form-field">
-              <label htmlFor="ct">Staður *</label>
-              <input id="ct" aria-required="true" value={form.city} onChange={(e) => update('city', e.target.value)} autoComplete="address-level2" />
-            </div>
-            <div className="form-field">
-              <label htmlFor="co">Land</label>
-              <input id="co" value="Ísland" readOnly disabled />
-            </div>
-          </div>
-          <button type="submit" className="btn" style={{ marginTop: '1rem' }} disabled={loading}>
-            {addressDone ? 'Uppfæra sendingu' : 'Reikna sendingu'}
-          </button>
-        </form>
+    <form
+      ref={formRef}
+      className="checkout"
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        void placeOrder();
+      }}
+    >
+      <div className="checkout__main">
+        {checking && (
+          <p className="checkout-notice" role="status">
+            {CHECKING_MESSAGE}
+          </p>
+        )}
+        {shownErrors.length > 0 && (
+          <ul className="checkout-errors" role="alert">
+            {shownErrors.map((m) => (
+              <li key={m}>{m}</li>
+            ))}
+          </ul>
+        )}
 
-        {addressDone && needsShipping && (
-          <div className="panel" style={{ marginTop: '1rem' }}>
-            <h2>Sendingarmáti</h2>
-            {rates.length === 0 ? (
-              <p className="muted">Engir sendingarmöguleikar fundust fyrir þetta póstnúmer.</p>
-            ) : (
-              rates.map((r) => (
-                <label className="radio-card" key={r.rate_id} style={{ marginBottom: '0.5rem' }}>
-                  <input
-                    type="radio"
-                    name="shipping"
-                    checked={r.selected}
-                    onChange={async () => {
-                      try {
-                        await selectShipping(r.rate_id);
-                      } catch (err) {
-                        setError(err instanceof Error ? err.message : 'Villa við val á sendingu.');
-                      }
-                    }}
-                  />
-                  <span>
-                    {decodeEntities(r.name)}
-                    <br />
-                    <small>{formatStoreMoney(r.price, r.currency_minor_unit)}</small>
-                  </span>
-                </label>
-              ))
-            )}
-            {needsPostbox && cartPostcode && <DroppointSelect postcode={cartPostcode} />}
+        <div className="checkout__heading">
+          <h3>Greiðsluupplýsingar</h3>
+          <a className="checkout__back" href="/karfa/">
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="1.8" /></svg>
+            Til baka í körfu
+          </a>
+        </div>
+
+        <div className="checkout-fields">
+          {BILLING_BEFORE_COUNTRY.map(billingField)}
+          <FloatField
+            id="billing_kennitala"
+            def={{ label: 'Kennitala', width: 'first', inputMode: 'numeric' }}
+            value={kennitala}
+            invalid={invalid.has('billing_kennitala')}
+            onChange={setKennitala}
+          />
+          {billingField({ key: 'company', label: 'Nafn fyrirtækis', width: 'last', autoComplete: 'organization' })}
+          <CountryField id="billing_country" width="wide" />
+          {BILLING_AFTER_COUNTRY.map(billingField)}
+        </div>
+
+        <div className="checkout-ship">
+          <label className="checkout-ship__toggle">
+            <input type="checkbox" checked={shipDiff} onChange={(e) => setShipDiff(e.target.checked)} />
+            <span>Senda á annað heimilisfang?</span>
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 21s-7-6.1-7-11a7 7 0 0 1 14 0c0 4.9-7 11-7 11Z" fill="none" stroke="currentColor" strokeWidth="1.6" /><circle cx="12" cy="10" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>
+          </label>
+          {shipDiff && (
+            <div className="checkout-fields">
+              {SHIPPING_FIELDS.slice(0, 3).map(field('shipping', shipping, setShipping))}
+              <CountryField id="shipping_country" width="wide" />
+              {SHIPPING_FIELDS.slice(3).map(field('shipping', shipping, setShipping))}
+            </div>
+          )}
+        </div>
+
+        {/* the Pósturinn locker sits with the shopper's details (owner, 2026-10-28); the rate itself is still chosen in
+            the summary, which is what makes the picker appear */}
+        {needsPostbox && cartPostcode && (
+          <div className="checkout-droppoint">
+            <DroppointSelect postcode={cartPostcode} />
           </div>
         )}
 
-        {addressDone && orderedMethods.length > 0 && (
-          <div className="panel" style={{ marginTop: '1rem' }}>
-            <h2>Greiðslumáti</h2>
-            {orderedMethods.map((m) => {
-              const meta = PAYMENT_META[m] ?? { label: m, desc: '' };
-              return (
-                <label className="radio-card" key={m} style={{ marginBottom: '0.5rem' }}>
-                  <input
-                    type="radio"
-                    name="payment"
-                    checked={paymentMethod === m}
-                    onChange={() => {
-                      setPaymentMethod(m);
-                      setError(null);
-                    }}
-                  />
-                  <span>
-                    {meta.label}
-                    {meta.desc && (
-                      <>
-                        <br />
-                        <small>{meta.desc}</small>
-                      </>
-                    )}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-        )}
-
-        {error && <p className="form-error" role="alert" style={{ marginTop: '1rem' }}>{error}</p>}
+        <div className="checkout-fields checkout-extra">
+          <p className="form-row form-row-wide form-row-check">
+            <label>
+              <input type="checkbox" checked={skiptimidi} onChange={(e) => setSkiptimidi(e.target.checked)} />
+              <span>
+                Viltu skiptimiða? Ekki er settur skiptimiði á útsöluvörur.
+              </span>
+            </label>
+          </p>
+          <p className={`form-row form-row-wide notes${notes ? ' has-val' : ''}`}>
+            <textarea id="order_comments" className="input-text" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
+            <label htmlFor="order_comments">
+              Skilaboð<span className="optional"> (valfrjálst)</span>
+            </label>
+          </p>
+        </div>
       </div>
 
-      <aside className="panel summary">
-        <h2>Pöntun</h2>
-        {items.map((it) => (
-          <div className="summary__row" key={it.key}>
-            <span>
-              {decodeEntities(it.name)} × {it.quantity}
-            </span>
-            <span>{formatStoreMoney(it.totals.line_total, it.totals.currency_minor_unit)}</span>
-          </div>
-        ))}
-        {totals && (
-          <>
-            <div className="summary__row">
-              <span>Vörur</span>
-              <span>{formatStoreMoney(totals.total_items, totals.currency_minor_unit)}</span>
-            </div>
+      <div className="checkout__review" aria-busy={loading}>
+        <h3 className="checkout__review-heading">Þín pöntun</h3>
+        <table className="review-table">
+          <tbody>
+            {items.map((it) => (
+              <tr className="review-table__item" key={it.key}>
+                <td>
+                  <div className="review-table__product">
+                    <span className="review-table__thumb">
+                      <LineImage item={it} size={60} />
+                    </span>
+                    <span className="review-table__name">
+                      {decodeEntities(it.name)} <strong className="review-table__qty">× {it.quantity}</strong>
+                      {it.variation?.length > 0 && <span className="review-table__meta">{it.variation.map((v) => `${v.attribute}: ${v.value}`).join(', ')}</span>}
+                    </span>
+                  </div>
+                </td>
+                <td className="review-table__total">{formatStoreMoney(lineSubtotal(it), minor)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th>Millisamtala</th>
+              <td>{formatISK(cartSubtotal($cart))}</td>
+            </tr>
+            <CouponRows />
             {needsShipping && (
-              <div className="summary__row">
-                <span>Sending</span>
-                <span>{selectedRate ? formatStoreMoney(totals.total_shipping ?? '0', totals.currency_minor_unit) : '—'}</span>
-              </div>
+              <>
+                <tr className="review-table__shipping-head">
+                  <th colSpan={2} scope="row" id="review-shipping-label">Vörusendingar</th>
+                </tr>
+                <tr className="review-table__shipping">
+                  <td colSpan={2} headers="review-shipping-label">
+                    {rates.length > 0 && cartPostcode ? (
+                      <ul className="ship-methods">
+                        {rates.map((r) => (
+                          <li key={r.rate_id}>
+                            <label>
+                              <input type="radio" name="shipping_method" checked={r.selected} disabled={placing} onChange={() => void selectShipping(r.rate_id).catch(() => { /* the cart store shows the error */ })} />
+                              <span>
+                                {decodeEntities(r.name)}
+                                {Number(r.price) > 0 && <>: <span className="amount">{formatStoreMoney(r.price, r.currency_minor_unit)}</span></>}
+                              </span>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="review-table__hint">Sláðu inn heimilisfang til að sjá sendingarmöguleika.</span>
+                    )}
+                  </td>
+                </tr>
+              </>
             )}
-            {totals.total_discount && totals.total_discount !== '0' && (
-              <div className="summary__row summary__row--discount">
-                <span>Afsláttur</span>
-                <span>−{formatStoreMoney(totals.total_discount, totals.currency_minor_unit)}</span>
-              </div>
-            )}
-            <div className="summary__row summary__row--total">
-              <span>Samtals</span>
-              <span>{formatStoreMoney(totals.total_price, totals.currency_minor_unit)}</span>
-            </div>
-          </>
-        )}
-        <CouponField />
-        <button type="button" className="btn btn--accent btn--block btn--lg" style={{ marginTop: '1rem' }} disabled={!canPlace} onClick={handlePlaceOrder}>
-          {placing ? 'Geng frá pöntun…' : 'Staðfesta pöntun'}
-        </button>
-        {!addressDone && <p className="form-note" style={{ marginTop: '0.5rem' }}>Fylltu út afhendingarupplýsingar og reiknaðu sendingu.</p>}
-      </aside>
-    </div>
+            <tr className="review-table__total-row">
+              <th>Samtals</th>
+              <td>
+                <strong>{totals ? formatStoreMoney(totals.total_price, minor) : ''}</strong>
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+
+        {/* the discount code sits in the summary, as on /karfa/ (same toggle state as before, only moved) */}
+        <div className="checkout-coupon">
+          <p className="checkout-coupon__toggle">
+            <button type="button" aria-expanded={couponOpen} onClick={() => setCouponOpen((o) => !o)}>
+              Ertu með afsláttarkóða?
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg>
+            </button>
+          </p>
+          {couponOpen && <CouponField variant="checkout" />}
+        </div>
+
+        <div className="checkout-payment">
+          {needsPayment && methods.length > 0 && (
+            <ul className="pay-methods">
+              {methods.map((m) => {
+                const meta = PAYMENT_META[m] ?? { label: m, desc: '' };
+                return (
+                  <li key={m} className="pay-method" data-selected={paymentMethod === m ? 'true' : undefined}>
+                    <label>
+                      <input type="radio" name="payment_method" checked={paymentMethod === m} onChange={() => setPaymentMethod(m)} />
+                      <span>{meta.label}</span>
+                      {meta.cards && <CardLogos />}
+                    </label>
+                    {paymentMethod === m && meta.desc && <div className="pay-box">{meta.desc}</div>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <p className="checkout-privacy">
+            Persónulegu gögnin þín munu vera notuð til að ganga frá pöntuninni, fyrir stuðning á notkun þinni á vefsíðunni o.fl sem við
+            útskýrum í <a href="/skilmalar/" target="_blank" rel="noopener">persónuverndarstefnu</a>.
+          </p>
+          <label className="checkout-terms">
+            <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} aria-required="true" />
+            <span>
+              Ég hef lesið skilmálana og samþykki þá{' '}
+              <a href="/skilmalar/" target="_blank" rel="noopener">
+                skilmála
+              </a>{' '}
+              <abbr className="required" title="nauðsynlegt">*</abbr>
+            </span>
+          </label>
+          <button type="submit" className="btn-dark btn-block checkout__place" disabled={placing || loading} aria-busy={placing}>
+            Panta
+          </button>
+        </div>
+      </div>
+    </form>
   );
 }

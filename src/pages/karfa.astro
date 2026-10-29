@@ -1,19 +1,28 @@
 ---
 import Base from '../layouts/Base.astro';
-import Breadcrumbs from '../components/Breadcrumbs.astro';
 import CartView from '../components/CartView.tsx';
+import ProductRow from '../components/ProductRow.astro';
+import { loadSiteChrome } from '../lib/siteChrome';
+import { loadCartSuggest } from '../lib/cartSuggest';
 
 export const prerender = false;
 Astro.response.headers.set('Cache-Control', 'no-store'); // cart page is per-shopper — never cache
+
+const [chrome, suggest] = await Promise.all([loadSiteChrome(), loadCartSuggest().catch(() => null)]);
+const bar = chrome.shippingBar?.locations.includes('cart') ? chrome.shippingBar : null;
 ---
 
 <Base title="Karfa" noindex>
-  <div class="container container--wide">
-    <Breadcrumbs items={[{ label: 'Forsíða', href: '/' }, { label: 'Karfa' }]} />
-    <div class="page-head">
-      <p class="eyebrow">Karfan þín</p>
-      <h1>Karfa</h1>
-    </div>
-    <CartView client:load />
+  <div class="cart-wrap">
+    <h1 class="cart-wrap__title">Karfa</h1>
+    <CartView client:load shippingBar={bar} />
   </div>
+  {
+    /* the home "Vinsælt núna" tiles, shown by CSS only while the cart island renders its empty state */
+    suggest && suggest.products.length > 0 && (
+      <div class="cart-suggest">
+        <ProductRow title={suggest.title} products={suggest.products} />
+      </div>
+    )
+  }
 </Base>

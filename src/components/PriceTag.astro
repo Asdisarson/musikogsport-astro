@@ -1,4 +1,6 @@
 ---
+// Price exactly as live renders it: WooCommerce's own price_html (Icelandic formatting, sale
+// del/ins, variable ranges). Formatted-number fallback only when price_html is missing.
 import type { WooProduct } from '../lib/types';
 import { formatISK } from '../lib/format';
 import { sanitizeHtml } from '../lib/sanitize';
@@ -8,27 +10,19 @@ interface Props {
   class?: string;
 }
 const { product, class: className = '' } = Astro.props;
-
-const priceNum = Number(product.price);
-const hasPrice = product.price !== '' && Number.isFinite(priceNum);
+const html = product.price_html ? sanitizeHtml(product.price_html) : '';
 const onSale = Boolean(product.on_sale) && product.sale_price !== '' && product.regular_price !== '';
-// Variable products show the lowest variation price → prefix with "frá" (from).
-const isFrom = product.type === 'variable';
 ---
 
 {
-  !hasPrice && product.price_html ? (
-    <span class={`price price__html ${className}`} set:html={sanitizeHtml(product.price_html)} />
+  html ? (
+    <span class={`price ${className}`} set:html={html} />
   ) : onSale ? (
-    <span class={`price price--sale ${className}`}>
-      {isFrom && <span class="price__from">frá </span>}
-      {formatISK(product.sale_price)}
-      <span class="price__was">{formatISK(product.regular_price)}</span>
-    </span>
-  ) : (
     <span class={`price ${className}`}>
-      {isFrom && <span class="price__from">frá </span>}
-      {formatISK(product.price)}
+      <del>{formatISK(product.regular_price)}</del>
+      <ins>{formatISK(product.sale_price)}</ins>
     </span>
-  )
+  ) : product.price !== '' ? (
+    <span class={`price ${className}`}>{formatISK(product.price)}</span>
+  ) : null
 }

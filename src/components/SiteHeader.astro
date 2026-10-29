@@ -1,94 +1,59 @@
 ---
-import { listTopCategories } from '../lib/woo';
-import { decodeEntities } from '../lib/decode';
-import type { WooCategory } from '../lib/types';
+// The 60px sticky main bar: logo left, the WordPress menu centred (each parent opens a full-width mega-menu
+// panel), search pill + wishlist + cart right. Below 992px: logo, then search, account, cart and the menu
+// drawer toggle as 44px icon buttons.
 import CartButton from './CartButton.tsx';
 import Icon from './Icon.astro';
+import NavItem from './NavItem.astro';
+import type { SiteChrome } from '../lib/siteChrome';
 
-let cats: WooCategory[] = [];
-try {
-  cats = await listTopCategories();
-} catch {
-  cats = [];
+interface Props {
+  chrome: SiteChrome;
 }
-const path = Astro.url.pathname;
+const { chrome } = Astro.props;
+const logo = chrome.logos.header ?? { url: '/logo-header.webp', width: 262, height: 80, alt: 'Músík og Sport' };
 ---
 
-<div class="topbar">
-  <div class="container container--wide">
-    <div class="topbar__list">
-      <span class="topbar__item"><Icon name="truck" size={15} /> Frí sending á höfuðborgarsvæðinu yfir 15.000 kr.</span>
-      <span class="topbar__item topbar__item--hide"><Icon name="refresh" size={15} /> 30 daga skilaréttur</span>
-    </div>
-    <div class="topbar__list">
-      <a class="topbar__item" href="tel:+3545552887"><Icon name="phone" size={15} /> 555 2887</a>
-      <span class="topbar__item topbar__item--hide">IS · ISK</span>
-    </div>
-  </div>
-</div>
-
-<header class="site-header">
-  <div class="site-header__bar">
-    <button
-      class="icon-btn nav-toggle"
-      type="button"
-      data-nav-toggle
-      aria-label="Opna valmynd"
-      aria-expanded="false"
-      aria-controls="main-nav"
-    >
-      <Icon name="menu" />
-    </button>
-
-    <a class="brand" href="/" aria-label="Músík og Sport — forsíða">
-      <span class="brand__mark"><Icon name="mountain" size={18} stroke-width={1.9} /></span>
-      <span class="brand__text">Músík og Sport<small>Íþróttavörur</small></span>
+<header class="site-header" data-header>
+  <div class="site-header__inner">
+    <a class="site-header__logo" href="/" aria-label="Músík og Sport — forsíða">
+      <img src={logo.url} alt={logo.alt || 'Músík og Sport'} width={logo.width} height={logo.height} />
     </a>
 
-    <nav class="main-nav" id="main-nav" aria-label="Aðalvalmynd">
+    <nav class="main-nav" aria-label="Aðalvalmynd" data-main-nav>
       <ul class="main-nav__list">
-        <li>
-          <a class="main-nav__link" href="/verslun" aria-current={path === '/verslun' ? 'page' : undefined}>Verslun</a>
-        </li>
-        {
-          cats.map((c) => (
-            <li>
-              <a
-                class:list={['main-nav__link', c.slug === 'sale' && 'main-nav__link--sale']}
-                href={`/verslun/${c.slug}`}
-                aria-current={path === `/verslun/${c.slug}` ? 'page' : undefined}
-              >
-                {decodeEntities(c.name)}
-              </a>
-            </li>
-          ))
-        }
+        {chrome.primary.map((item) => <NavItem item={item} depth={0} />)}
       </ul>
     </nav>
 
-    <div class="header-actions">
-      <form class="search-form" action="/leita" method="get" role="search">
-        <div class="search-inline">
-          <Icon name="search" />
-          <input type="search" name="q" placeholder="Leita að vörum…" aria-label="Leita að vörum" />
-          <button type="submit" aria-label="Leita"><Icon name="arrow-right" size={18} /></button>
-        </div>
-      </form>
-
-      <a class="icon-btn search-mobile" href="/leita" aria-label="Leita"><Icon name="search" /></a>
-
-      <button class="icon-btn theme-toggle" type="button" data-theme-toggle aria-label="Skipta um þema" aria-pressed="false">
-        <Icon name="moon" class="theme-ic theme-ic--moon" />
-        <Icon name="sun" class="theme-ic theme-ic--sun" />
+    <div class="site-header__right">
+      <button class="search-pill" type="button" data-search-open aria-controls="search-overlay" aria-label="Leita í vörum">
+        <Icon name="search" stroke-width={1.5} />
+        <span aria-hidden="true">Leita</span>
       </button>
-
-      <a class="icon-btn cart-link wish-link" href="/oskalisti" aria-label="Óskalisti">
-        <Icon name="heart" />
-        <span class="cart-count wish-count" data-wish-count data-count="0"></span>
+      <button class="icon-btn site-header__search" type="button" data-search-open aria-controls="search-overlay" aria-label="Leita í vörum">
+        <Icon name="search" stroke-width={1.5} />
+      </button>
+      <a class="icon-btn site-header__wish" href="/oskalisti/" aria-label="Óskalisti">
+        <Icon name="heart" stroke-width={1.5} />
+        <span class="icon-count" data-wish-count></span>
       </a>
-
+      <a class="icon-btn site-header__account" href="/min-sida/" data-login-link>
+        <Icon name="user" stroke-width={1.5} />
+        <span class="visually-hidden" data-login-label>Innskráning</span>
+      </a>
       <CartButton client:load />
-      <noscript><a class="icon-btn cart-link" href="/karfa" aria-label="Karfa"><Icon name="cart" /></a></noscript>
+      <noscript><a class="icon-btn cart-link" href="/karfa/" aria-label="Karfa"><Icon name="bag" stroke-width={1.5} /></a></noscript>
+      <button
+        class="icon-btn site-header__toggle"
+        type="button"
+        data-menu-open
+        aria-controls="side-menu"
+        aria-expanded="false"
+        aria-label="Valmynd"
+      >
+        <Icon name="menu" stroke-width={1.5} />
+      </button>
     </div>
   </div>
 </header>

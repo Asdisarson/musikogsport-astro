@@ -1,0 +1,74 @@
+---
+import AccountLayout from '../../../components/AccountLayout.astro';
+import { currentUser } from '../../../lib/auth';
+import { loadCustomer, UNAVAILABLE_TEXT } from '../../../lib/account';
+import { markUnavailable } from '../../../lib/http';
+import type { Address } from '../../../lib/accountFormat';
+
+export const prerender = false;
+Astro.response.headers.set('Cache-Control', 'no-store');
+
+const type = Astro.params.type;
+if (type !== 'billing' && type !== 'shipping') return Astro.redirect('/min-sida/edit-address/');
+const user = await currentUser(Astro.cookies);
+if (!user) return Astro.redirect('/min-sida/');
+const loaded = await loadCustomer(user.id);
+// WooCommerce down: no form (blank fields a customer could submit), a 503 with the outage notice instead.
+const down = loaded === 'unavailable';
+if (down) markUnavailable(Astro.response);
+const customer = down ? null : loaded;
+const a: Address = (type === 'billing' ? customer?.billing : customer?.shipping) ?? {};
+const title = type === 'billing' ? 'Greiðsluheimilisfang' : 'Sendingarheimilisfang';
+
+// Widths match the checkout (live's Checkout Field Editor config) except billing company: wide here, paired with
+// Kennitala on the checkout. There is no Kennitala field here, and Land comes last here (the checkout puts it after company).
+const fields: { name: keyof Address; label: string; width: 'first' | 'last' | 'wide'; required?: boolean; type?: 'text' | 'tel' | 'email'; autocomplete?: string }[] = [
+  { name: 'first_name', label: 'Eiginnafn', width: 'first', required: true, autocomplete: 'given-name' },
+  { name: 'last_name', label: 'Eftirnafn', width: 'last', required: true, autocomplete: 'family-name' },
+  { name: 'company', label: 'Nafn fyrirtækis', width: 'wide', autocomplete: 'organization' },
+  { name: 'address_1', label: 'Heimilisfang', width: 'wide', required: true, autocomplete: 'address-line1' },
+  { name: 'address_2', label: 'Íbúð, hæð o.fl.', width: 'wide', autocomplete: 'address-line2' },
+  { name: 'postcode', label: 'Póstnúmer', width: 'first', required: true, autocomplete: 'postal-code' },
+  { name: 'city', label: 'Borg / Bær', width: 'last', required: true, autocomplete: 'address-level2' },
+  ...(type === 'billing'
+    ? ([
+        { name: 'phone', label: 'Sími', width: 'wide', required: true, type: 'tel', autocomplete: 'tel' },
+        { name: 'email', label: 'Netfang', width: 'wide', required: true, type: 'email', autocomplete: 'email' },
+      ] as const)
+    : []),
+];
+const error = Astro.url.searchParams.get('error');
+const notice = down
+  ? { kind: 'error' as const, text: UNAVAILABLE_TEXT }
+  : error
+  ? {
+      kind: 'error' as const,
+      text: error === 'required' ? 'Vinsamlegast fylltu út alla nauðsynlega reiti.' : error === 'email' ? 'Ógilt netfang.' : 'Ekki tókst að vista heimilisfangið. Reyndu aftur.',
+    }
+  : null;
+---
+
+<AccountLayout title={title} current="edit-address" notice={notice}>
+  <h2 class="account__h2">{title}</h2>
+  {!down && (
+  <form class="account-form account-fields" method="post" action="/api/account/address">
+    <input type="hidden" name="type" value={type} />
+    {
+      fields.map((f) => (
+        <p class={`form-row form-row-${f.width}`}>
+          <input class="input-text" id={f.name} name={f.name} type={f.type ?? 'text'} value={a[f.name] ?? ''} placeholder=" " autocomplete={f.autocomplete} aria-required={f.required ? 'true' : undefined} />
+          <label for={f.name}>
+            {f.label}
+            {f.required ? <abbr class="required" title="nauðsynlegt"> *</abbr> : <span class="optional"> (valfrjálst)</span>}
+          </label>
+        </p>
+      ))
+    }
+    <p class="form-row form-row-wide has-val">
+      <input class="input-text" id="country" value="Ísland" readonly />
+      <label for="country">Land</label>
+    </p>
+    <button class="btn-dark" type="submit">Vista heimilisfang</button>
+  </form>
+  )}
+</AccountLayout>

@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { useStore } from '@nanostores/react';
-import { droppoint, setDroppoint } from '../lib/droppointStore';
+import { chooseDroppoint, droppoint, reconcileDroppoint, startDroppointCheck } from '../lib/droppointStore';
 
 interface Item {
   id: string;
@@ -13,6 +13,8 @@ interface Props {
 // Parcel-locker (Pósturinn Pakki Póstbox) chooser. Rendered only when a postbox
 // shipping rate is selected. Fetches the lockers for the postcode and persists the
 // choice (shared cart ↔ checkout) so checkout can submit postis_dpo_postbox.
+// A saved locker counts only once it is found in the list fetched now (CO-03): a retired one is cleared, and
+// checkout asks for a locker while the list is loading or failed to load.
 export default function DroppointSelect({ postcode }: Props) {
   const chosen = useStore(droppoint);
   const selectId = useId();
@@ -28,12 +30,19 @@ export default function DroppointSelect({ postcode }: Props) {
     let alive = true;
     setLoading(true);
     setErr(null);
+    startDroppointCheck();
     fetch(`/api/posturinn/droppoints?postcode=${postcode}&type=postbox`, {
       signal: AbortSignal.timeout(12000),
     })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`droppoints ${r.status}`); // an outage isn't "no lockers here"
+        return r.json();
+      })
       .then((d) => {
-        if (alive) setItems(Array.isArray(d?.items) ? d.items : []);
+        if (!alive) return;
+        const list: Item[] = Array.isArray(d?.items) ? d.items : [];
+        setItems(list);
+        reconcileDroppoint(postcode, list.map((x) => x.id));
       })
       .catch(() => {
         if (alive) setErr('Gat ekki sótt póstbox. Reyndu aftur.');
@@ -60,9 +69,8 @@ export default function DroppointSelect({ postcode }: Props) {
         value={value}
         disabled={loading || items.length === 0}
         onChange={(e) => {
-          const id = e.target.value;
-          const it = items.find((x) => x.id === id);
-          setDroppoint(id && it ? { postcode, id, name: it.name } : null);
+          const it = items.find((x) => x.id === e.target.value);
+          chooseDroppoint(postcode, it ?? null);
         }}
       >
         <option value="">

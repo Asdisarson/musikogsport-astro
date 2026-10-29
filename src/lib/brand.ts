@@ -13,7 +13,7 @@ const BRANDS = [
   'Hummel', 'Errea', 'Erima', 'Select', 'Molten', 'Wilson', 'Babolat', 'Head',
   'Yonex', 'Garmin', 'Polar', 'Suunto', 'Jako', 'Kempa', 'Macron', 'Stanno',
   'Spalding', 'Joola', 'Stiga', 'CCM', 'Bauer', 'Sherwood', '2XU', 'Compressport',
-  'Fischer', 'Atomic', 'Rossignol', 'Zone', 'Exel', 'Fila', 'Kappa', 'Mizuno',
+  'Fischer', 'Atomic', 'Rossignol', 'Zone', 'Exel', 'Fila', 'Kappa',
 ].sort((a, b) => b.length - a.length);
 
 export interface SplitName {

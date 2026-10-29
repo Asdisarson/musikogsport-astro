@@ -1,0 +1,80 @@
+---
+// The product page's right rail (nike-look, SPEC § PDP), sticky beside the stacked gallery from 992px. When it is
+// taller than the room under the header (a long size grid, an open accordion) its sticky top goes negative: it
+// scrolls with the page until its foot is in view and then sticks there, so nothing in it is ever out of reach. The
+// fixed store notice at the bottom of the window counts as covered room. Sticky inside .pdp, so it never reaches the
+// related row or the footer.
+// Keyboard focus never hides under the header or below the window (WCAG 2.4.11): while the rail is stuck, a focused
+// control outside the visible band shifts the sticky top just enough to show it. Wheel or touch scrolling, or focus
+// leaving the rail, puts the rail back on its resting top.
+---
+
+<div class="pdp-rail" data-pdp-rail>
+  <slot />
+</div>
+
+<script>
+  const rail = document.querySelector<HTMLElement>('[data-pdp-rail]');
+  const desktop = window.matchMedia('(min-width: 992px)');
+  const MARGIN = 8;
+  let shifted = false;
+
+  const headerBottom = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-h')) || 60;
+  const viewBottom = () => {
+    const notice = document.querySelector<HTMLElement>('.store-notice');
+    return innerHeight - (notice && getComputedStyle(notice).display !== 'none' ? notice.offsetHeight : 0);
+  };
+
+  /** Bring `el` between the header and the bottom of the window: a stuck rail shifts its sticky top; a rail in
+   *  normal flow (the browser's own focus scrolling left it short) is reached by scrolling the page. */
+  const reveal = (el: Element) => {
+    if (!rail || !desktop.matches || !rail.contains(el)) return;
+    const top = parseFloat(rail.style.getPropertyValue('--rail-top'));
+    if (Number.isNaN(top)) return;
+    const b = el.getBoundingClientRect();
+    let by = 0;
+    if (b.top < headerBottom() + MARGIN) by = headerBottom() + MARGIN - b.top;
+    else if (b.bottom > viewBottom() - MARGIN) by = viewBottom() - MARGIN - b.bottom;
+    if (!by) return;
+    if (Math.abs(rail.getBoundingClientRect().top - top) <= 1) {
+      rail.style.setProperty('--rail-top', `${Math.round(top + by)}px`);
+      shifted = true;
+    } else {
+      window.scrollBy({ top: -by, behavior: 'instant' });
+    }
+  };
+
+  /** The resting sticky top; keeps a focused control in view unless the user scrolled on purpose. */
+  const place = (keepFocus = true) => {
+    if (!rail) return;
+    shifted = false;
+    if (!desktop.matches) {
+      rail.style.removeProperty('--rail-top');
+      return;
+    }
+    const top = Math.min(headerBottom() + 24, viewBottom() - 24 - rail.offsetHeight);
+    rail.style.setProperty('--rail-top', `${Math.round(top)}px`);
+    if (keepFocus && document.activeElement && rail.contains(document.activeElement)) reveal(document.activeElement);
+  };
+
+  if (rail) {
+    new ResizeObserver(() => place()).observe(rail);
+    window.addEventListener('resize', () => place());
+    desktop.addEventListener('change', () => place());
+    // "Loka" on the store notice frees the room it covered
+    document.addEventListener('click', (e) => {
+      if ((e.target as Element | null)?.closest('.store-notice [data-dismiss]')) setTimeout(() => place(), 0);
+    });
+    // after the browser's own focus scrolling has settled
+    rail.addEventListener('focusin', (e) => requestAnimationFrame(() => reveal(e.target as Element)));
+    rail.addEventListener('focusout', (e) => {
+      if (shifted && !rail.contains(e.relatedTarget as Node | null)) place(false);
+    });
+    const userScroll = () => {
+      if (shifted) place(false);
+    };
+    window.addEventListener('wheel', userScroll, { passive: true });
+    window.addEventListener('touchmove', userScroll, { passive: true });
+    place();
+  }
+</script>

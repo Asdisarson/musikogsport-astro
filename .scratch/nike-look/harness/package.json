@@ -1,0 +1,12 @@
+{
+  "name": "refined-goya-harness",
+  "private": true,
+  "type": "module",
+  "description": "Screenshot + metrics harness for the Refined Goya review loop. Not part of the storefront build.",
+  "scripts": {
+    "shots": "node shots.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.64.1"
+  }
+}

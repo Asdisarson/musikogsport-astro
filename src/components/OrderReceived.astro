@@ -1,0 +1,86 @@
+---
+// WooCommerce's order-received view (notice, overview, order details) for a resolved order.
+// No email or address: the order key may travel in a shared URL.
+import type { OrderSummary } from '../lib/woo';
+import { formatISK } from '../lib/format';
+
+interface Props {
+  order: OrderSummary;
+}
+const { order } = Astro.props;
+const isCard = order.payment_method === 'straumur';
+const isBank = order.payment_method === 'bacs';
+const date = order.date_created
+  ? new Intl.DateTimeFormat('is-IS', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(order.date_created))
+  : '';
+const shippingTotal = order.shipping.reduce((sum, s) => sum + Number(s.total), 0);
+const subtotal = order.items.reduce((sum, i) => sum + Number(i.total), 0);
+const overview = [
+  { label: 'Pöntunarnúmer:', value: order.order_number },
+  ...(date ? [{ label: 'Dagsetning:', value: date }] : []),
+  { label: 'Samtals:', value: formatISK(order.total) },
+  ...(order.payment_method_title ? [{ label: 'Greiðslumáti:', value: order.payment_method_title }] : []),
+];
+// `amount` never wraps; `text` (a shipping title, the payment method) may, so a long bacs label fits a phone.
+const totalRows: { label: string; amount?: string; text?: string }[] = [
+  { label: 'Millisamtala:', amount: formatISK(subtotal) },
+  ...(Number(order.discount_total) > 0 ? [{ label: 'Afsláttur:', amount: `-${formatISK(order.discount_total)}` }] : []),
+  ...(order.shipping.length
+    ? [{ label: 'Vörusendingar:', amount: shippingTotal > 0 ? formatISK(shippingTotal) : undefined, text: order.shipping.map((s) => s.title).join(', ') }]
+    : []),
+  ...(order.payment_method_title ? [{ label: 'Greiðslumáti:', text: order.payment_method_title }] : []),
+];
+---
+
+<p class="thankyou__notice">Takk fyrir. Pöntunin þín hefur verið móttekin.</p>
+<ul class="thankyou__overview">
+  {overview.map((o) => <li>{o.label} <strong>{o.value}</strong></li>)}
+</ul>
+{isCard && <p class="thankyou__status" id="order-status" data-state={order.paid ? 'paid' : 'pending'}>{order.paid ? 'Greiðsla staðfest' : 'Staðfesting greiðslu í vinnslu…'}</p>}
+{
+  isBank && (
+    <p class="thankyou__bank">
+      Vinsamlegast greiddu fyrir pöntuninni með millifærslu samkvæmt upplýsingum í staðfestingarpóstinum. Pöntunin er afgreidd um leið og
+      greiðsla hefur borist.
+    </p>
+  )
+}
+<section class="thankyou__details">
+  <h2>Pöntunarupplýsingar</h2>
+  <table class="review-table">
+    <thead>
+      <tr>
+        <th>Vara</th>
+        <th>Samtals</th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        order.items.map((i) => (
+          <tr>
+            <td>
+              {i.name} <strong class="review-table__qty">× {i.quantity}</strong>
+            </td>
+            <td>{formatISK(i.total)}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+    <tfoot>
+      {
+        totalRows.map((r) => (
+          <tr>
+            <th>{r.label}</th>
+            <td class={r.text ? 'review-table__text' : undefined}>
+              {r.amount && <span class="review-table__amount">{r.amount}</span>}{r.amount && r.text ? ' ' : ''}{r.text}
+            </td>
+          </tr>
+        ))
+      }
+      <tr class="review-table__total-row">
+        <th>Samtals:</th>
+        <td><strong>{formatISK(order.total)}</strong></td>
+      </tr>
+    </tfoot>
+  </table>
+</section>

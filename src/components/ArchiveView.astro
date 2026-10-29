@@ -1,0 +1,780 @@
+---
+// Shared body of every catalog archive (shop, category, brand, tag, search) as the nike-look wall (SPEC § Wall):
+// a header row (title with the count, "Fela síur", the sort); the active filters as removable chips; a left rail
+// (plain category links, then the collapsible filter groups, each with its own "Hreinsa") that "Fela síur" folds
+// away; a 3-column card grid (4 with the rail hidden) and "Sýna fleiri", which appends the next /page/N/. Phones: a
+// row of category chips and a row of filter pills that open the rail as a full-screen sheet ("Sía" + close on top,
+// "Hreinsa" and "Sýna vörur (N)" at the bottom). Rail order (lib/archive): category links, the Útsala / Á lager
+// toggle rows, then Stærð (a button grid), Aldur/Kyn, Verð, Vörumerki, Íþrótt, Félag/Lið and Vöruflokkar.
+//
+// Every filter control is a plain GET link (works without JS, crawlable). With JS the script below updates the page
+// in place: it fetches the same URL and swaps the [data-swap] regions (lib/archiveNav holds the pure parts).
+import Breadcrumbs from './Breadcrumbs.astro';
+import ProductGrid from './ProductGrid.astro';
+import FilterOption from './FilterOption.astro';
+import Icon from './Icon.astro';
+import { archiveHref } from '../lib/paths';
+import { SORT_OPTIONS, clearFilterHref, clearFiltersHref, toggleFilterHref } from '../lib/liveFilters';
+import { CATALOG_PER_PAGE } from '../lib/storeCatalog';
+import { LIST_SEARCH_MIN } from '../lib/facets';
+import { railCategoryLinks } from '../lib/categoryTree';
+import type { Archive, FacetOption } from '../lib/archive';
+
+interface Props {
+  title: string;
+  crumbs: { label: string; href?: string }[];
+  /** Archive base path, ending in '/'. */
+  basePath: string;
+  params: URLSearchParams;
+  archive: Archive;
+  page: number;
+  /** The category whose children the rail links to (0: the top-level categories, the shop). Left out on brand,
+   *  tag and search archives: plain category links would leave their scope (the Vöruflokkar filter stays). */
+  navCategoryId?: number;
+}
+const { title, crumbs, basePath, params, archive, page, navCategoryId } = Astro.props;
+const { result, groups, state, activeCount, activeFilters, pseudoCategories, terms } = archive;
+
+const from = (page - 1) * CATALOG_PER_PAGE + 1;
+const to = Math.min(page * CATALOG_PER_PAGE, result.total);
+// WooCommerce's Icelandic result count — live renders it hidden, so it is kept for screen readers.
+const countText =
+  result.total === 0
+    ? 'Engar vörur fundust'
+    : result.total === 1
+      ? 'Sýni eina niðurstöðu'
+      : result.totalPages <= 1
+        ? `Sýni allar ${result.total} niðurstöður`
+        : `Sýni ${from}–${to} af ${result.total} niðurstöðum`;
+const carried = [...params.entries()].filter(([k]) => k !== 'orderby' && k !== 'page');
+const nextHref = page < result.totalPages ? archiveHref(basePath, page + 1, params) : null;
+// The shop's links skip the brand and club pseudo-categories (Didriksons, Félag/lið, Stjarnan…) and NETTILBOD (the
+// Útsala toggle), as Vöruflokkar does.
+const catLinks =
+  navCategoryId === undefined ? [] : railCategoryLinks(terms.categories, terms.counts, navCategoryId, navCategoryId === 0 ? pseudoCategories : undefined);
+const activeIn = (options: FacetOption[]): number => options.reduce((n, o) => n + (o.active ? 1 : 0) + activeIn(o.children), 0);
+const withCount = (label: string, n: number) => (n > 0 ? `${label} (${n})` : label);
+const clearAllHref = clearFiltersHref(basePath, params);
+const chipName = (key: string, label: string) => (key === 'staerd' ? `stærð ${label}` : label);
+---
+
+<div class="archive" data-archive data-base={basePath}>
+  <header class="archive__head">
+    <Breadcrumbs items={crumbs} />
+    <div class="archive__bar">
+      <h1 class="archive__title" data-swap="title" data-fkey="title" tabindex="-1">{title} <span class="archive__count" data-total={result.total}>({result.total})</span></h1>
+      <div class="archive__tools">
+        {
+          groups.length > 0 && (
+            <button class="archive__rail-toggle" type="button" data-rail-toggle aria-controls="archive-filters" aria-expanded="true">
+              <span class="archive__rail-hide">Fela síur</span>
+              <span class="archive__rail-show">Sýna síur</span>
+              <Icon name="sliders" stroke-width={1.5} />
+            </button>
+          )
+        }
+        <form class="archive__sort" method="get" action={basePath} data-swap="sort">
+          {carried.map(([k, v]) => <input type="hidden" name={k} value={v} />)}
+          <label class="visually-hidden" for="archive-orderby">Röðun</label>
+          <select id="archive-orderby" name="orderby" data-sort data-fkey="sort">
+            {SORT_OPTIONS.map((o) => <option value={o.key} selected={o.key === state.orderby}>{o.label}</option>)}
+          </select>
+          <noscript><button type="submit" class="btn btn--sm">Raða</button></noscript>
+        </form>
+      </div>
+    </div>
+    {
+      catLinks.length > 0 && (
+        <nav class="archive__chips" aria-label="Flokkar">
+          <ul>
+            {catLinks.map((c) => <li><a href={c.path}>{c.name}</a></li>)}
+          </ul>
+        </nav>
+      )
+    }
+    <div class="archive__pills" data-swap="pills" hidden={groups.length === 0}>
+      {
+        groups.length > 0 && (
+          <>
+            <button class="wall-pill" type="button" data-filters-open data-fkey="pill:all" aria-controls="archive-filters" aria-expanded="false">
+              <Icon name="sliders" stroke-width={1.5} />
+              {withCount('Sía', activeCount)}
+            </button>
+            {groups.map((g) => (
+              <button class="wall-pill" type="button" data-filters-open data-filters-group={g.key} data-fkey={`pill:${g.key}`} aria-controls="archive-filters" aria-expanded="false">
+                {withCount(g.label, activeIn(g.kind === 'toggles' ? g.options.filter((o) => o.key === 'utsala') : g.options))}
+                <Icon name="chevron-down" size={20} stroke-width={1.5} />
+              </button>
+            ))}
+          </>
+        )
+      }
+    </div>
+    <div class="archive-active" data-swap="chips" hidden={activeFilters.length === 0}>
+      <h2 class="visually-hidden" id="archive-active-heading" tabindex="-1" data-fkey="chips">Valdar síur</h2>
+      {
+        activeFilters.length > 0 && (
+          <ul class="archive-active__list" aria-labelledby="archive-active-heading">
+            {activeFilters.map((f) => (
+              <li>
+                <a
+                  class="filter-chip"
+                  href={toggleFilterHref(basePath, params, f.key, f.slug)}
+                  rel="nofollow"
+                  aria-label={`Fjarlægja ${chipName(f.key, f.label)}`}
+                  data-op="toggle"
+                  data-filter-key={f.key}
+                  data-filter-value={f.slug}
+                  data-fkey={`chip:${f.key}:${f.slug}`}
+                >
+                  <span>{f.label}</span>
+                  <Icon name="close" size={16} stroke-width={1.5} />
+                </a>
+              </li>
+            ))}
+            <li>
+              <a class="archive-active__clear" href={clearAllHref} rel="nofollow" data-op="clear-all" data-fkey="clear-all">Hreinsa allt</a>
+            </li>
+          </ul>
+        )
+      }
+    </div>
+  </header>
+
+  <aside class="archive-filters" id="archive-filters" data-filters aria-label="Sía vörur">
+    <div class="archive-filters__bar">
+      <span class="archive-filters__bar-title">Sía</span>
+      <button class="archive-filters__close" type="button" data-filters-close data-fkey="sheet-close" aria-label="Loka síum">
+        <Icon name="close" size={24} stroke-width={1.5} />
+      </button>
+      <p class="visually-hidden" aria-live="polite" data-announce-sheet></p>
+    </div>
+    <div class="archive-filters__body" data-swap="filters">
+      {
+        catLinks.length > 0 && (
+          <nav class="archive-cats" aria-label="Vöruflokkar">
+            <ul>
+              {catLinks.map((c) => <li><a href={c.path}>{c.name}</a></li>)}
+            </ul>
+          </nav>
+        )
+      }
+      {activeCount > 0 && <a class="archive-filters__reset" href={clearAllHref} rel="nofollow" data-op="clear-all" data-fkey="rail-clear-all">Endursetja</a>}
+      {
+        groups.map((g) => {
+          const selected = activeIn(g.options);
+          const blocks = g.sizeBlocks ?? [];
+          const clear = selected > 0 && (
+            <a
+              class="filter-group__clear"
+              href={clearFilterHref(basePath, params, g.key)}
+              rel="nofollow"
+              aria-label={`Hreinsa ${g.label}`}
+              data-op="clear"
+              data-filter-key={g.key}
+              data-fkey={`clear:${g.key}`}
+            >
+              Hreinsa
+            </a>
+          );
+          return g.kind === 'toggles' ? (
+            <div class="filter-toggles" data-group={g.key} data-fkey={`group:${g.key}`} role="group" aria-label="Útsala og lager" tabindex="-1">
+              <ul class="filter-group__list">
+                {g.options.map((o) => (
+                  <FilterOption option={o} groupKey={g.key} showCounts={g.showCounts} basePath={basePath} params={params} />
+                ))}
+              </ul>
+            </div>
+          ) : g.kind === 'size' ? (
+            <div class:list={['filter-section', selected > 0 && 'filter-section--active']}>
+              {clear}
+              <details class="filter-group filter-group--size" data-group={g.key} open={g.open}>
+                <summary class="filter-group__title" data-fkey={`group:${g.key}`}>
+                  <span class="filter-group__label">{g.label}{selected > 0 && <span class="filter-group__n"> ({selected})</span>}</span>
+                  <Icon name="chevron-down" size={20} stroke-width={1.5} />
+                </summary>
+                <div class="filter-sizes">
+                  {blocks.map((b) => (
+                    <div class="filter-sizes__block" data-minor={b.minor ? '' : undefined}>
+                      {blocks.length > 1 && <p class="filter-sizes__heading" id={`filter-sizes-${b.group}`}>{b.heading}</p>}
+                      <ul class="filter-sizes__grid" aria-labelledby={blocks.length > 1 ? `filter-sizes-${b.group}` : undefined}>
+                        {b.options.map((o) => (
+                          <FilterOption option={o} groupKey={g.key} showCounts={g.showCounts} basePath={basePath} params={params} variant="size" minor={o.minor} />
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                  {
+                    blocks.some((b) => b.options.some((o) => o.minor)) && (
+                      <details class="filter-sizes__more">
+                        <summary data-fkey="sizes-more">
+                          <span class="filter-sizes__more-show">Sýna allar stærðir</span>
+                          <span class="filter-sizes__more-hide">Sýna færri stærðir</span>
+                        </summary>
+                      </details>
+                    )
+                  }
+                </div>
+              </details>
+            </div>
+          ) : (
+            <div class:list={['filter-section', selected > 0 && 'filter-section--active']}>
+              {clear}
+              <details class="filter-group" data-group={g.key} open={g.open}>
+                <summary class="filter-group__title" data-fkey={`group:${g.key}`}>
+                  <span class="filter-group__label">{g.label}{selected > 0 && <span class="filter-group__n"> ({selected})</span>}</span>
+                  <Icon name="chevron-down" size={20} stroke-width={1.5} />
+                </summary>
+                {
+                  g.kind === 'list' && g.options.length > LIST_SEARCH_MIN && (
+                    <div class="filter-search" data-filter-search hidden>
+                      <input class="filter-search__input" type="search" placeholder={`Leita í ${g.label.toLocaleLowerCase('is')}`} aria-label={`Leita í ${g.label}`} autocomplete="off" data-fkey={`search:${g.key}`} />
+                      <p class="filter-search__empty" hidden>Ekkert passar við leitina.</p>
+                    </div>
+                  )
+                }
+                <ul class="filter-group__list">
+                  {g.options.map((o) => (
+                    <FilterOption option={o} groupKey={g.key} showCounts={g.showCounts} basePath={basePath} params={params} />
+                  ))}
+                </ul>
+              </details>
+            </div>
+          );
+        })
+      }
+    </div>
+    <div class="archive-filters__actions" data-swap="sheet-actions">
+      {
+        activeCount > 0 ? (
+          <a class="archive-filters__clear" href={clearAllHref} rel="nofollow" data-op="clear-all" data-fkey="sheet-clear">Hreinsa</a>
+        ) : (
+          <span class="archive-filters__clear" aria-disabled="true">Hreinsa</span>
+        )
+      }
+      <button class="archive-filters__done" type="button" data-filters-close data-filters-done data-fkey="sheet-done">Sýna vörur ({result.total})</button>
+    </div>
+  </aside>
+
+  <section class="archive__main" aria-labelledby="archive-grid-heading" data-archive-main>
+    <h2 id="archive-grid-heading" class="visually-hidden">Vörur</h2>
+    <p class="visually-hidden" role="status" data-swap="status">{countText}</p>
+    <p class="visually-hidden" aria-live="polite" data-announce></p>
+    <div data-archive-grid data-swap="grid">
+      <ProductGrid products={result.items} eagerCount={3} empty="Engar vörur fundust sem passa við valið." />
+    </div>
+    <div data-swap="more">
+      {nextHref && (
+        <div class="archive__more">
+          <a class="archive__more-btn" href={nextHref} data-load-more>Sýna fleiri</a>
+        </div>
+      )}
+    </div>
+  </section>
+</div>
+
+<script>
+  import {
+    announceText,
+    applyOp,
+    chipFocusIndex,
+    focusFallbacks,
+    historyAction,
+    initialScroll,
+    isFilterKey,
+    isPlainClick,
+    matchesSearch,
+    viewKey,
+    withTimeout,
+    type NavOp,
+  } from '../lib/archiveNav';
+
+  const root = document.querySelector<HTMLElement>('[data-archive]');
+  const panel = document.querySelector<HTMLElement>('[data-filters]');
+  if (root && panel) {
+    const html = document.documentElement;
+    const base = root.dataset.base ?? location.pathname;
+    const desktop = window.matchMedia('(min-width: 992px)');
+    const main = root.querySelector<HTMLElement>('[data-archive-main]');
+    // Regions are swapped whole, so nothing below holds on to an element inside one: look it up again each time.
+    const byKey = (k: string, scope: ParentNode = root) => scope.querySelector<HTMLElement>(`[data-fkey="${CSS.escape(k)}"]`);
+    const shown = (el: Element | null): el is HTMLElement => el instanceof HTMLElement && el.getClientRects().length > 0;
+    const openers = () => root.querySelectorAll<HTMLElement>('[data-filters-open]');
+    const sheetOpen = () => panel.dataset.open === 'true';
+    let triggerKey: string | null = null;
+    let changedInSheet = false;
+
+    // ── Search inside a long option list (Vörumerki, Félag/Lið): hides the rows that don't match, in place. The box
+    //    is hidden in the markup, so without JS there is no box that does nothing. ──
+    const applySearch = (box: HTMLElement) => {
+      const input = box.querySelector<HTMLInputElement>('input');
+      const list = box.closest('details')?.querySelector<HTMLElement>('.filter-group__list');
+      if (!input || !list) return;
+      let any = false;
+      list.querySelectorAll<HTMLElement>(':scope > .filter-option').forEach((li) => {
+        const hit = matchesSearch(li.dataset.name ?? '', input.value);
+        // a ticked option stays in view, so it can still be unticked where it was ticked
+        li.hidden = !hit && !li.querySelector('[aria-checked="true"]');
+        any ||= hit;
+      });
+      const empty = box.querySelector<HTMLElement>('.filter-search__empty');
+      if (empty) empty.hidden = any;
+    };
+    /** Show the boxes; after a swap, put back what was typed (by group) and filter again. */
+    const initSearch = (typed?: Map<string, string>) =>
+      root.querySelectorAll<HTMLElement>('[data-filter-search]').forEach((box) => {
+        box.hidden = false;
+        const value = typed?.get(box.closest<HTMLElement>('[data-group]')?.dataset.group ?? '');
+        const input = box.querySelector<HTMLInputElement>('input');
+        if (value && input) {
+          input.value = value;
+          applySearch(box);
+        }
+      });
+    initSearch();
+
+    // ── Phones: the rail opens as a modal sheet. A group pill also opens that group and puts focus on it. ──
+    const setFilters = (open: boolean, from?: HTMLElement) => {
+      panel.dataset.open = String(open);
+      openers().forEach((b) => b.setAttribute('aria-expanded', String(open)));
+      html.classList.toggle('overlay-open', open);
+      if (open) {
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+      } else {
+        panel.removeAttribute('role');
+        panel.removeAttribute('aria-modal');
+      }
+      if (!open) {
+        // the pills may have been swapped since the sheet opened: find the opener again by its key
+        const pill = (triggerKey && byKey(triggerKey)) || openers()[0];
+        pill?.focus({ preventScroll: true });
+        // filtered in the sheet and the results are now above the viewport: bring their top into view
+        if (changedInSheet && main && main.getBoundingClientRect().top < 0) main.scrollIntoView({ block: 'start' });
+        changedInSheet = false;
+        return;
+      }
+      triggerKey = from?.dataset.fkey ?? null;
+      changedInSheet = false;
+      const key = from?.dataset.filtersGroup;
+      const group = key ? panel.querySelector<HTMLElement>(`[data-group="${key}"]`) : null;
+      if (group) {
+        if (group instanceof HTMLDetailsElement) group.open = true;
+        (group.closest<HTMLElement>('.filter-section') ?? group).scrollIntoView({ block: 'start' });
+        // a <details> group focuses its heading; the Útsala / Á lager block (no heading) takes focus itself
+        (group.querySelector<HTMLElement>(':scope > summary') ?? group).focus({ preventScroll: true });
+      } else {
+        panel.scrollTop = 0;
+        panel.querySelector<HTMLElement>('[data-filters-close]')?.focus();
+      }
+    };
+    desktop.addEventListener('change', () => {
+      if (desktop.matches && sheetOpen()) setFilters(false);
+    });
+    /** Close the sheet without moving focus or the page (leaving the page: a bfcache restore must not come back with
+     *  the sheet open and the page scroll locked). */
+    const closeSheetQuietly = () => {
+      panel.dataset.open = 'false';
+      openers().forEach((b) => b.setAttribute('aria-expanded', 'false'));
+      html.classList.remove('overlay-open');
+      panel.removeAttribute('role');
+      panel.removeAttribute('aria-modal');
+      changedInSheet = false;
+    };
+
+    // ── Desktop: "Fela síur" folds the rail away; the choice is remembered (Base.astro applies it before paint). ──
+    const railBtn = root.querySelector<HTMLElement>('[data-rail-toggle]');
+    const syncRail = () => railBtn?.setAttribute('aria-expanded', String(!('filtersHidden' in html.dataset)));
+    syncRail();
+    const toggleRail = () => {
+      const hide = !('filtersHidden' in html.dataset);
+      if (hide) html.dataset.filtersHidden = '';
+      else delete html.dataset.filtersHidden;
+      try {
+        localStorage.setItem('mos-filters-hidden', hide ? '1' : '0');
+      } catch {
+        /* storage blocked: this page only */
+      }
+      syncRail();
+    };
+
+    // ── In-place updates ──
+    let shownUrl = viewKey(location.href); // what the page shows
+    let pendingUrl: string | null = null; // what it is heading to (quick clicks compose on it)
+    let inflight: AbortController | null = null;
+    let timer = 0;
+    let generation = 0; // bumped by every swap, so a "Sýna fleiri" answer that lands after one is dropped
+    // History entries are told apart by id (their saved scroll is kept in `scrolls` while this document lives). A
+    // page loaded into one of our entries keeps its id; new ids start from the clock, so they never collide with
+    // the ids an earlier document gave the entries around it.
+    let entryId = typeof history.state?.mosArchive === 'number' ? (history.state.mosArchive as number) : 0;
+    let nextEntryId = Date.now();
+    let enhanced = false;
+    const FETCH_TIMEOUT_MS = 15000;
+    const scrolls = new Map<number, number>();
+    interface FocusIntent {
+      fkey: string;
+      group?: string;
+      chipIndex: number;
+      el: Element;
+    }
+    let intent: FocusIntent | null = null;
+
+    const enhance = () => {
+      if (enhanced) return;
+      enhanced = true;
+      history.replaceState({ ...(history.state ?? {}), mosArchive: entryId }, '');
+      // our own scroll restoration while entries are ours; the browser's again once the page is left
+      history.scrollRestoration = 'manual';
+    };
+    window.addEventListener('pagehide', () => {
+      if (enhanced) {
+        // this entry's scroll, for a later load of it that the browser won't restore (see initialScroll)
+        history.replaceState({ ...(history.state ?? {}), scrollY: window.scrollY }, '');
+        history.scrollRestoration = 'auto';
+      }
+      if (sheetOpen()) closeSheetQuietly();
+    });
+    window.addEventListener('pageshow', (e) => {
+      if (enhanced && e.persisted) history.scrollRestoration = 'manual';
+    });
+
+    // Loaded (not from the bfcache) into one of our entries: entries made while restoration was "manual" stay
+    // manual in the browser, which would open them at the top. Restore the saved scroll, again after the load
+    // event if the page was still too short to reach it.
+    const startY = initialScroll(history.state, false);
+    if (startY !== null) {
+      enhance();
+      window.scrollTo(0, startY);
+      if (Math.abs(window.scrollY - startY) > 1) {
+        window.addEventListener('load', () => {
+          if (window.scrollY < startY - 1) window.scrollTo(0, startY);
+        }, { once: true });
+      }
+    }
+
+    const setBusy = (busy: boolean) => main?.setAttribute('aria-busy', String(busy));
+    const announce = (text: string) => {
+      // inside the sheet while it is open (aria-modal hides the rest); cleared first so a repeat is heard too
+      const el = root.querySelector<HTMLElement>(sheetOpen() ? '[data-announce-sheet]' : '[data-announce]');
+      if (!el) return;
+      el.textContent = '';
+      requestAnimationFrame(() => (el.textContent = text));
+    };
+
+    const focusFor = (it: FocusIntent) => {
+      const inSheet = sheetOpen();
+      for (const k of focusFallbacks(it.fkey, it.group)) {
+        if (k === 'chips' && it.chipIndex >= 0) {
+          const chips = root.querySelectorAll<HTMLElement>('.filter-chip');
+          const i = chipFocusIndex(it.chipIndex, chips.length);
+          if (i >= 0 && shown(chips[i])) return chips[i];
+        }
+        const el = byKey(k);
+        if (shown(el) && (!inSheet || panel.contains(el))) return el;
+      }
+      return inSheet ? byKey('sheet-close', panel) : byKey('title');
+    };
+
+    /** Swap every [data-swap] region for the fetched page's, keeping what the visitor set up: open groups, the
+     *  "Sýna allar stærðir" and sub-category disclosures, the rail's scroll, the page scroll and focus. */
+    const swap = (doc: Document, scrollTo?: number) => {
+      const regions = [...root.querySelectorAll<HTMLElement>('[data-swap]')];
+      const next = regions.map((r) => doc.querySelector<HTMLElement>(`[data-swap="${r.dataset.swap}"]`));
+      if (next.some((n) => !n)) return false;
+
+      const openGroups = new Map<string, boolean>();
+      root.querySelectorAll<HTMLDetailsElement>('details[data-group]').forEach((d) => openGroups.set(d.dataset.group ?? '', d.open));
+      const moreOpen = root.querySelector<HTMLDetailsElement>('.filter-sizes__more')?.open;
+      const typed = new Map<string, string>();
+      root.querySelectorAll<HTMLElement>('[data-filter-search]').forEach((box) => {
+        const value = box.querySelector<HTMLInputElement>('input')?.value;
+        if (value) typed.set(box.closest<HTMLElement>('[data-group]')?.dataset.group ?? '', value);
+      });
+      const trees = new Map<string, boolean>();
+      root.querySelectorAll<HTMLElement>('[data-filter-expand]').forEach((b) => trees.set(b.getAttribute('aria-controls') ?? '', b.getAttribute('aria-expanded') === 'true'));
+      const railTop = panel.scrollTop;
+      const y = window.scrollY;
+      const active = document.activeElement;
+      // The rail's scroll is anchored on the control in use: options above it may come or go with the counts, so
+      // a raw scrollTop would slide it away from under the pointer. Raw scrollTop is the fallback.
+      const anchor = (intent?.el ?? active)?.closest<HTMLElement>('[data-fkey]');
+      const anchorKey = anchor && panel.contains(anchor) ? anchor.dataset.fkey : undefined;
+      const anchorTop = anchorKey ? anchor!.getBoundingClientRect().top : 0;
+      const focusInRegions = !active || active === document.body || regions.some((r) => r.contains(active));
+      // without a click (back/forward), keep focus on the same control if it was in a region
+      const keep: FocusIntent | null =
+        intent ?? (active instanceof HTMLElement && active !== document.body ? (() => {
+          const k = active.closest<HTMLElement>('[data-fkey]');
+          return k ? { fkey: k.dataset.fkey ?? '', group: k.closest<HTMLElement>('[data-group]')?.dataset.group, chipIndex: -1, el: k } : null;
+        })() : null);
+
+      regions.forEach((r, i) => r.replaceWith(document.importNode(next[i] as HTMLElement, true)));
+      document.title = doc.title;
+      generation++;
+
+      root.querySelectorAll<HTMLDetailsElement>('details[data-group]').forEach((d) => {
+        const open = openGroups.get(d.dataset.group ?? '');
+        if (open !== undefined) d.open = open;
+      });
+      const more = root.querySelector<HTMLDetailsElement>('.filter-sizes__more');
+      if (more && moreOpen !== undefined) more.open = moreOpen;
+      initSearch(typed);
+      root.querySelectorAll<HTMLElement>('[data-filter-expand]').forEach((b) => {
+        const open = trees.get(b.getAttribute('aria-controls') ?? '');
+        if (open === undefined) return;
+        b.setAttribute('aria-expanded', String(open));
+        const li = b.closest<HTMLElement>('.filter-option');
+        if (li) li.dataset.open = String(open);
+      });
+      if (sheetOpen()) openers().forEach((b) => b.setAttribute('aria-expanded', 'true'));
+      panel.scrollTop = railTop;
+      const anchorNow = anchorKey ? byKey(anchorKey, panel) : null;
+      if (shown(anchorNow)) {
+        const want = panel.scrollTop + anchorNow.getBoundingClientRect().top - anchorTop;
+        // fewer options below now: pad the foot rather than let the rail clamp and slide the control away
+        const short = want - (panel.scrollHeight - panel.clientHeight);
+        const body = panel.querySelector<HTMLElement>('[data-swap="filters"]');
+        if (short > 0 && body) body.style.paddingBottom = `${parseFloat(getComputedStyle(body).paddingBottom) + short}px`;
+        panel.scrollTop = want;
+      }
+
+      // Page scroll: kept (back/forward: the entry's own). If the grid has shrunk out of view above the
+      // viewport (deep in a long list), its top is brought back; never while the sheet is open.
+      const target = scrollTo ?? y;
+      if (Math.abs(window.scrollY - target) > 1) window.scrollTo(0, target);
+      const grid = root.querySelector<HTMLElement>('[data-archive-grid]');
+      if (!sheetOpen() && grid && grid.getBoundingClientRect().bottom < 80) main?.scrollIntoView({ block: 'start' });
+
+      if (keep && focusInRegions) focusFor(keep)?.focus({ preventScroll: true });
+      intent = null;
+
+      const total = Number(root.querySelector<HTMLElement>('[data-total]')?.dataset.total);
+      if (Number.isFinite(total)) announce(announceText(total));
+      return true;
+    };
+
+    const go = async (url: string, mode: 'push' | 'pop', scrollTo?: number) => {
+      inflight?.abort();
+      clearTimeout(timer);
+      timer = 0;
+      const ctrl = new AbortController();
+      inflight = ctrl;
+      setBusy(true);
+      // a hung request gives up after FETCH_TIMEOUT_MS and falls back to the plain navigation below
+      const limit = withTimeout(ctrl.signal, FETCH_TIMEOUT_MS);
+      try {
+        const res = await fetch(url, { headers: { Accept: 'text/html' }, signal: limit.signal });
+        if (!res.ok) throw new Error(String(res.status));
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        if (ctrl.signal.aborted) return;
+        const landed = viewKey(res.url || url);
+        const leftY = window.scrollY;
+        if (!doc.querySelector('[data-archive]') || !swap(doc, scrollTo)) throw new Error('not an archive');
+        // against the entry the address bar is on: after a Back whose fetch was cut short by a click, that is the
+        // popped entry, not the one still shown
+        const action = historyAction(mode, landed, viewKey(location.href));
+        if (action === 'push') {
+          enhance();
+          scrolls.set(entryId, leftY);
+          history.replaceState({ ...(history.state ?? {}), mosArchive: entryId, scrollY: leftY }, '');
+          entryId = nextEntryId++;
+          history.pushState({ mosArchive: entryId }, '', landed);
+        } else if (action === 'replace') {
+          // back where it was (ticked and unticked): the same entry, no duplicate to step back through
+          history.replaceState(history.state, '', landed);
+        }
+        shownUrl = landed;
+        if (pendingUrl === url) pendingUrl = null;
+        if (sheetOpen()) changedInSheet = true;
+      } catch {
+        if (ctrl.signal.aborted) return; // superseded by a newer click or Back (a timeout is not an abort of ctrl)
+        // any failure (non-200, network, timeout, an unexpected page): the plain navigation always works
+        if (mode === 'pop') {
+          // the reloaded page restores this entry's scroll from its state (initialScroll)
+          if (scrollTo !== undefined) history.replaceState({ ...(history.state ?? {}), scrollY: scrollTo }, '');
+          location.reload();
+        } else window.location.href = url;
+      } finally {
+        limit.clear();
+        if (inflight === ctrl) {
+          inflight = null;
+          setBusy(false);
+        }
+      }
+    };
+
+    /** A filter interaction: compose its URL on the pending one; fetch at once when idle, else (a quick follow-up
+     *  click) drop the request in flight and fetch the composed URL once clicks pause for 120 ms. */
+    const schedule = (op: NavOp, it: FocusIntent) => {
+      const url = applyOp(pendingUrl ?? shownUrl, base, op);
+      pendingUrl = url;
+      intent = it;
+      if (!inflight && !timer) {
+        void go(url, 'push');
+        return;
+      }
+      inflight?.abort();
+      inflight = null; // its `finally` must not clear the busy state: the composed request follows
+      setBusy(true);
+      clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = 0;
+        if (pendingUrl) void go(pendingUrl, 'push');
+      }, 120);
+    };
+
+    window.addEventListener('popstate', (e) => {
+      const url = viewKey(location.href);
+      if (url === shownUrl && !pendingUrl && !inflight) return; // a hash change (the skip link), not a filter change
+      scrolls.set(entryId, window.scrollY);
+      entryId = typeof e.state?.mosArchive === 'number' ? e.state.mosArchive : 0;
+      const y = scrolls.get(entryId) ?? (typeof e.state?.scrollY === 'number' ? e.state.scrollY : undefined);
+      clearTimeout(timer);
+      timer = 0;
+      // a filter click while this loads composes onto the entry being shown, not the one left behind
+      pendingUrl = url;
+      intent = null;
+      void go(url, 'pop', y);
+    });
+
+    /** Instant feedback before the swap lands: tick or untick the option (a single-valued key unticks its others). */
+    const optimistic = (el: HTMLElement, op: NavOp) => {
+      if (op.type !== 'toggle' || el.getAttribute('role') !== 'checkbox') return;
+      const on = el.getAttribute('aria-checked') !== 'true';
+      if (on && (op.key === 'verd' || op.key === 'utsala' || op.key === 'lager')) {
+        root.querySelectorAll<HTMLElement>(`[role=checkbox][data-filter-key="${op.key}"]`).forEach((o) => o.setAttribute('aria-checked', 'false'));
+      }
+      el.setAttribute('aria-checked', String(on));
+    };
+
+    root.addEventListener('input', (e) => {
+      const box = (e.target as HTMLElement).closest<HTMLElement>('[data-filter-search]');
+      if (box) applySearch(box);
+    });
+
+    root.addEventListener('change', (e) => {
+      const sel = (e.target as HTMLElement).closest<HTMLSelectElement>('[data-sort]');
+      if (sel) schedule({ type: 'sort', value: sel.value }, { fkey: 'sort', chipIndex: -1, el: sel });
+    });
+
+    // Space toggles a checkbox option, as on a native checkbox (links only answer Enter).
+    root.addEventListener('keydown', (e) => {
+      if (e.key !== ' ') return;
+      const box = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[role="checkbox"]');
+      if (!box) return;
+      e.preventDefault();
+      if (!e.repeat) box.click();
+    });
+
+    // Focus stays in the open sheet; Escape closes it.
+    document.addEventListener('keydown', (e) => {
+      if (!sheetOpen()) return;
+      if (e.key === 'Escape') return setFilters(false);
+      if (e.key !== 'Tab') return;
+      const items = [...panel.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), summary, select, input, [tabindex="0"]')].filter(shown);
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const at = document.activeElement;
+      if (!at || !panel.contains(at)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && at === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && at === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+
+    root.addEventListener('click', async (e) => {
+      const t = e.target as HTMLElement;
+      const opener = t.closest<HTMLElement>('[data-filters-open]');
+      if (opener) return setFilters(true, opener);
+      if (t.closest('[data-filters-close]')) return setFilters(false);
+      if (t.closest('[data-rail-toggle]')) return toggleRail();
+
+      const expand = t.closest<HTMLElement>('[data-filter-expand]');
+      if (expand) {
+        const li = expand.closest<HTMLElement>('.filter-option');
+        const open = li?.dataset.open !== 'true';
+        if (li) li.dataset.open = open ? 'true' : 'false';
+        expand.setAttribute('aria-expanded', String(open));
+        return;
+      }
+
+      // Filter options, chips, "Hreinsa" (group / sheet), "Hreinsa allt", "Endursetja": in place.
+      const link = t.closest<HTMLAnchorElement>('a[data-op]');
+      if (link) {
+        if (!isPlainClick(e)) return; // new tab / window: the browser's
+        const key = link.dataset.filterKey;
+        const value = link.dataset.filterValue;
+        const kind = link.dataset.op;
+        const op: NavOp | null =
+          kind === 'toggle' && isFilterKey(key) && value
+            ? { type: 'toggle', key, value }
+            : kind === 'clear' && isFilterKey(key)
+              ? { type: 'clear', key }
+              : kind === 'clear-all'
+                ? { type: 'clear-all' }
+                : null;
+        if (!op) return;
+        e.preventDefault();
+        optimistic(link, op);
+        const chips = [...root.querySelectorAll('.filter-chip')];
+        schedule(op, {
+          fkey: link.dataset.fkey ?? '',
+          group: link.closest<HTMLElement>('[data-group]')?.dataset.group ?? (kind === 'clear' ? key : undefined),
+          chipIndex: chips.indexOf(link),
+          el: link,
+        });
+        return;
+      }
+
+      // "Sýna fleiri": fetch the next /page/N/, append its cards, advance (or drop) the button.
+      const more = t.closest<HTMLAnchorElement>('[data-load-more]');
+      if (more) {
+        if (!isPlainClick(e)) return;
+        e.preventDefault();
+        if (more.dataset.busy) return;
+        more.dataset.busy = 'true';
+        const gen = generation;
+        const limit = withTimeout(new AbortController().signal, FETCH_TIMEOUT_MS);
+        try {
+          const res = await fetch(more.href, { headers: { Accept: 'text/html' }, signal: limit.signal });
+          if (gen !== generation) return; // the filters changed meanwhile: this page belongs to the old grid
+          if (res.status === 404) {
+            more.closest('.archive__more')?.remove(); // the next page is gone (fewer products now)
+            return;
+          }
+          if (!res.ok) throw new Error(String(res.status)); // e.g. 503: fall back to the plain page
+          const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+          if (gen !== generation) return;
+          const items = doc.querySelectorAll('[data-archive-grid] .product-grid > li');
+          const grid = root.querySelector('[data-archive-grid] .product-grid');
+          // The catalog can shift between pages (a new product on page 1 pushes one onto page 2): skip a card already shown.
+          const cardHref = (li: Element) => li.querySelector('.product-card__title a')?.getAttribute('href');
+          const shown = new Set([...(grid?.children ?? [])].map(cardHref).filter(Boolean));
+          items.forEach((li) => {
+            const href = cardHref(li);
+            if (href && shown.has(href)) return;
+            grid?.appendChild(document.importNode(li, true));
+          });
+          const status = root.querySelector('[role=status]');
+          const added = doc.querySelector('[role=status]')?.textContent;
+          if (status && added) status.textContent = added;
+          const next = doc.querySelector<HTMLAnchorElement>('[data-load-more]');
+          if (next) more.href = next.getAttribute('href') ?? '';
+          else more.closest('.archive__more')?.remove();
+        } catch {
+          window.location.href = more.href; // fall back to the plain page (also after a timeout)
+        } finally {
+          limit.clear();
+          delete more.dataset.busy;
+        }
+      }
+    });
+  }
+</script>

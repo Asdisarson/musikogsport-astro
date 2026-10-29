@@ -1,0 +1,36 @@
+---
+// Live's header login popup (Goya et-login-popup): "Innskráning" links open the login form in a modal
+// while signed out; signed in, they go to /min-sida/ and the header link reads "Mín síða". The signed-in
+// state comes from the non-secret `mos_li` cookie, so cached pages stay correct.
+import LoginForm from './LoginForm.astro';
+---
+
+<dialog class="popup login-popup" data-login-dialog aria-label="Innskráning">
+  <button class="popup__close" type="button" data-popup-close aria-label="Loka">
+    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
+  </button>
+  <LoginForm idPrefix="popup" />
+</dialog>
+
+<script>
+  const dialog = document.querySelector<HTMLDialogElement>('[data-login-dialog]');
+  const signedIn = document.cookie.split('; ').some((c) => c.startsWith('mos_li='));
+  if (signedIn) {
+    document.querySelectorAll<HTMLElement>('[data-login-label]').forEach((el) => (el.textContent = 'Mín síða'));
+  }
+  document.addEventListener('click', (e) => {
+    const link = (e.target as HTMLElement).closest('[data-login-link]');
+    if (!link || signedIn || !dialog) return;
+    e.preventDefault();
+    // Back to this page after signing in (set now: the page may be prerendered); from the account pages, the
+    // dashboard. location's path and query are percent-encoded, so lib/http safeNext accepts them.
+    const back = dialog.querySelector<HTMLInputElement>('input[name="redirect"]');
+    if (back) back.value = location.pathname.startsWith('/min-sida/') ? '/min-sida/' : location.pathname + location.search;
+    dialog.showModal();
+    dialog.querySelector<HTMLInputElement>('input[name="username"]')?.focus();
+  });
+  dialog?.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    if (t === dialog || t.closest('[data-popup-close]')) dialog.close();
+  });
+</script>

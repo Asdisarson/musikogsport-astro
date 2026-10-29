@@ -1,0 +1,56 @@
+---
+import Base from '../../layouts/Base.astro';
+import AccountLayout from '../../components/AccountLayout.astro';
+import LoginForm from '../../components/LoginForm.astro';
+import { currentUser } from '../../lib/auth';
+
+export const prerender = false;
+Astro.response.headers.set('Cache-Control', 'no-store'); // per-customer — never cache
+
+// Live's /min-sida/: signed out, a centred login box (no visible title, no register form);
+// signed in, WooCommerce's account dashboard.
+const user = await currentUser(Astro.cookies);
+const q = Astro.url.searchParams;
+const loginNotice =
+  q.get('login') === 'failed'
+    ? { kind: 'error' as const, text: 'Villa: Notendanafnið, netfangið eða lykilorðið er rangt.' }
+    : q.get('login') === 'limited'
+      ? { kind: 'error' as const, text: 'Of margar innskráningartilraunir. Reyndu aftur eftir smá stund.' }
+      : q.get('login') === 'changed'
+        ? { kind: 'success' as const, text: 'Lykilorðinu þínu var breytt. Skráðu þig inn með nýja lykilorðinu.' }
+        : q.get('login') === 'unavailable'
+          ? { kind: 'error' as const, text: 'Innskráning tókst ekki: þjónustan svaraði ekki. Reyndu aftur eftir smá stund.' }
+          : q.get('reset') === '1'
+            ? { kind: 'success' as const, text: 'Lykilorðið þitt hefur verið endurstillt. Skráðu þig inn hér fyrir neðan.' }
+            : null;
+---
+
+{
+  user ? (
+    <AccountLayout title="Mín Síða" current="dashboard">
+      <p>
+        Halló <strong>{user.name}</strong> (ekki <strong>{user.name}</strong>?{' '}
+        <a href="/min-sida/customer-logout/">Útskrá</a>)
+      </p>
+      <p>
+        Frá stjórnborði aðgangsins getur þú skoðað <a href="/min-sida/orders/">nýlegar pantanir</a>, séð um{' '}
+        <a href="/min-sida/edit-address/">sendingar- og greiðsluheimilisföng</a> og{' '}
+        <a href="/min-sida/edit-account/">breytt lykilorði og upplýsingum aðgangsins</a>.
+      </p>
+    </AccountLayout>
+  ) : (
+    <Base title="Mín Síða" noindex>
+      <h1 class="visually-hidden">Mín Síða</h1>
+      <div class="login-wrap">
+        {loginNotice && (
+          <p class:list={['woo-notice', `woo-notice--${loginNotice.kind}`]} role={loginNotice.kind === 'error' ? 'alert' : 'status'}>
+            {loginNotice.text}
+          </p>
+        )}
+        <div class="login-box">
+          <LoginForm idPrefix="page" />
+        </div>
+      </div>
+    </Base>
+  )
+}

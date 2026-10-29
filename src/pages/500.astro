@@ -1,0 +1,16 @@
+---
+import Base from '../layouts/Base.astro';
+import NotFound from '../components/NotFound.astro';
+
+// Astro's special server-error page — rendered when an uncaught error escapes a
+// route. Layout data lookups (header/footer categories) degrade to empty on
+// outage, so this page renders even when the Woo backend is the thing that died.
+---
+
+<Base title="Villa kom upp" noindex>
+  <NotFound
+    code="500"
+    title="Eitthvað fór úrskeiðis"
+    message="Óvænt villa kom upp á vefnum og ekki tókst að birta síðuna. Endurhlaðu síðuna eða reyndu aftur eftir smástund."
+  />
+</Base>

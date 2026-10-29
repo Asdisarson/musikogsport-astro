@@ -1,0 +1,43 @@
+---
+// Live's size chart popup: any `[data-sizeguide]` link (the product page puts "Stærðartafla" beside "Veldu stærð",
+// inside the purchase island) opens it, and it lazily lifts the content of /staerdir/ (the WordPress page). The plain
+// link is the no-JS fallback. Clicks are caught on the document, so the island's hydration can't drop the listener.
+---
+
+<dialog class="popup" data-sizeguide-dialog aria-labelledby="sizeguide-title">
+  <button class="popup__close" type="button" data-popup-close aria-label="Loka">
+    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
+  </button>
+  <h4 class="popup__title" id="sizeguide-title">Stærðartafla</h4>
+  <div class="popup__body" data-sizeguide-body><p>Sæki stærðartöflu…</p></div>
+</dialog>
+
+<script>
+  const dialog = document.querySelector<HTMLDialogElement>('[data-sizeguide-dialog]');
+  const body = dialog?.querySelector<HTMLElement>('[data-sizeguide-body]');
+  let loaded = false;
+  document.addEventListener('click', async (e) => {
+    const link = (e.target as Element | null)?.closest<HTMLAnchorElement>('a[data-sizeguide]');
+    if (!link || !dialog || !body) return;
+    e.preventDefault();
+    dialog.showModal();
+    if (loaded) return;
+    try {
+      // a hung request opens the size page itself (the catch) instead of leaving "Sæki stærðartöflu…"
+      const res = await fetch(link.href, { headers: { Accept: 'text/html' }, signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new Error(String(res.status));
+      // Our own server-rendered, sanitized page — moved over as nodes, not re-parsed strings.
+      const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+      const content = doc.querySelector('.wp-page');
+      if (!content) throw new Error('no content');
+      body.replaceChildren(...[...content.childNodes].map((n) => document.importNode(n, true)));
+      loaded = true;
+    } catch {
+      window.location.href = link.href;
+    }
+  });
+  dialog?.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    if (t === dialog || t.closest('[data-popup-close]')) dialog.close();
+  });
+</script>

@@ -1,0 +1,99 @@
+{
+  "campaign_text": "Við erum flutt á Dalshraun 10 - Keyrt inn af Stakkahrauni.",
+  "store_notice": "Dalshraun 10 - Hafnarfirði - Sími: 555-2887",
+  "hero_heading": "Ert þú tilbúin/n fyrir æfingu?",
+  "hero_text": "Skoðaðu úrvalið",
+  "hero_buttons": [
+    {
+      "label": "Vefverslun",
+      "link": "/verslun/"
+    },
+    {
+      "label": "Vefverslun Börn",
+      "link": "/verslun/?kyn=born"
+    }
+  ],
+  "hero_slides": [
+    {
+      "product_slug": "adidas-liverpool-home-25-26-barnatreyja",
+      "image_url": "https://musikogsport.is/wp-content/uploads/2025/08/JV6436_9_APPAREL_On-Model_Standard-Unisex-Pair-Shot_grey-scaled.jpg"
+    },
+    {
+      "product_slug": "adidas-barnaulpa",
+      "image_url": "https://musikogsport.is/wp-content/uploads/2026/06/KH0196_5_APPAREL_On-Model_Detail-View-1_grey-scaled.jpg"
+    },
+    {
+      "product_slug": "macron-fodradur-regnjakki",
+      "image_url": "https://musikogsport.is/wp-content/uploads/2025/05/800003020900.jpg"
+    }
+  ],
+  "rows": [
+    {
+      "title": "Nýjar vörur í vefverslun",
+      "source": "newest",
+      "count": 10
+    },
+    {
+      "title": "Vinsælt núna",
+      "source": "popular",
+      "count": 10
+    }
+  ],
+  "banners": [
+    {
+      "title": "Hlaupavörur í úrvali",
+      "image_url": "https://musikogsport.is/wp-content/uploads/2026/08/H24616_ADIZERO-EVO-SL-SS26_0.7103934020743051_-scaled.jpg",
+      "link": "/voruflokkur/fatnadur/hlaup/"
+    },
+    {
+      "title": "Félagsfatnaður og fylgihlutir",
+      "image_url": "https://musikogsport.is/wp-content/uploads/2026/08/H24765_WORLD-CUP-2026-ALL-FEDS-AWAY-JERSEYS-SS26_0.4453049075020433_.jpg",
+      "link": "/voruflokkur/fatnadur/lidafatnadur-fatnadur-2/"
+    },
+    {
+      "title": "FÓTBOLTASKÓR",
+      "image_url": "https://musikogsport.is/wp-content/uploads/2026/04/H24625_PREDATOR-VS.-F50-SS26_0.330992209121617_.jpg",
+      "link": "/verslun/?product-category=fotboltaskor-ithrottaskor"
+    },
+    {
+      "title": "SUND",
+      "image_url": "https://musikogsport.is/wp-content/uploads/2026/04/original-Rectangle_1-094655.png.avif",
+      "link": "/voruflokkur/fatnadur/sundfatnadur-fatnadur-2/"
+    },
+    {
+      "title": "DIDRIKSONS",
+      "image_url": "https://musikogsport.is/wp-content/uploads/2026/04/didriksons_ss2026_kids_A7R2201_1x1_c261-scaled.jpg",
+      "link": "/verslun/?brand=didriksons"
+    },
+    {
+      "title": "ALLT FYRIR HLAUP",
+      "image_url": "https://musikogsport.is/wp-content/uploads/2026/04/KJ3065_8_FOOTWEAR_Photography_Detail-View-1_grey-scaled.jpg",
+      "link": "/voruflokkur/fatnadur/hlaup/"
+    },
+    {
+      "title": "BÖRN",
+      "image_url": "https://musikogsport.is/wp-content/uploads/2026/02/JZ3567_8_APPAREL_On-Model_Standard-Unisex-Pair-Shot_grey-scaled.jpg",
+      "link": "/verslun/?age=born&product-category=didriksons,efri-likami,nedri-likami,sundfatnadur-fatnadur-2,lidafatnadur-fatnadur-2,vetur"
+    },
+    {
+      "title": "FIMLEIKAR",
+      "image_url": "https://musikogsport.is/wp-content/uploads/2026/02/e5304-015-berry-pink-pop-tank-leotard-front-2.jpg",
+      "link": "/voruflokkur/aefingarvorur/fimleikar/"
+    }
+  ],
+  "footer": {
+    "address": "Dalshraun 10\n220 Hafnarfjörður",
+    "directions_label": "Leiðarvísir",
+    "directions_link": "https://maps.app.goo.gl/YzzbjBHWeyXiUpJdA",
+    "email": "musikogsport@musikogsport.is",
+    "phone": "+(354) 555 2887",
+    "company_line": "Músík og Sport ehf. Dalshraun 10, 220 Hafnarfjörður, kennitala 710303-2310 Allur réttur áskilinn 2025 ©"
+  },
+  "campaign_text_right": "Opið virka daga 10-18 & laugardaga 10-16",
+  "site_logo": {
+    "image_url": "https://musikogsport.is/wp-content/uploads/2025/05/cropped-Musikogsport-logo-haegri-lina-scaled-1.jpg"
+  },
+  "footer_logo": {
+    "image_url": "https://musikogsport.is/wp-content/uploads/2025/05/Musikogsport-logo-ofan-lina-720x466.jpg"
+  }
+}

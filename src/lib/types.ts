@@ -1,4 +1,5 @@
 // Shared types for the WooCommerce REST v3 catalog + Store API cart/checkout.
+import type { CardFill } from './photoBg';
 
 export type StockStatus = 'instock' | 'outofstock' | 'onbackorder';
 export type ProductType = 'simple' | 'variable' | 'grouped' | 'external';
@@ -8,6 +9,12 @@ export interface WooImage {
   src: string;
   alt?: string;
   name?: string;
+  /** WC REST v3 (this store): the attachment's sub-sizes; `false` when WordPress made none. */
+  srcset?: string | false;
+  /** Store API: WordPress's own `sizes` for the full-width image (the cards pass their own instead). */
+  sizes?: string;
+  /** WC REST v3 and the Store API: the 450×450 catalog crop. */
+  thumbnail?: string;
 }
 
 export interface WooCategoryRef {
@@ -47,6 +54,10 @@ export interface WooProduct {
   purchasable?: boolean;
   images: WooImage[];
   categories: WooCategoryRef[];
+  tags?: WooCategoryRef[];
+  brands?: WooCategoryRef[];
+  weight?: string;
+  dimensions?: { length: string; width: string; height: string };
   attributes?: WooAttribute[];
   variations?: number[]; // variation IDs only
   related_ids?: number[];
@@ -61,6 +72,7 @@ export interface WooVariationAttr {
 
 export interface WooVariation {
   id: number;
+  menu_order?: number;
   attributes: WooVariationAttr[];
   price: string;
   regular_price: string;
@@ -88,21 +100,6 @@ export interface Paged<T> {
   total: number;
   totalPages: number;
   page: number;
-}
-
-export type ProductOrderBy = 'date' | 'price' | 'popularity' | 'title' | 'rating' | 'menu_order';
-
-export interface ProductQuery {
-  page?: number;
-  per_page?: number;
-  category?: number; // numeric ID (resolve slug -> id first)
-  search?: string;
-  orderby?: ProductOrderBy;
-  order?: 'asc' | 'desc';
-  on_sale?: boolean;
-  stock_status?: StockStatus;
-  featured?: boolean;
-  include?: number[];
 }
 
 // ---------- Store API (cart / checkout) ----------
@@ -137,6 +134,8 @@ export interface CartItem {
   totals: StoreCurrency & {
     line_total: string;
     line_subtotal: string;
+    line_subtotal_tax?: string;
+    line_total_tax?: string;
   };
 }
 
@@ -204,18 +203,25 @@ export interface Cart {
   errors: unknown[];
 }
 
+/** A Store API checkout address as /api/checkout forwards it (lib/checkoutPayload): every field a string. */
+export type CheckoutAddress = Required<Omit<Address, 'email'>>;
+
+/** The checkout body /api/checkout forwards to the Store API: only these fields (LM-03, lib/checkoutPayload). */
 export interface CheckoutPayload {
-  billing_address: Address;
-  shipping_address?: Omit<Address, 'email'>;
-  payment_method: string;
-  payment_data?: { key: string; value: string }[];
-  customer_note?: string;
+  billing_address: CheckoutAddress & { email: string };
+  shipping_address?: CheckoutAddress;
+  /** Absent for a free order (CO-21). */
+  payment_method?: string;
+  payment_data: { key: string; value: string }[];
+  customer_note: string;
   // Pósturinn "Pakki Póstbox" pickup: the chosen locker id + a contact phone. The Pósturinn
   // plugin's own Store-API checkout hook reads these top-level fields off the request (see the
-  // NOTE in wp-mu-plugins/mos-posturinn-droppoints.php) — modeled here so they're not silently
-  // untyped on the checkout body.
+  // NOTE in wp-mu-plugins/mos-posturinn-droppoints.php).
   postis_dpo_postbox?: string;
   postis_dpo_phonenumber?: string;
+  // Live's extra checkout fields, saved by wp-mu-plugins/mos-checkout-fields.php as `_billing_ssn` / `skiptimidi`,
+  // and the checkout attempt id it stores as `_mos_checkout_attempt` (LM-01).
+  extensions: { mos: { kennitala: string | null; skiptimidi: boolean; attempt?: string } };
 }
 
 export interface OrderResult {
@@ -231,22 +237,27 @@ export interface OrderResult {
   };
 }
 
-/** Store API error body shape. */
-export interface StoreError {
-  code: string;
-  message: string;
-  data?: { status?: number; [k: string]: unknown };
-}
-
 /** Trimmed product fields for a card (grid / wishlist). Matches the /api/products response body. */
 export interface ProductSummary {
   id: number;
   slug: string;
+  /** Storefront product URL (live /verslun/<category path>/<slug>/ shape). */
+  path: string;
   name: string;
   image: string;
+  /** The image's sub-sizes on the media host (mediaSrcset), so the card loads a small candidate. */
+  srcset?: string;
+  /** How the card tile fills the gap around the image (lib/photoBg cardFill) when already known; absent: no fill. */
+  photoFill?: CardFill;
   priceText?: string;
   onSale?: boolean;
   outOfStock?: boolean;
+  /** The card subtitle: the product's first card category (cardCategories). */
+  subtitle?: string;
+  /** Struck original price when discounted (simple products; variable ones show only "-N%"). */
+  wasText?: string;
+  /** Discount for the green "-N%" (salePercent). */
+  percent?: number;
 }
 
 /** Trimmed variation shape consumed by the PDP purchase island (a subset of WooVariation). */
@@ -258,6 +269,7 @@ export interface PdpVariation {
   sale_price: string;
   on_sale: boolean;
   stock_status: string;
+  sku?: string;
   image?: { src: string; alt: string } | null;
 }
 

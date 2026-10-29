@@ -9,7 +9,9 @@ interface Props {
 const { items } = Astro.props;
 ---
 
-<nav class="breadcrumbs container" aria-label="Brauðmolar">
+<!-- no `container` here: all call sites already wrap this, and self-applying it clamps the
+     trail to --maxw inside a --maxw-wide parent, indenting it ~100px past the content below. -->
+<nav class="breadcrumbs" aria-label="Slóð">
   <ol>
     {
       items.map((c) => (

@@ -9,15 +9,20 @@ interface Props {
   loading?: 'lazy' | 'eager';
   class?: string;
   id?: string;
+  /** Already rewritten to the media host (mediaSrcset); with `sizes`. */
+  srcset?: string;
+  sizes?: string;
 }
-const { src, alt = '', width, height, loading = 'lazy', class: className, id } = Astro.props;
+const { src, alt = '', width, height, loading = 'lazy', class: className, id, srcset, sizes } = Astro.props;
 const finalSrc = mediaUrl(src) || PLACEHOLDER;
-// Most local media files 404; swap to the placeholder on error (guarded against loops).
-const onerror = `if(this.src.indexOf('${PLACEHOLDER}')===-1){this.src='${PLACEHOLDER}';this.onerror=null;}`;
+// Most local media files 404: `data-fallback` opts the image into /img-fallback.js (loaded by Base.astro), which drops
+// a failed srcset, then swaps a failed src for the placeholder, once. No inline onerror: an enforced CSP blocks it.
 ---
 
 <img
   src={finalSrc}
+  srcset={srcset || undefined}
+  sizes={srcset ? sizes : undefined}
   alt={alt}
   width={width}
   height={height}
@@ -25,5 +30,5 @@ const onerror = `if(this.src.indexOf('${PLACEHOLDER}')===-1){this.src='${PLACEHO
   decoding="async"
   class={className}
   id={id}
-  onerror={onerror}
+  data-fallback
 />

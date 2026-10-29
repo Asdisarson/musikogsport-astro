@@ -1,20 +1,14 @@
 import type { APIRoute } from 'astro';
-import { listAllProductSlugs, listAllCategorySlugs } from '../lib/woo';
+import { listAllProductSlugs } from '../lib/woo';
+import { loadCatalogTerms } from '../lib/catalogTerms';
+import { categoryChain } from '../lib/categoryTree';
+import { categoryPath, productPath } from '../lib/paths';
 
 export const prerender = false;
 
-// Static, indexable routes (cart/checkout/api are intentionally excluded). `/leita` is also
-// excluded: robots.txt Disallows it (thin search-results pages), so listing it in the sitemap
-// would only produce a "Submitted URL blocked by robots.txt" conflict in Search Console.
-const STATIC_PATHS = [
-  '/',
-  '/verslun',
-  '/skilmalar',
-  '/personuvernd',
-  '/um-okkur',
-  '/hafa-samband',
-  '/staerdir',
-];
+// Static, indexable routes in live's URL shape (cart/checkout/account/wishlist/api excluded;
+// search result pages are Disallowed in robots.txt, so they are not listed either).
+const STATIC_PATHS = ['/', '/verslun/', '/um-okkur/', '/hafa-samband/', '/skilmalar/', '/opnunartimi/', '/staerdir/', '/personuvernd/'];
 
 function escapeXml(s: string): string {
   return s.replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' })[c]!);
@@ -25,17 +19,17 @@ export const GET: APIRoute = async ({ site }) => {
   const urls: { loc: string; lastmod?: string }[] = STATIC_PATHS.map((p) => ({ loc: `${base}${p}` }));
 
   // Catalog URLs — degrade gracefully if Woo is unreachable rather than 500 the whole sitemap.
-  // (listAll*Slugs serve a stale cache on transient failure, so `degraded` only trips on a true
+  // (Both loaders serve a stale cache on transient failure, so `degraded` only trips on a true
   // cold start with Woo down — in which case we must NOT long-cache the thin static-only sitemap.)
   let degraded = false;
-  try {
-    for (const slug of await listAllCategorySlugs()) urls.push({ loc: `${base}/verslun/${slug}` });
-  } catch {
-    degraded = true;
+  const terms = await loadCatalogTerms();
+  if (terms.degraded) degraded = true;
+  for (const c of terms.categories) {
+    if ((terms.counts.get(c.id) ?? 0) > 0) urls.push({ loc: `${base}${categoryPath(categoryChain(terms.categories, c.id))}` });
   }
   try {
     for (const p of await listAllProductSlugs()) {
-      urls.push({ loc: `${base}/vara/${p.slug}`, lastmod: p.modified });
+      urls.push({ loc: `${base}${productPath(p.permalink, p.slug)}`, lastmod: p.modified });
     }
   } catch {
     degraded = true;

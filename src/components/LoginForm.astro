@@ -1,0 +1,50 @@
+---
+// Live's WooCommerce login form (nike-look: labels above 48px fields): "Notendanafn eða netfang", "Lykilorð" with a
+// show-password eye, "Muna eftir mér", "Týnt lykilorð?" and a black "Skrá inn" pill. No sign-up form (live has
+// none). Posts to /api/account/login, which sets the httpOnly session cookie and redirects back.
+interface Props {
+  /** Unique per page — the form appears on /min-sida/ and in the header popup. */
+  idPrefix: string;
+  /** Where to land after signing in (same-site path). */
+  redirect?: string;
+}
+const { idPrefix, redirect = '/min-sida/' } = Astro.props;
+const id = (s: string) => `${idPrefix}-${s}`;
+---
+
+<form class="login-form account-fields" method="post" action="/api/account/login" novalidate>
+  <h2 class="login-form__title">Innskráning</h2>
+  <input type="hidden" name="redirect" value={redirect} />
+  <p class="form-row form-row-wide">
+    <input class="input-text" type="text" name="username" id={id('username')} placeholder=" " autocomplete="username" required aria-required="true" />
+    <label for={id('username')}>Notendanafn eða netfang <abbr class="required" title="Nauðsynleg(t)">*</abbr></label>
+  </p>
+  <p class="form-row form-row-wide login-form__password">
+    <input class="input-text" type="password" name="password" id={id('password')} placeholder=" " autocomplete="current-password" required aria-required="true" />
+    <label for={id('password')}>Lykilorð <abbr class="required" title="Nauðsynleg(t)">*</abbr></label>
+    <button class="login-form__eye" type="button" data-show-password aria-label="Sýna lykilorð" aria-pressed="false">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z" fill="none" stroke="currentColor" stroke-width="2" /><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" /></svg>
+    </button>
+  </p>
+  <div class="login-form__row">
+    <label class="login-form__remember">
+      <input type="checkbox" name="rememberme" value="forever" />
+      <span>Muna eftir mér</span>
+    </label>
+    <a class="login-form__lost" href="/min-sida/lost-password/">Týnt lykilorð?</a>
+  </div>
+  <button class="btn-dark btn-block login-form__submit" type="submit">Skrá inn</button>
+</form>
+
+<script>
+  // Goya's show-password eye. Delegated, so it works for every login form on the page.
+  document.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-show-password]');
+    const input = btn?.parentElement?.querySelector<HTMLInputElement>('input');
+    if (!btn || !input) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    // A toggle: the label stays "Sýna lykilorð" and the pressed state says whether it is shown.
+    btn.setAttribute('aria-pressed', String(show));
+  });
+</script>

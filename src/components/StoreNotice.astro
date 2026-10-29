@@ -1,0 +1,21 @@
+---
+// WooCommerce store notice: a quiet strip fixed to the bottom of the page with "Loka".
+import { messageKey } from '../lib/dismiss';
+import { nowrapRanges } from '../lib/text';
+
+interface Props {
+  text: string;
+}
+const { text } = Astro.props;
+const key = messageKey(text);
+---
+
+{
+  text && (
+    <p class="store-notice" data-dismissible="notice" data-key={key} role="note">
+      {/* a phone number like "555-2887" never breaks at its hyphen */}
+      <span class="store-notice__text">{nowrapRanges(text).map((s) => (s.nowrap ? <span class="nowrap">{s.text}</span> : s.text))}</span>{' '}
+      <button type="button" class="store-notice__dismiss" data-dismiss>Loka</button>
+    </p>
+  )
+}

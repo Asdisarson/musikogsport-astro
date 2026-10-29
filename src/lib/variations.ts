@@ -1,0 +1,99 @@
+// Variation logic for the product page's swatches (live: WooCommerce + Variation Swatches with
+// out-of-stock options crossed out). Pure functions so the PDP island stays thin and testable.
+
+export interface VariationLike {
+  id: number;
+  attributes: { name: string; option: string }[];
+  price: string;
+  regular_price: string;
+  stock_status: string;
+}
+
+/** "Any value" is a wildcard: Woo stores it as an empty option, and WC REST leaves the attribute out of
+ *  the variation altogether. */
+function matches(v: VariationLike, selected: Record<string, string>): boolean {
+  return Object.entries(selected).every(([name, value]) => {
+    if (!value) return true;
+    const attr = v.attributes.find((a) => a.name === name);
+    return attr === undefined || attr.option === '' || attr.option === value;
+  });
+}
+
+/** The variation for a complete selection, or null while any attribute is still unchosen. Like WooCommerce
+ *  (find_matching_product_variation, and live's variation form), the first match in menu order wins, an
+ *  "any" variation included and whatever its stock: `variations` must be in menu order. */
+export function resolveVariation<T extends VariationLike>(
+  variations: T[],
+  attrNames: string[],
+  selected: Record<string, string>,
+): T | null {
+  if (!attrNames.every((n) => selected[n])) return null;
+  return variations.find((v) => matches(v, selected)) ?? null;
+}
+
+/** Whether one option can be picked given the OTHER attributes already chosen:
+ *  'instock' (buyable), 'outofstock' (exists but sold out — live crosses it out), 'none' (no such combination).
+ *  Once every other attribute in `attrNames` is chosen, the option means one variation (the first match in
+ *  menu order, as resolveVariation picks), so its stock decides. While others are still open, the option is
+ *  buyable when some matching variation is in stock. */
+export function optionState(
+  variations: VariationLike[],
+  attrName: string,
+  option: string,
+  selected: Record<string, string>,
+  attrNames: string[] = [],
+): 'instock' | 'outofstock' | 'none' {
+  const wanted = { ...selected, [attrName]: option };
+  const candidates = variations.filter((v) => matches(v, wanted));
+  if (candidates.length === 0) return 'none';
+  const decided = attrNames.length > 0 && attrNames.every((n) => wanted[n]);
+  const inStock = decided ? candidates[0].stock_status === 'instock' : candidates.some((v) => v.stock_status === 'instock');
+  return inStock ? 'instock' : 'outofstock';
+}
+
+/** The add-to-cart guidance while a selection is incomplete: "Veldu stærð" when the first unchosen attribute is a
+ *  size (Stærð, Stærðir, Skóstærð, Size …), a generic "Veldu valkost" for any other attribute, null once everything
+ *  is chosen. With `availability`, also null when no option of that attribute is selectable (every swatch sold out
+ *  or 'none', as optionState judges them), since the hint would ask for something that can't be picked. */
+export function choiceHint(
+  attrNames: string[],
+  selected: Record<string, string>,
+  availability?: { attrs: { name: string; options: string[] }[]; variations: VariationLike[] },
+): string | null {
+  const missing = attrNames.find((n) => !selected[n]);
+  if (missing === undefined) return null;
+  if (availability) {
+    const options = availability.attrs.find((a) => a.name === missing)?.options ?? [];
+    const selectable = options.some((opt) => optionState(availability.variations, missing, opt, selected, attrNames) === 'instock');
+    if (!selectable) return null;
+  }
+  return isSizeAttribute(missing) ? 'Veldu stærð' : 'Veldu valkost';
+}
+
+/** A size attribute: Stærð, Stærðir, Skóstærð, Size … (the product page labels it "Veldu stærð"). */
+export function isSizeAttribute(name: string): boolean {
+  return /stærð|size/i.test(name.trim());
+}
+
+/** Colourway pictures for one attribute: each option's image from its first variation (menu order) that names the
+ *  option exactly and has an image. Null unless there are two or more options and every one has its own, distinct
+ *  picture — variations without a photo of their own repeat the parent's, which is no colourway. */
+export function optionImages(
+  attrName: string,
+  options: string[],
+  variations: (VariationLike & { image?: { src: string } | null })[],
+): Record<string, string> | null {
+  if (options.length < 2) return null;
+  const images: Record<string, string> = {};
+  for (const opt of options) {
+    const src = variations.find((v) => v.image?.src && v.attributes.some((a) => a.name === attrName && a.option === opt))?.image?.src;
+    if (!src) return null;
+    images[opt] = src;
+  }
+  return new Set(Object.values(images)).size === options.length ? images : null;
+}
+
+/** Woo only shows a separate variation price when variation prices differ. */
+export function pricesVary(variations: VariationLike[]): boolean {
+  return new Set(variations.map((v) => `${v.price}|${v.regular_price}`)).size > 1;
+}

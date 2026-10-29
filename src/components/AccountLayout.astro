@@ -1,0 +1,57 @@
+---
+// The signed-in /min-sida/ frame: "Mín Síða" (24/500), WooCommerce's account navigation (plain links with a 2px
+// ink bar on the current one; a row of scrolling chips on phones), then the page.
+import Base from '../layouts/Base.astro';
+
+interface Props {
+  title: string;
+  /** Which nav item is current. */
+  current: 'dashboard' | 'orders' | 'edit-address' | 'edit-account';
+  notice?: { kind: 'success' | 'error'; text: string } | null;
+}
+const { title, current, notice = null } = Astro.props;
+const nav = [
+  { key: 'dashboard', label: 'Stjórnborð', href: '/min-sida/' },
+  { key: 'orders', label: 'Pantanir', href: '/min-sida/orders/' },
+  { key: 'edit-address', label: 'Heimilisföng', href: '/min-sida/edit-address/' },
+  { key: 'edit-account', label: 'Aðgangsupplýsingar', href: '/min-sida/edit-account/' },
+] as const;
+---
+
+<Base title={title} noindex>
+  <div class="account">
+    <h1 class="account__title">Mín Síða</h1>
+    <nav class="account__nav" aria-label="Mín síða">
+      <ul>
+        {
+          nav.map((n) => (
+            <li>
+              <a href={n.href} aria-current={n.key === current ? 'page' : undefined}>
+                {n.label}
+              </a>
+            </li>
+          ))
+        }
+        <li>
+          <form method="post" action="/api/account/logout">
+            <button type="submit">Útskráning</button>
+          </form>
+        </li>
+      </ul>
+    </nav>
+    <div class="account__content">
+      {notice && <p class:list={['woo-notice', `woo-notice--${notice.kind}`]} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}</p>}
+      <slot />
+    </div>
+  </div>
+</Base>
+
+<script>
+  // Phones: the nav is a row of scrolling chips; start it with the current chip in view (the row only, never the page).
+  const row = document.querySelector<HTMLElement>('.account__nav ul');
+  const current = row?.querySelector<HTMLElement>('[aria-current]');
+  if (row && current && row.scrollWidth > row.clientWidth) {
+    const li = current.closest('li') ?? current;
+    row.scrollLeft = Math.max(0, li.offsetLeft - row.offsetLeft - (row.clientWidth - li.offsetWidth) / 2);
+  }
+</script>

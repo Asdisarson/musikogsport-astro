@@ -1,0 +1,31 @@
+---
+import Base from '../../layouts/Base.astro';
+import CheckoutForm from '../../components/CheckoutForm.tsx';
+import { currentUser } from '../../lib/auth';
+import { getCustomer } from '../../lib/account';
+
+export const prerender = false;
+Astro.response.headers.set('Cache-Control', 'no-store'); // checkout reflects the shopper's cart — never cache
+
+// ?straumurStatus=failed|canceled|error: the payment bridge sends Straumur returns that didn't
+// complete back here (wp-mu-plugins/headless-bridge.php); show WooCommerce's error notice.
+const raw = Astro.url.searchParams.get('straumurStatus') ?? '';
+const status = ['failed', 'canceled', 'error'].includes(raw) ? raw : '';
+// Signed in at /min-sida/: start from the customer's saved billing address.
+const user = await currentUser(Astro.cookies);
+const initialBilling = user ? ((await getCustomer(user.id))?.billing ?? undefined) : undefined;
+
+const notice =
+  status === 'canceled'
+    ? 'Hætt var við greiðsluna og engin greiðsla fór fram. Þú getur reynt aftur hér fyrir neðan.'
+    : status
+      ? 'Greiðslan var ekki staðfest. Ef greitt var færðu staðfestingu í tölvupósti innan skamms; annars getur þú reynt aftur eða valið annan greiðslumáta.'
+      : '';
+---
+
+<Base title="Pöntunarferli" noindex distractionFree>
+  <div class="checkout-wrap">
+    {notice && <p class="checkout-notice" role="alert">{notice}</p>}
+    <CheckoutForm client:load status={status} initialBilling={initialBilling} />
+  </div>
+</Base>

@@ -1,79 +1,20 @@
 ---
 import Base from '../../layouts/Base.astro';
-import ProductGrid from '../../components/ProductGrid.astro';
-import ShopFilters from '../../components/ShopFilters.astro';
-import Pagination from '../../components/Pagination.astro';
-import Breadcrumbs from '../../components/Breadcrumbs.astro';
-import { storeProducts, loadFacetCounts } from '../../lib/storeCatalog';
-import { loadFacetData, resolveSelection } from '../../lib/facets';
-import { parseSort, pageHref } from '../../lib/query';
-import { ld, breadcrumbList } from '../../lib/jsonld';
-import type { Paged, WooProduct } from '../../lib/types';
+import ArchiveView from '../../components/ArchiveView.astro';
+import NotFound from '../../components/NotFound.astro';
+import { loadArchive } from '../../lib/archive';
+import { filterTitle } from '../../lib/facets';
+import { markUnavailable } from '../../lib/http';
+import { pageLinks } from '../../lib/paths';
 
 export const prerender = false;
 
 const params = Astro.url.searchParams;
-const page = Math.max(1, Number(params.get('page')) || 1);
-const sort = params.get('sort') ?? 'date';
-const onSale = params.get('on_sale') === 'true';
-const inStock = params.get('instock') === 'true';
-const { orderby, order } = parseSort(sort);
-
-const facetData = await loadFacetData();
-const selection = resolveSelection(params, facetData);
-
-const empty: Paged<WooProduct> = { items: [], total: 0, totalPages: 0, page };
-const q = {
-  page,
-  per_page: 24,
-  orderby,
-  order,
-  on_sale: onSale || undefined,
-  instock: inStock || undefined,
-  brandIds: selection.brandIds,
-  attributes: selection.attributes,
-};
-// Grid + accurate facet counts in parallel; both mirror the same query so badges match the grid.
-const [result, facetCounts] = await Promise.all([
-  storeProducts(q).catch(() => empty),
-  loadFacetCounts(q),
-]);
-
-const baseParams = new URLSearchParams(params);
-baseParams.delete('page');
-const hrefFor = (n: number) => pageHref('/verslun', baseParams, n);
-
-const crumbs = [{ label: 'Forsíða', href: '/' }, { label: 'Verslun' }];
-const siteHref = Astro.site?.href ?? 'https://musikogsport.is/';
-const breadcrumbLdObj = breadcrumbList(crumbs, siteHref, new URL('/verslun', siteHref).href);
+const archive = await loadArchive(params, 1);
+if (archive.unavailable) markUnavailable(Astro.response);
+const crumbs = [{ label: 'Heim', href: '/' }, { label: 'Verslun' }];
 ---
 
-<Base title="Verslun" description="Allar vörur í vefverslun Músík og Sport.">
-  <script type="application/ld+json" is:inline slot="head" set:html={ld(breadcrumbLdObj)} />
-  <div class="container container--wide">
-    <Breadcrumbs items={crumbs} />
-    <div class="page-head">
-      <p class="eyebrow">Vefverslun</p>
-      <h1>Allar vörur</h1>
-      <p>Hlaupaskór, fatnaður, útivist, æfingavörur og félagabúningar frá fremstu vörumerkjum.</p>
-    </div>
-  </div>
-  <ShopFilters
-    basePath="/verslun"
-    params={baseParams}
-    total={result.total}
-    sort={sort}
-    onSale={onSale}
-    inStock={inStock}
-    facetData={facetData}
-    selection={selection}
-    facetCounts={facetCounts}
-  />
-  <section class="section--tight container container--wide" aria-labelledby="shop-grid-heading">
-    <h2 id="shop-grid-heading" class="visually-hidden">Vörur</h2>
-    <ProductGrid products={result.items} eagerCount={4} />
-  </section>
-  <div class="container container--wide">
-    <Pagination page={result.page} totalPages={result.totalPages} hrefFor={hrefFor} />
-  </div>
+<Base title={filterTitle('Verslun', archive.activeLabels)} pageLinks={archive.unavailable ? undefined : pageLinks('/verslun/', 1, archive.result.totalPages, params)} description="Íþróttavörur, fatnaður og skór — vefverslun Músík og Sport.">
+  {archive.unavailable ? <NotFound unavailable /> : <ArchiveView title="Verslun" navCategoryId={0} crumbs={crumbs} basePath="/verslun/" params={params} archive={archive} page={1} />}
 </Base>

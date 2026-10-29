@@ -1,0 +1,81 @@
+---
+// Live's Ninja Form "Contact Me" on /hafa-samband/ (floating labels, Goya styling). Posts to
+// /api/contact; works without JS (303 back with ?sent=1 / ?error=1) and enhances with fetch.
+const topics = [
+  ['vardandi-vefverslun', 'Varðandi Vefverslun'],
+  ['vardandi-poentun', 'Varðandi Pöntun'],
+  ['vardandi-verslun', 'Varðandi Verslun'],
+  ['almenn-fyrirspurn', 'Almenn Fyrirspurn'],
+];
+const status = Astro.url.searchParams.get('sent') === '1' ? 'sent' : Astro.url.searchParams.get('error') === '1' ? 'error' : '';
+---
+
+<form class="contact-form" method="post" action="/api/contact" data-contact-form novalidate>
+  <h2 class="contact-form__title">Sendu okkur skilaboð</h2>
+  <p class="contact-form__note">Reitir merktir með <span class="req">*</span> eru nauðsynlegir</p>
+  <div class="contact-form__pair">
+    <div class="float-field">
+      <input id="cf-name" name="name" type="text" placeholder=" " required autocomplete="name" maxlength="200" />
+      <label for="cf-name">Nafn <span class="req">*</span></label>
+    </div>
+    <div class="float-field">
+      <input id="cf-email" name="email" type="email" placeholder=" " required autocomplete="email" maxlength="200" />
+      <label for="cf-email">Netfang <span class="req">*</span></label>
+    </div>
+  </div>
+  <div class="float-field float-field--select">
+    <select id="cf-topic" name="topic" required>
+      {topics.map(([value, label]) => <option value={value}>{label}</option>)}
+    </select>
+    <label for="cf-topic">Tegund <span class="req">*</span></label>
+  </div>
+  <div class="float-field float-field--area">
+    <textarea id="cf-message" name="message" placeholder=" " required maxlength="5000" rows="4"></textarea>
+    <label for="cf-message">Skilaboð <span class="req">*</span></label>
+  </div>
+  <button class="btn contact-form__submit" type="submit">Senda</button>
+  <p class="contact-form__status" role="status" aria-live="polite" data-status={status || undefined}>
+    {status === 'sent' && 'Takk! Fyrirspurnin hefur verið send.'}
+    {status === 'error' && 'Ekki tókst að senda fyrirspurnina. Athugaðu reitina og reyndu aftur.'}
+  </p>
+</form>
+
+<script>
+  document.querySelectorAll<HTMLFormElement>('[data-contact-form]').forEach((form) => {
+    const out = form.querySelector<HTMLElement>('.contact-form__status')!;
+    const button = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!form.reportValidity()) return;
+      button.disabled = true;
+      out.dataset.status = '';
+      out.textContent = '';
+      try {
+        const res = await fetch(form.action, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(Object.fromEntries(new FormData(form))),
+          // the route gives WordPress 10 s; past this the button comes back with a message instead of staying dead
+          signal: AbortSignal.timeout(15000),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          form.reset();
+          out.dataset.status = 'sent';
+          out.textContent = 'Takk! Fyrirspurnin hefur verið send.';
+        } else {
+          out.dataset.status = 'error';
+          out.textContent = data.message || 'Ekki tókst að senda fyrirspurnina.';
+        }
+      } catch (err) {
+        out.dataset.status = 'error';
+        out.textContent =
+          err instanceof Error && err.name === 'TimeoutError'
+            ? 'Þjónustan svaraði ekki. Reyndu aftur eftir smástund.'
+            : 'Ekki tókst að senda fyrirspurnina.';
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+</script>

@@ -1,12 +1,13 @@
-// Discount-code field shared by the cart page, cart drawer, and checkout summary.
-// Applies/removes coupons against the server cart (Store API) via cartStore.
+// Discount codes, as on live: an "Afsláttarkóði" field + "Nýta afsláttarkóða" on /karfa/ and behind
+// the "Ertu með afsláttarkóða?" toggle on the checkout; applied codes show as rows in the totals
+// table with a "[Fjarlægja]" link (WooCommerce's cart-discount row).
 import { useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { cart, cartError, applyCoupon, removeCoupon } from '../lib/cartStore';
+import { formatStoreMoney } from '../lib/format';
 
 // Map the stable English WooCommerce coupon-validation strings to Icelandic. WP returns these in
-// English when the site locale isn't is_IS (the source-level fix is Settings → Site Language). If a
-// message is already localized (no English pattern matches), it passes through unchanged.
+// English when the site locale isn't is_IS. Already-localized messages pass through unchanged.
 function couponErrorIs(msg: string): string {
   const m = msg.toLowerCase();
   if (m.includes('does not exist')) return 'Afsláttarkóðinn er ekki til.';
@@ -21,17 +22,10 @@ function couponErrorIs(msg: string): string {
   return msg;
 }
 
-interface Props {
-  /** Tighter layout for the cart drawer. */
-  compact?: boolean;
-}
-
-export default function CouponField({ compact = false }: Props) {
-  const $cart = useStore(cart);
+export default function CouponField({ variant = 'cart' }: { variant?: 'cart' | 'checkout' }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const coupons = $cart?.coupons ?? [];
 
   async function onApply() {
     const c = code.trim();
@@ -43,71 +37,77 @@ export default function CouponField({ compact = false }: Props) {
       setCode('');
     } catch (err) {
       setError(err instanceof Error ? couponErrorIs(err.message) : 'Ógildur afsláttarkóði.');
-      cartError.set(null); // surface the message inline only, not also in the cart-wide error banner
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function onRemove(c: string) {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await removeCoupon(c);
-    } catch (err) {
-      setError(err instanceof Error ? couponErrorIs(err.message) : 'Villa kom upp. Reyndu aftur.');
-      cartError.set(null); // surface the message inline only, not also in the cart-wide error banner
+      cartError.set(null); // inline only, not also in the cart-wide error banner
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className={`coupon${compact ? ' coupon--compact' : ''}`}>
-      {coupons.length > 0 && (
-        <ul className="coupon__chips" aria-label="Virkir afsláttarkóðar">
-          {coupons.map((c) => (
-            <li key={c.code} className="coupon__chip">
-              <span>{c.code.toUpperCase()}</span>
-              <button
-                type="button"
-                aria-label={`Fjarlægja afsláttarkóða ${c.code}`}
-                onClick={() => onRemove(c.code)}
-                disabled={busy}
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <form
-        className="coupon__form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void onApply();
-        }}
-      >
+    <div className={`coupon coupon--${variant}`}>
+      {/* Not a <form>: on the checkout this sits inside the checkout form, and a nested form would make
+          "Nýta afsláttarkóða" (or Enter) submit the order form and reload the page. */}
+      <div className="coupon__form">
         <input
           type="text"
-          name="coupon"
+          name="coupon_code"
           value={code}
           onChange={(e) => setCode(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault(); // never submit the surrounding checkout form
+            void onApply();
+          }}
           placeholder="Afsláttarkóði"
           aria-label="Afsláttarkóði"
           autoComplete="off"
           disabled={busy}
         />
-        <button type="submit" className="btn btn--ghost btn--sm" disabled={busy || !code.trim()}>
-          {busy ? '…' : 'Nota'}
+        <button type="button" className="btn-outline coupon__apply" disabled={busy} aria-busy={busy} onClick={() => void onApply()}>
+          Nýta afsláttarkóða
         </button>
-      </form>
+      </div>
       {error && (
         <p className="coupon__error" role="alert">
           {error}
         </p>
       )}
     </div>
+  );
+}
+
+/** WooCommerce's "Afsláttarkóði: X" totals rows, each with a remove link. */
+export function CouponRows() {
+  const $cart = useStore(cart);
+  const [busy, setBusy] = useState(false);
+  const coupons = $cart?.coupons ?? [];
+  const minor = $cart?.totals.currency_minor_unit ?? 0;
+
+  async function onRemove(c: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await removeCoupon(c);
+    } catch {
+      /* surfaced via cartError */
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      {coupons.map((c) => (
+        <tr className="cart-discount" key={c.code}>
+          <th>Afsláttarkóði: {c.code}</th>
+          <td>
+            -{formatStoreMoney(String(Number(c.totals?.total_discount ?? 0) + Number(c.totals?.total_discount_tax ?? 0)), minor)}{' '}
+            <button type="button" className="coupon__remove" onClick={() => onRemove(c.code)} disabled={busy}>
+              [Fjarlægja]
+            </button>
+          </td>
+        </tr>
+      ))}
+    </>
   );
 }

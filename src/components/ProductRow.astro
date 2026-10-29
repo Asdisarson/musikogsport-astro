@@ -1,0 +1,73 @@
+---
+// Product carousels (nike-look): the home rows, the product page's "Þér gæti líkað" and the empty cart's
+// suggestions. An uppercase display title with two round arrows top-right, then square #F5F5F5 tiles (440px at
+// 1440, ~300px on phones with the next one peeking), bleeding off the right edge. Scroll-snap does the sliding;
+// the arrows step one tile at a time.
+import ProductCard from './ProductCard.astro';
+import type { WooProduct } from '../lib/types';
+
+interface Props {
+  title: string;
+  products: WooProduct[];
+}
+const { title, products } = Astro.props;
+const prevIcon = '<path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.8" />';
+const nextIcon = '<path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.8" />';
+---
+
+{
+  products.length > 0 && (
+    <section class="product-row product-row--home" data-carousel>
+      <div class="product-row__head">
+        <h2 class="product-row__title">{title}</h2>
+        <div class="product-row__nav">
+          {/* aria-disabled, not disabled: a focused arrow that reaches the end keeps keyboard focus */}
+          <button class="round-btn" type="button" data-carousel-step="-1" aria-label="Fyrri vörur" aria-disabled="true">
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" set:html={prevIcon} />
+          </button>
+          <button class="round-btn" type="button" data-carousel-step="1" aria-label="Næstu vörur">
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" set:html={nextIcon} />
+          </button>
+        </div>
+      </div>
+      <div class="product-row__viewport">
+        <ul class="product-row__track" data-carousel-track>
+          {products.map((p) => (
+            <li class="product-row__item">
+              <ProductCard product={p} variant="tile" />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  )
+}
+
+<script>
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  document.querySelectorAll<HTMLElement>('[data-carousel]').forEach((root) => {
+    const track = root.querySelector<HTMLElement>('[data-carousel-track]');
+    const prev = root.querySelector<HTMLButtonElement>('[data-carousel-step="-1"]');
+    const next = root.querySelector<HTMLButtonElement>('[data-carousel-step="1"]');
+    if (!track || !prev || !next) return;
+    // the ends are marked with aria-disabled, so a focused arrow keeps focus; with nothing to scroll the arrows hide
+    const isOff = (btn: HTMLElement) => btn.getAttribute('aria-disabled') === 'true';
+    const gap = () => parseFloat(getComputedStyle(track).columnGap) || 0;
+    const itemWidth = () => track.querySelector<HTMLElement>('li')?.getBoundingClientRect().width || track.clientWidth / 3;
+    const sync = () => {
+      const atStart = track.scrollLeft <= 2;
+      const atEnd = track.scrollLeft + track.clientWidth >= track.scrollWidth - 2;
+      prev.setAttribute('aria-disabled', String(atStart));
+      next.setAttribute('aria-disabled', String(atEnd));
+      root.toggleAttribute('data-carousel-static', atStart && atEnd);
+    };
+    root.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-carousel-step]');
+      const behavior: ScrollBehavior = reduceMotion.matches ? 'auto' : 'smooth';
+      if (btn && !isOff(btn)) track.scrollBy({ left: Number(btn.dataset.carouselStep) * (itemWidth() + gap()), behavior });
+    });
+    track.addEventListener('scroll', sync, { passive: true });
+    window.addEventListener('resize', sync);
+    sync();
+  });
+</script>

@@ -1,153 +1,216 @@
-// Faceted-filter config + URL <-> selection plumbing for the shop pages.
-// Semantics: OR within a facet (pick several colours), AND across facets
-// (colour AND sport AND brand) — implemented by storeCatalog.storeProducts().
-import { listAttributeTerms, listBrandTerms, type FacetTerm } from './woo';
-import type { AttributeFilter } from './types';
+// Facet rules for the archive's filter rail — pure, no server imports (archive.ts wires them to the Store API).
+import { CARD_SALE_ROOT_SLUG, childrenOf } from './categoryTree';
+import type { CategoryTerm, FilterKey, TermRef } from './liveFilters';
+import { countWord as pluralWord } from './plural';
 
-export const BRAND_KEY = 'merki';
-
-/** Attribute facets shown in the shop filter UI (clothing size pa_staerdir is
- *  omitted — 200+ terms make a flat list unusable; size is chosen on the PDP). */
-export const FACET_GROUPS = [
-  { key: 'ithrott', taxonomy: 'pa_ithrott', attrId: 6, label: 'Íþrótt', cap: 24 },
-  { key: 'kyn', taxonomy: 'pa_kyn', attrId: 8, label: 'Kyn', cap: 8 },
-  { key: 'litur', taxonomy: 'pa_litur', attrId: 2, label: 'Litur', cap: 40 },
-  { key: 'skostaerd', taxonomy: 'pa_skostaerdir', attrId: 4, label: 'Skóstærð', cap: 40 },
-] as const;
-
-export interface FacetGroupData {
-  key: string;
-  label: string;
-  taxonomy: string;
-  terms: FacetTerm[];
-  /** Max terms to render in the dropdown (curation; the panel is scrollable). */
-  cap: number;
-}
-export interface FacetData {
-  brand: FacetGroupData;
-  groups: FacetGroupData[];
+/** Whether a filter option is listed. With counts in hand (even an empty result: nothing matches) an option without
+ *  products is hidden, since picking it would be a dead end; an active option always stays so it can be removed.
+ *  `source` is null only when the count request failed: then every option shows, without counts. */
+export function keepOption(o: { active: boolean; count?: number }, source: ReadonlyMap<unknown, number> | null): boolean {
+  return o.active || source === null || (o.count ?? 0) > 0;
 }
 
-const BRAND_CAP = 24;
+/** The number of products a query matches, from its collection-data stock-status counts: every status, or only the
+ *  statuses the query is itself limited to (Á lager). Undefined without counts. */
+export function matchCountFromStock(stock: ReadonlyMap<string, number> | null | undefined, onlyStatuses?: string[]): number | undefined {
+  if (!stock) return undefined;
+  let n = 0;
+  for (const [status, count] of stock) if (!onlyStatuses || onlyStatuses.includes(status)) n += count;
+  return n;
+}
 
-/** Load every facet's term list (brand + attributes) in parallel. The underlying
- *  woo fetchers cache for 10 min, so this is cheap on warm processes. */
-export async function loadFacetData(): Promise<FacetData> {
-  const [brandTerms, ...groupTerms] = await Promise.all([
-    listBrandTerms().catch(() => [] as FacetTerm[]),
-    ...FACET_GROUPS.map((g) => listAttributeTerms(g.attrId).catch(() => [] as FacetTerm[])),
-  ]);
-  return {
-    brand: { key: BRAND_KEY, label: 'Vörumerki', taxonomy: 'brand', terms: brandTerms, cap: BRAND_CAP },
-    groups: FACET_GROUPS.map((g, i) => ({
-      key: g.key,
-      label: g.label,
-      taxonomy: g.taxonomy,
-      terms: groupTerms[i],
-      cap: g.cap,
-    })),
+const norm = (s: string) => s.normalize('NFC').toLocaleLowerCase('is').replace(/\s+/g, ' ').trim();
+
+/** Slug of the clubs root ("Félag/lið"): a category grouping club merchandise, not a product type. */
+const CLUBS_ROOT_SLUG = 'felag-lid';
+/** Slug of the sports root ("Íþrótt"): its children are sports, exempt from the club rule because the Félag/Lið
+ *  attribute carries stray sport terms ("Fótbolti", "Körfubolti"). */
+const SPORTS_ROOT_SLUG = 'ithrott';
+
+/** Merchandising buckets that a toggle already covers: NETTILBOD (`sale`) is the Útsala toggle. Hidden like the
+ *  pseudo-categories below (Vöruflokkar, the shop's rail links) unless active. "Sumar" is a real category and stays. */
+export const HIDDEN_SHOP_CATEGORY_SLUGS: ReadonlySet<string> = new Set([CARD_SALE_ROOT_SLUG]);
+
+/** Categories that are really a brand or a club, which the Vörumerki and Félag/Lið groups already cover, plus the
+ *  HIDDEN_SHOP_CATEGORY_SLUGS buckets. The data rule (2026-10-26 tree): a category is a pseudo-category when
+ *   - its slug is in HIDDEN_SHOP_CATEGORY_SLUGS (NETTILBOD), or
+ *   - its name equals a product_brand term's name ("Didriksons", top level and again under Fatnaður as `vetur`), or
+ *   - it is the clubs root `felag-lid` or anywhere under it, or
+ *   - outside the `ithrott` (sports) subtree, its name equals a pa_felag-lid term's name ("Stjarnan", "FH") or ends
+ *     with one as a whole word ("Fimleikafélagið Björk" → the club "Björk"). pa_felag-lid has stray terms, so a term
+ *     that is also a pa_ithrott (sport) name ("Fótbolti", "Körfubolti") is not a club, and a top-level category with
+ *     sub-categories (a product root such as Skór) is never a club bucket. A top-level leaf ("Stjarnan") can be.
+ *  Names compare case-insensitively after Unicode normalisation. A hidden category hides its subtree. */
+export function pseudoCategoryIds(categories: CategoryTerm[], brands: TermRef[], teams: TermRef[], sports: TermRef[] = []): Set<number> {
+  const brandNames = new Set(brands.map((b) => norm(b.name)));
+  const sportNames = new Set(sports.map((s) => norm(s.name)));
+  const teamNames = [...new Set(teams.map((t) => norm(t.name)))].filter((t) => t && !sportNames.has(t));
+  const isClub = (name: string) => teamNames.some((t) => name === t || name.endsWith(` ${t}`));
+  const hasChildren = new Set(categories.map((c) => c.parent));
+  const hidden = new Set<number>();
+  const walk = (parentId: number, inSports: boolean, hide: boolean, seen: Set<number>) => {
+    for (const c of childrenOf(categories, parentId)) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      const name = norm(c.name);
+      const inSportsTree = inSports || (parentId === 0 && c.slug === SPORTS_ROOT_SLUG);
+      const productRoot = parentId === 0 && hasChildren.has(c.id);
+      const pseudo =
+        hide ||
+        (parentId === 0 && HIDDEN_SHOP_CATEGORY_SLUGS.has(c.slug)) ||
+        brandNames.has(name) ||
+        c.slug === CLUBS_ROOT_SLUG ||
+        (!inSportsTree && !productRoot && isClub(name));
+      if (pseudo) hidden.add(c.id);
+      walk(c.id, inSportsTree, pseudo, seen);
+    }
   };
+  walk(0, false, false, new Set());
+  return hidden;
 }
 
-// Real product-colour swatches for the Litur facet — the one place colour is allowed
-// into the monochrome UI because it's functional data, not decoration. Keyed by term
-// slug (incl. alt grammatical forms); two-word slugs (e.g. "blar-hvitur") render as a
-// split swatch. Unknown slugs return null → the option falls back to the neutral box.
-const COLOUR_HEX: Record<string, string> = {
-  grar: '#9a9a9a', gratt: '#9a9a9a',
-  svartur: '#1b1b1b', svart: '#1b1b1b', black: '#1b1b1b',
-  hvitur: '#f1f1f1', hvitt: '#f1f1f1', white: '#f1f1f1',
-  blar: '#2f6fed', blatt: '#2f6fed', dokkblatt: '#1e2a52',
-  bleikur: '#f178b6', 'dusty-pink': '#d9a7b0',
-  graenn: '#3aa657', graent: '#3aa657',
-  fjolublar: '#8a4fce',
-  raudur: '#d83a3a', rautt: '#d83a3a', 'mahagony-red': '#6e2a26',
-  gulur: '#f3c70f', gult: '#f3c70f', yellow: '#f3c70f',
-  brunn: '#8a5a33',
-  beige: '#d9c9a8',
-  silfur: '#c4c4c8',
-  turkis: '#1bb5ad',
-  appelsinugulur: '#f08a1d',
-  gull: '#d4af37',
+const SIZE_GROUP_ORDER = ['shoe', 'letter', 'kids', 'other'] as const;
+export const SIZE_GROUP_HEADINGS: Record<(typeof SIZE_GROUP_ORDER)[number], string> = {
+  shoe: 'Skóstærðir',
+  letter: 'Fatastærðir',
+  kids: 'Barnastærðir',
+  other: 'Annað',
 };
 
-/** One or two hex colours for a colour-term slug, or null if it isn't a known colour. */
-export function colourSwatch(slug: string): string[] | null {
-  if (COLOUR_HEX[slug]) return [COLOUR_HEX[slug]];
-  if (slug.includes('-')) {
-    const parts = slug.split('-').map((p) => COLOUR_HEX[p]).filter(Boolean);
-    if (parts.length === 2) return parts;
-  }
-  return null;
+export interface SizeItem {
+  slug: string;
+  group: string;
+  count?: number;
+  active: boolean;
+}
+export interface SizeBlock<T extends SizeItem> {
+  group: string;
+  heading: string;
+  options: (T & { minor: boolean })[];
+  /** None of the block's sizes is shown before "Sýna allar stærðir". */
+  minor: boolean;
 }
 
-function parseCsv(value: string | null): string[] {
-  return (value ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-/** Resolve requested slugs against a term list → ordered, de-duped {ids, slugs}. */
-function slugsToIds(csv: string | null, terms: FacetTerm[]): { ids: number[]; slugs: string[] } {
-  const want = parseCsv(csv);
-  const bySlug = new Map(terms.map((t) => [t.slug, t.id]));
-  const ids: number[] = [];
-  const slugs: string[] = [];
-  for (const s of want) {
-    const id = bySlug.get(s);
-    if (id != null && !slugs.includes(s)) {
-      ids.push(id);
-      slugs.push(s);
+/** The Stærð grid: sizes split into shoe → letter → kids → other blocks (input order kept inside each, which the
+ *  size index already sorts). With more than `limit` + 4 sizes, only `limit` stay visible — every selected size,
+ *  then the best-stocked ones — and the rest are `minor`: shown in place by "Sýna allar stærðir". (On Skór the
+ *  first sizes by number are children's 17–29; by stock they are the adult sizes people look for.) */
+export function sizeBlocks<T extends SizeItem>(sizes: T[], limit = 24): SizeBlock<T>[] {
+  const visible = new Set<number>();
+  if (sizes.length <= limit + 4) sizes.forEach((_, i) => visible.add(i));
+  else {
+    sizes.forEach((s, i) => s.active && visible.add(i));
+    const byStock = sizes.map((s, i) => ({ i, n: s.count ?? 0 })).filter(({ i }) => !visible.has(i)).sort((a, b) => b.n - a.n || a.i - b.i);
+    for (const { i } of byStock) {
+      if (visible.size >= limit) break;
+      visible.add(i);
     }
   }
-  return { ids, slugs };
+  const rank = (g: string) => {
+    const r = (SIZE_GROUP_ORDER as readonly string[]).indexOf(g);
+    return r < 0 ? SIZE_GROUP_ORDER.length - 1 : r;
+  };
+  const blocks: SizeBlock<T>[] = SIZE_GROUP_ORDER.map((g) => ({ group: g, heading: SIZE_GROUP_HEADINGS[g], options: [], minor: true }));
+  sizes.forEach((s, i) => {
+    const block = blocks[rank(s.group)];
+    const minor = !visible.has(i);
+    block.options.push({ ...s, minor });
+    if (!minor) block.minor = false;
+  });
+  return blocks.filter((b) => b.options.length > 0);
 }
 
-export interface Selection {
-  brandIds: number[];
-  attributes: AttributeFilter[];
-  /** Active slugs per facet key (incl. BRAND_KEY) — only those that resolved. */
-  active: Record<string, string[]>;
-  activeCount: number;
+/** "125 vörur", "1 vara", "21 vara" (Icelandic: the singular after a number ending in 1, except 11). */
+export function countWord(n: number): string {
+  return pluralWord(n, 'vara', 'vörur');
 }
 
-/** Read the current facet selection from the URL params, validated against the data. */
-export function resolveSelection(params: URLSearchParams, data: FacetData): Selection {
-  const active: Record<string, string[]> = {};
-  const brand = slugsToIds(params.get(BRAND_KEY), data.brand.terms);
-  if (brand.slugs.length) active[BRAND_KEY] = brand.slugs;
+/** The order active filters are named in (page title, chips): what the products are first, then how they're narrowed. */
+export const ACTIVE_ORDER: FilterKey[] = ['brand', 'kyn', 'ithrott', 'team', 'product-category', 'litur', 'staerd', 'verd', 'utsala', 'lager'];
 
-  const attributes: AttributeFilter[] = [];
-  for (const g of data.groups) {
-    const { ids, slugs } = slugsToIds(params.get(g.key), g.terms);
-    if (ids.length) {
-      attributes.push({ taxonomy: g.taxonomy, termIds: ids });
-      active[g.key] = slugs;
+/** Groups that are left out when they describe too few of the products in view (Íþrótt on a shoe page with three
+ *  football boots), and the share they must reach. */
+export const COVERAGE_GROUPS: ReadonlySet<FilterKey> = new Set(['ithrott', 'team', 'litur']);
+const MIN_GROUP_COVERAGE = 0.1;
+/** List groups with more options than this get a search box. */
+export const LIST_SEARCH_MIN = 12;
+
+/** Whether a group covers enough of the `total` products in view to be worth showing. Coverage is the sum of its
+ *  option counts (capped at the total): an upper bound on the products having any of its values, since a product can
+ *  carry two. The largest single option would hide Félag/Lið on the whole shop, where no one club reaches 3% but the
+ *  clubs together cover 13%. Kept when unsure (no counts or no total) and when one of its options is active. */
+export function coversEnough(group: { options: { active: boolean; count?: number }[]; showCounts: boolean }, total: number | undefined): boolean {
+  if (!group.showCounts || !total || group.options.some((o) => o.active)) return true;
+  const sum = group.options.reduce((n, o) => n + (o.count ?? 0), 0);
+  return Math.min(sum, total) / total >= MIN_GROUP_COVERAGE;
+}
+
+/** Swatch colours for the Litur filter, by pa_litur term slug (and the parts of a two-colour slug like
+ *  "blar-hvitur"). The one place colour enters the monochrome UI: it is product data, not decoration. */
+const COLOUR_HEX: Record<string, string> = {
+  svartur: '#1b1b1b',
+  hvitur: '#f4f4f4',
+  hvitt: '#f4f4f4',
+  svart: '#1b1b1b',
+  grar: '#9a9a9a',
+  gratt: '#9a9a9a',
+  blar: '#2f6fed',
+  dokkblatt: '#1e2a52',
+  bleikur: '#f178b6',
+  'dusty-pink': '#e3a3b8', // named Ljósbleikur
+  graenn: '#3aa657',
+  raudur: '#d83a3a',
+  gulur: '#f3c70f',
+  fjolublar: '#8a4fce',
+  brunn: '#8a5a33',
+  appelsinugulur: '#f08a1d',
+};
+
+/** One or two swatch colours for a colour term, or undefined when the slug isn't a known colour (no swatch). */
+export function colourSwatch(slug: string): string[] | undefined {
+  const hex = (key: string) => (Object.hasOwn(COLOUR_HEX, key) ? COLOUR_HEX[key] : undefined);
+  const whole = hex(slug);
+  if (whole) return [whole];
+  const parts = slug.split('-').flatMap((p) => hex(p) ?? []);
+  return parts.length === 2 && slug.split('-').length === 2 ? parts : undefined;
+}
+
+const ACTIVE_LABEL: Partial<Record<FilterKey, string>> = { lager: 'Á lager' };
+
+interface ActiveSource {
+  slug: string;
+  name: string;
+  active: boolean;
+  key?: FilterKey;
+  children: ActiveSource[];
+}
+export interface ActiveFilter {
+  key: FilterKey;
+  slug: string;
+  label: string;
+}
+
+/** Every active value in the rail groups (sub-categories included), in ACTIVE_ORDER: the page title's labels and
+ *  the removable chips. An option's own `key` wins over its group's (the Útsala / Á lager rows share a block). */
+export function activeFilterList(groups: { key: FilterKey; options: ActiveSource[] }[]): ActiveFilter[] {
+  const byKey = new Map<FilterKey, ActiveFilter[]>();
+  const collect = (opts: ActiveSource[], groupKey: FilterKey) => {
+    for (const o of opts) {
+      const key = o.key ?? groupKey;
+      if (o.active) byKey.set(key, [...(byKey.get(key) ?? []), { key, slug: o.slug, label: ACTIVE_LABEL[key] ?? o.name }]);
+      collect(o.children, groupKey);
     }
-  }
-  const activeCount = Object.values(active).reduce((n, arr) => n + arr.length, 0);
-  return { brandIds: brand.ids, attributes, active, activeCount };
+  };
+  for (const g of groups) collect(g.options, g.key);
+  return ACTIVE_ORDER.flatMap((k) => byKey.get(k) ?? []);
 }
 
-/** Build an href that toggles one facet value on/off, preserving the rest. Resets page. */
-export function toggleHref(basePath: string, params: URLSearchParams, key: string, slug: string): string {
-  const p = new URLSearchParams(params);
-  const current = parseCsv(p.get(key));
-  const next = current.includes(slug) ? current.filter((s) => s !== slug) : [...new Set([...current, slug])];
-  if (next.length) p.set(key, next.join(','));
-  else p.delete(key);
-  p.delete('page');
-  const qs = p.toString();
-  return qs ? `${basePath}?${qs}` : basePath;
-}
+/** The most filter labels a page title names; the rest are counted ("+2"). */
+const MAX_TITLE_LABELS = 4;
 
-/** Href that clears all facet selections (keeps sort/in-stock/sale). */
-export function clearHref(basePath: string, params: URLSearchParams): string {
-  const p = new URLSearchParams(params);
-  p.delete(BRAND_KEY);
-  for (const g of FACET_GROUPS) p.delete(g.key);
-  p.delete('page');
-  const qs = p.toString();
-  return qs ? `${basePath}?${qs}` : basePath;
+/** Page title with the active filters: "Skór – Nike, 42"; past four, "Skór – Nike, Adidas, Konur, 42 +2". */
+export function filterTitle(title: string, labels: string[]): string {
+  if (!labels.length) return title;
+  const shown = labels.slice(0, MAX_TITLE_LABELS).join(', ');
+  return labels.length > MAX_TITLE_LABELS ? `${title} – ${shown} +${labels.length - MAX_TITLE_LABELS}` : `${title} – ${shown}`;
 }

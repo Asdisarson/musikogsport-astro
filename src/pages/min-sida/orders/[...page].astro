@@ -1,0 +1,74 @@
+---
+import AccountLayout from '../../../components/AccountLayout.astro';
+import { currentUser } from '../../../lib/auth';
+import { listOrders, STATUS_LABELS } from '../../../lib/account';
+import { formatISK } from '../../../lib/format';
+import { markUnavailable } from '../../../lib/http';
+import { isSingular } from '../../../lib/plural';
+
+export const prerender = false;
+Astro.response.headers.set('Cache-Control', 'no-store');
+
+// WooCommerce's "Pantanir" endpoint: /min-sida/orders/ and /min-sida/orders/<n>/.
+const user = await currentUser(Astro.cookies);
+if (!user) return Astro.redirect('/min-sida/');
+const raw = Astro.params.page ?? '';
+const page = raw === '' ? 1 : /^[2-9]\d*$|^1\d+$/.test(raw) ? Number(raw) : 0;
+if (!page) return Astro.redirect('/min-sida/orders/');
+let down = false;
+const listed = await listOrders(user.id, page).catch(() => {
+  down = true;
+  return { orders: [], totalPages: 0 };
+});
+// A page past the last (WooCommerce's 400, or an empty page for a customer without that many): back to the first.
+if (listed === 'out-of-range' || (page > 1 && !down && listed.orders.length === 0)) return Astro.redirect('/min-sida/orders/');
+const { orders, totalPages } = listed;
+if (down) markUnavailable(Astro.response);
+const date = (iso: string) => (iso ? new Intl.DateTimeFormat('is-IS', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(iso)) : '');
+const pageHref = (n: number) => (n <= 1 ? '/min-sida/orders/' : `/min-sida/orders/${n}/`);
+---
+
+<AccountLayout
+  title="Pantanir"
+  current="orders"
+  notice={down ? { kind: 'error', text: 'Ekki tókst að sækja pantanirnar: þjónustan svaraði ekki. Reyndu aftur eftir smá stund.' } : null}
+>
+  {
+    down ? null : orders.length === 0 ? (
+      <div class="woo-notice woo-notice--info">
+        Engin pöntun hefur verið gerð ennþá. <a class="btn-outline btn-sm" href="/verslun/">Skoða vörur</a>
+      </div>
+    ) : (
+      <table class="account-orders">
+        <thead>
+          <tr>
+            <th>Pöntun</th>
+            <th>Dagsetning</th>
+            <th>Staða</th>
+            <th>Samtals</th>
+            <th><span class="visually-hidden">Aðgerðir</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map((o) => (
+            <tr>
+              <td data-title="Pöntun"><a href={`/min-sida/view-order/${o.id}/`}>#{o.number}</a></td>
+              <td data-title="Dagsetning">{date(o.date_created)}</td>
+              <td data-title="Staða">{STATUS_LABELS[o.status] ?? o.status}</td>
+              <td data-title="Samtals">{formatISK(o.total)} fyrir {o.items} {isSingular(o.items) ? 'vöru' : 'vörur'}</td>
+              <td><a class="btn-outline btn-sm" href={`/min-sida/view-order/${o.id}/`}>Skoða</a></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+  }
+  {
+    totalPages > 1 && (
+      <div class="account-pager">
+        {page > 1 && <a class="btn-outline btn-sm" href={pageHref(page - 1)}>Fyrri</a>}
+        {page < totalPages && <a class="btn-outline btn-sm" href={pageHref(page + 1)}>Næsta</a>}
+      </div>
+    )
+  }
+</AccountLayout>

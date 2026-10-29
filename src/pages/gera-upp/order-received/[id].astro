@@ -1,0 +1,76 @@
+---
+import Base from '../../../layouts/Base.astro';
+import OrderReceived from '../../../components/OrderReceived.astro';
+import { readOrderCookie, writeOrderCookie, clearToken } from '../../../lib/cartProxy';
+import { lookupOrder, type OrderLookup } from '../../../lib/woo';
+import { isPosInt } from '../../../lib/validate';
+import { RECEIPT_NOTICE, receiptKey, receiptStatus } from '../../../lib/orderReceipt';
+import { markUnavailable } from '../../../lib/http';
+
+export const prerender = false;
+Astro.response.headers.set('Cache-Control', 'no-store'); // receipt renders order details — never cache
+
+// WooCommerce's order-received endpoint, as on live: /gera-upp/order-received/<id>/?key=<order_key>.
+// The key (or the httpOnly cookie set at checkout, which a card return relies on: the bridge strips the
+// key from it) gates the lookup. Only a verified order is confirmed ("móttekin"); a miss gets neutral copy
+// and 404, a WordPress outage a 503 notice (PA-06).
+const id = Number(Astro.params.id);
+const cookie = readOrderCookie(Astro);
+const { key, placedHere } = receiptKey(id, Astro.url.searchParams.get('key'), cookie);
+const lookup: OrderLookup = isPosInt(id) && key ? await lookupOrder(id, key) : { state: 'not-found' };
+const order = lookup.state === 'found' ? lookup.order : null;
+const notice = lookup.state === 'found' ? null : RECEIPT_NOTICE[lookup.state];
+if (lookup.state === 'unavailable') markUnavailable(Astro.response);
+else Astro.response.status = receiptStatus(lookup.state);
+// This browser placed the order (the httpOnly cookie set at checkout matches): on the first view, start a
+// fresh cart as WooCommerce does on its order-received page (a card gateway leaves the Store API cart full,
+// unlike bacs), even when the order lookup fails. The cookie stays (2h) marked as seen, so a refresh still
+// shows the receipt but never empties a cart started since. A shared receipt link (no matching cookie)
+// never touches the visitor's cart.
+if (placedHere && cookie && !cookie.seen) {
+  clearToken(Astro);
+  writeOrderCookie(Astro, { order_id: id, order_key: cookie.key }, true);
+}
+
+// On Local the card confirmation webhook can't arrive, so a card order stays pending here — expected.
+const showPoll = Boolean(order && order.payment_method === 'straumur' && !order.paid);
+---
+
+<Base title="Pöntunarferli" noindex distractionFree>
+  <div class="thankyou">
+    {order && <OrderReceived order={order} />}
+    {notice && <p class="thankyou__notice" role={lookup.state === 'unavailable' ? 'alert' : undefined}>{notice.title}</p>}
+    {notice && <p class="thankyou__bank">{notice.body}</p>}
+    <p class="thankyou__actions"><a class="btn-outline" href="/verslun/">Til baka í vefverslun</a></p>
+  </div>
+
+  {
+    showPoll && (
+      <script is:inline define:vars={{ id, key }}>
+        (function () {
+          const pill = document.getElementById('order-status');
+          if (!pill) return;
+          let tries = 0;
+          const tick = async () => {
+            tries++;
+            try {
+              const res = await fetch(`/api/order?id=${id}&key=${encodeURIComponent(key)}`, { headers: { Accept: 'application/json' } });
+              if (res.ok) {
+                const o = await res.json();
+                if (o && o.paid) {
+                  pill.textContent = 'Greiðsla staðfest';
+                  pill.dataset.state = 'paid';
+                  return;
+                }
+              }
+            } catch (_) {
+              /* transient — keep trying until the cap */
+            }
+            if (tries < 8) setTimeout(tick, 3000);
+          };
+          setTimeout(tick, 3000);
+        })();
+      </script>
+    )
+  }
+</Base>

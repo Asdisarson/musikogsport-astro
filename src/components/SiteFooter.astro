@@ -1,81 +1,102 @@
 ---
-import { listTopCategories } from '../lib/woo';
-import { decodeEntities } from '../lib/decode';
-import type { WooCategory } from '../lib/types';
+// Black text footer: four columns (shop sections from the main menu, the WordPress footer menu as "Hjálp",
+// "Um okkur", and the store's contact details), then a full-width orange bottom bar with the company line and legal
+// links (the inner div keeps its content on the page grid while the bar's background runs edge to edge).
+// On phones each column is a <details> accordion: open by default (so it works without JS), closed by the
+// script below under 992px and kept open above it.
 import Icon from './Icon.astro';
+import type { SiteChrome } from '../lib/siteChrome';
+import { linkRel } from '../lib/safeUrl';
 
-let cats: WooCategory[] = [];
-try {
-  cats = (await listTopCategories()).slice(0, 6);
-} catch {
-  cats = [];
+interface Props {
+  chrome: SiteChrome;
 }
-const year = new Date().getFullYear();
+const { chrome } = Astro.props;
+const f = chrome.footer;
+const addressLines = f.address.split(/\r?\n/).filter(Boolean);
+const tel = f.phone.replace(/[^\d+]/g, '');
+// Top-level shop sections; an item pointing at the home page ("Vörumerki") is only a menu heading.
+const shop = chrome.primary.filter((i) => i.href && i.href !== '/');
+const about = [
+  { title: 'Um okkur', href: '/um-okkur/' },
+  { title: 'Instagram', href: 'https://www.instagram.com/musikogsport/', external: true },
+];
+const legal = [
+  { title: 'Skilmálar', href: '/skilmalar/' },
+  { title: 'Persónuvernd', href: '/personuvernd/' },
+];
 ---
 
 <footer class="site-footer">
-  <div class="site-footer__top">
-    <div class="site-footer__brand">
-      <a class="brand" href="/">
-        <span class="brand__mark"><Icon name="mountain" size={18} stroke-width={1.9} /></span>
-        <span class="brand__text">Músík og Sport</span>
-      </a>
-      <p>Íþróttavörur, hlaupaskór, fatnaður og útivist frá fagfólki — yfir 30 ára reynsla og persónuleg þjónusta.</p>
-      <p class="muted" style="margin-top:1rem">
-        <Icon name="phone" size={15} style="display:inline;vertical-align:-2px" /> <a href="tel:+3545552887">555 2887</a><br />
-        <Icon name="mail" size={15} style="display:inline;vertical-align:-2px" /> <a href="mailto:musikogsport@musikogsport.is">musikogsport@musikogsport.is</a>
-      </p>
-    </div>
+  <div class="site-footer__cols">
+    {
+      shop.length > 0 && (
+        <details class="site-footer__group" open data-footer-group>
+          <summary class="site-footer__title">Verslun<Icon name="chevron-down" stroke-width={1.5} /></summary>
+          <ul class="site-footer__menu">
+            {shop.map((item) => (<li><a href={item.href} target={item.target || undefined} rel={linkRel(item.target, item.external)}>{item.title}</a></li>))}
+          </ul>
+        </details>
+      )
+    }
 
-    <div>
-      <h3>Verslun</h3>
-      <ul>
-        <li><a href="/verslun">Allar vörur</a></li>
-        {cats.map((c) => (<li><a href={`/verslun/${c.slug}`}>{decodeEntities(c.name)}</a></li>))}
+    {
+      chrome.footerMenu.length > 0 && (
+        <details class="site-footer__group" open data-footer-group>
+          <summary class="site-footer__title">Hjálp<Icon name="chevron-down" stroke-width={1.5} /></summary>
+          <ul class="site-footer__menu">
+            {chrome.footerMenu.map((item) => (<li><a href={item.href} target={item.target || undefined} rel={linkRel(item.target, item.external)}>{item.title}</a></li>))}
+          </ul>
+        </details>
+      )
+    }
+
+    <details class="site-footer__group" open data-footer-group>
+      <summary class="site-footer__title">Um okkur<Icon name="chevron-down" stroke-width={1.5} /></summary>
+      <ul class="site-footer__menu">
+        {about.map((item) => (<li><a href={item.href} target={item.external ? '_blank' : undefined} rel={item.external ? 'noopener' : undefined}>{item.title}</a></li>))}
       </ul>
-    </div>
+    </details>
 
-    <div>
-      <h3>Þjónusta</h3>
-      <ul>
-        <li><a href="/leita">Leit</a></li>
-        <li><a href="/karfa">Karfa</a></li>
-        <li><a href="/utskra">Greiðsla</a></li>
-        <li><a href="/verslun/sale">Útsala</a></li>
+    <details class="site-footer__group" open data-footer-group>
+      <summary class="site-footer__title">Hafðu samband<Icon name="chevron-down" stroke-width={1.5} /></summary>
+      <ul class="site-footer__menu site-footer__contact">
+        <li>
+          {addressLines.map((line, i) => (<>{i > 0 && <br />}{line}</>))}
+        </li>
+        {f.directionsHref && (<li><a href={f.directionsHref} target="_blank" rel="noopener">{f.directionsLabel}</a></li>)}
+        <li><a href={`mailto:${f.email}`}>{f.email}</a></li>
+        <li><a href={`tel:${tel}`}>{f.phone}</a></li>
       </ul>
-    </div>
-
-    <div>
-      <h3>Upplýsingar</h3>
-      <ul>
-        <li><a href="/um-okkur">Um okkur</a></li>
-        <li><a href="/hafa-samband">Hafa samband</a></li>
-        <li><a href="/staerdir">Stærðartafla</a></li>
-        <li><a href="/skilmalar">Skilmálar</a></li>
-        <li><a href="/personuvernd">Persónuvernd</a></li>
-      </ul>
-    </div>
-
-    <div class="site-footer__hours">
-      <h3>Heimsóttu okkur</h3>
-      <p class="muted">
-        Dalshraun 10<br />220 Hafnarfjörður
-      </p>
-      <p class="muted" style="margin-top:0.75rem">
-        Virka daga 11–18<br />Laugardaga 11–16
-      </p>
-      <a class="btn btn--ghost btn--sm" href="/verslun" style="margin-top:1rem">
-        Skoða vörur <Icon name="arrow-right" size={16} />
-      </a>
-    </div>
+    </details>
   </div>
 
-  <div class="site-footer__bottom">
-    <div class="container container--wide">
-      <span class="site-footer__legal">© Músík og Sport {year} · Músík og Sport ehf. · kt. 710303-2310 · VSK 47789</span>
-      <span class="site-footer__pay">
-        <span>Visa</span><span>Mastercard</span><span>Apple Pay</span>
-      </span>
+  <div class="site-footer__bar">
+    <div class="site-footer__bar-inner">
+      <p class="site-footer__where"><Icon name="pin" size={16} stroke-width={1.5} /> Ísland</p>
+      <p class="site-footer__company">{f.companyLine}</p>
+      <ul class="site-footer__legal">
+        {legal.map((item) => (<li><a href={item.href}>{item.title}</a></li>))}
+      </ul>
     </div>
   </div>
 </footer>
+
+<script>
+  // Desktop: every group stays open (its summary is a plain heading). Phones: accordions, closed at first.
+  const desktop = window.matchMedia('(min-width: 992px)');
+  const groups = document.querySelectorAll<HTMLDetailsElement>('[data-footer-group]');
+  const sync = () =>
+    groups.forEach((d) => {
+      d.open = desktop.matches;
+      const summary = d.querySelector('summary');
+      if (summary) summary.tabIndex = desktop.matches ? -1 : 0;   // a heading on desktop, not a tab stop
+    });
+  groups.forEach((d) =>
+    d.querySelector('summary')?.addEventListener('click', (e) => {
+      if (desktop.matches) e.preventDefault();
+    }),
+  );
+  desktop.addEventListener('change', sync);
+  sync();
+</script>

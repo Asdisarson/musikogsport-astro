@@ -1,8 +1,21 @@
 User-agent: *
 Allow: /
-Disallow: /karfa
-Disallow: /utskra
+Disallow: /karfa/
+Disallow: /gera-upp/
+Disallow: /min-sida/
+Disallow: /oskalisti/
 Disallow: /api/
-Disallow: /leita
+Disallow: /*?s=
+Disallow: /*&s=
+# Filtered listings (rel=nofollow links, canonical without the filters): every filter combination is a URL.
+# Not kyn or product-category: the main menu links to ?kyn= and ?kyn=…&product-category=… listings.
+Disallow: /*?*staerd=
+Disallow: /*?*verd=
+Disallow: /*?*utsala=
+Disallow: /*?*lager=
+Disallow: /*?*ithrott=
+Disallow: /*?*litur=
+Disallow: /*?*brand=
+Disallow: /*?*team=
 
 Sitemap: https://musikogsport.is/sitemap.xml

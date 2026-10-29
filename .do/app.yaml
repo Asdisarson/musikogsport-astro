@@ -1,0 +1,133 @@
+# DigitalOcean App Platform spec — the Astro storefront only. WordPress/WooCommerce stays on its own host and
+# is reached over HTTPS through WP_INTERNAL_URL. Create with `doctl apps create --spec .do/app.yaml` (or paste
+# it in the control panel), then set the SECRET values in the UI. Steps and env table: DEPLOY.md "App Platform".
+# Reference: https://docs.digitalocean.com/products/app-platform/reference/app-spec/
+name: musikogsport-storefront
+# Amsterdam: EU/EEA data residency (Iceland is EEA, GDPR applies) and close to Iceland; `lon` is about as
+# close. What matters more is latency to the WordPress host — every SSR page makes several calls to it — so
+# pick the region nearest the WP server if that is not in northern Europe.
+region: ams
+
+alerts:
+  - rule: DEPLOYMENT_FAILED
+  - rule: DOMAIN_FAILED
+
+# Custom domains: added at DNS cutover (DEPLOY.md "App Platform" step 6), not at creation, so the default
+# <app>.ondigitalocean.app stays the primary domain (and ${APP_DOMAIN}) while testing. Uncomment then. The zone
+# stays at the current DNS provider (no `zone:`). One canonical host: www redirects to the apex, because the
+# checkout cookie the thank-you page needs is host-only.
+# domains:
+#   - domain: musikogsport.is
+#     type: PRIMARY
+#   - domain: www.musikogsport.is
+#     type: ALIAS
+
+ingress:
+  rules:
+    # Uncomment with the domains above:
+    # - match:
+    #     authority:
+    #       exact: www.musikogsport.is
+    #     path:
+    #       prefix: /
+    #   redirect:
+    #     authority: musikogsport.is
+    #     redirect_code: 301
+    - match:
+        path:
+          prefix: /
+      component:
+        name: storefront
+
+services:
+  - name: storefront
+    github:
+      repo: Asdisarson/musikogsport
+      branch: main
+      deploy_on_push: false
+    # Node.js buildpack: Node from package.json engines (22.x), `npm ci`, `npm run build`, then devDependencies
+    # pruned. sharp's linux-x64 binaries come from the lockfile's optional @img/* packages.
+    environment_slug: node-js
+    # No build_command: the buildpack runs the package.json `build` script (astro check && astro build) itself.
+    # server.mjs: the built entry plus graceful shutdown (SIGTERM drains in-flight requests) and the security headers
+    # on static files and prerendered pages (DEPLOY.md "Production hardening").
+    run_command: node server.mjs
+    http_port: 8080
+    # 1 GiB: sharp decodes product photos server-side (photoBgServer) next to per-process caches; 512 MiB is
+    # tight. Shared vCPU, fixed (no autoscale). Paid — App Platform has no free tier for services.
+    instance_size_slug: apps-s-1vcpu-1gb-fixed
+    # One instance: rate limits, photoBg and catalog caches are per process, so N instances means N times the
+    # upstream fetches and N separate rate-limit buckets.
+    instance_count: 1
+    health_check:
+      http_path: /api/healthz
+      initial_delay_seconds: 10
+      period_seconds: 10
+      timeout_seconds: 3
+      success_threshold: 1
+      failure_threshold: 5
+    alerts:
+      - rule: RESTART_COUNT
+        operator: GREATER_THAN
+        value: 3
+        window: TEN_MINUTES
+      - rule: MEM_UTILIZATION
+        operator: GREATER_THAN
+        value: 85
+        window: TEN_MINUTES
+    envs:
+      # --- run time ---
+      - key: NODE_ENV
+        value: production
+        scope: RUN_TIME # never BUILD_TIME: npm would skip devDependencies and `astro check` would fail
+      # Bind every interface: the container is reachable only through DO's ingress, never directly.
+      - key: HOST
+        value: 0.0.0.0
+        scope: RUN_TIME
+      - key: PORT
+        value: "8080"
+        scope: RUN_TIME
+      # Secrets: values set in the control panel (encrypted), a Read/Write WooCommerce REST key (the storefront PUTs orders
+      # and customers for the account area). Run time only: lib/woo
+      # reads them when it makes a request (getSecret), so the build never sees them.
+      - key: WOOCOMMERCE_CONSUMER_KEY
+        type: SECRET
+        scope: RUN_TIME
+      - key: WOOCOMMERCE_CONSUMER_SECRET
+        type: SECRET
+        scope: RUN_TIME
+      # HSTS (max-age=31536000; includeSubDomains, no preload): leave "0" until DNS and TLS on the apex are settled
+      # after cutover, then set "1" (no rebuild needed: read at run time).
+      - key: MOS_HSTS
+        value: "0"
+        scope: RUN_TIME
+      # Structured JSON log level: debug | info | warn | error. debug adds one line per request.
+      - key: MOS_LOG_LEVEL
+        value: info
+        scope: RUN_TIME
+      # --- build time: astro:env public vars are inlined into the bundle; changing one needs a rebuild ---
+      # The build itself calls WordPress (prerendered pages render the site menus), so it must be reachable.
+      - key: WP_INTERNAL_URL
+        value: https://wp.example.invalid # PLACEHOLDER: the WordPress origin (https), no trailing slash
+        scope: BUILD_TIME
+      # The host serving WordPress media (lib/img MEDIA_BASE_URL; photoBg samples photos from it only): WordPress's
+      # public origin, i.e. its own hostname once the apex points at the storefront. Inlined into the bundle at build;
+      # also read at run time by server.mjs (img-src of the CSP on static files), hence both.
+      - key: MOS_MEDIA_BASE_URL
+        value: https://wp.example.invalid # PLACEHOLDER: the WordPress public origin (https), no trailing slash
+        scope: RUN_AND_BUILD_TIME
+      # App Platform's X-Forwarded-For carries DO's ingress address; the visitor is in do-connecting-ip.
+      # https://docs.digitalocean.com/support/where-can-i-find-the-client-ip-address-of-a-request-connecting-to-my-app/
+      - key: MOS_CLIENT_IP_HEADER
+        value: do-connecting-ip
+        scope: BUILD_TIME
+      - key: MOS_TRUSTED_PROXY_HOPS
+        value: "1" # fallback only, if do-connecting-ip were ever missing
+        scope: BUILD_TIME
+      # Exact extra host trusted for forwarded Host/Proto (lib/allowedHosts.mjs): the app's primary domain, i.e.
+      # the default <app>.ondigitalocean.app until a custom domain is added, so form POSTs work there. Whether
+      # ${APP_DOMAIN} resolves at build is not spelled out by DO's docs: if POSTs on the default domain get 403,
+      # put that exact hostname here instead and rebuild. Once musikogsport.is is primary this adds nothing.
+      - key: MOS_EXTRA_ALLOWED_HOSTS
+        value: ${APP_DOMAIN}
+        scope: BUILD_TIME

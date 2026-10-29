@@ -1,0 +1,304 @@
+---
+import Base from '../../layouts/Base.astro';
+import Breadcrumbs from '../../components/Breadcrumbs.astro';
+import PriceTag from '../../components/PriceTag.astro';
+import NotFound from '../../components/NotFound.astro';
+import PdpGallery from '../../components/PdpGallery.astro';
+import PdpRail from '../../components/PdpRail.astro';
+import SizeGuide from '../../components/SizeGuide.astro';
+import ProductPurchase from '../../components/ProductPurchase.tsx';
+import RelatedProducts from '../../components/RelatedProducts.astro';
+import Icon from '../../components/Icon.astro';
+import { productSubtitle } from '../../lib/productCard';
+import { getProductBySlug, getVariations, getProductsByIds } from '../../lib/woo';
+import { productImage, mediaSrcset, mediaUrl } from '../../lib/img';
+import { TILE_ASPECT, type PhotoFit } from '../../lib/photoBg';
+import { photoBg, photoFitOf } from '../../lib/photoBgServer';
+import { decodeEntities, stripShortcodes } from '../../lib/decode';
+import { sanitizeHtml } from '../../lib/sanitize';
+import { formatSaleBadge, salePercent } from '../../lib/price';
+import { pricesVary } from '../../lib/variations';
+import { ld, productLd, breadcrumbList } from '../../lib/jsonld';
+import { loadCatalogTerms } from '../../lib/catalogTerms';
+import { cardCategories, categoryChain, productCrumbTrail } from '../../lib/categoryTree';
+import { categoryPath, productPath } from '../../lib/paths';
+import { markUnavailable } from '../../lib/http';
+import type { PdpVariation } from '../../lib/types';
+
+export const prerender = false;
+
+// /verslun/<category path>/<slug>/ — live's product URL. Resolved by the last segment; any other
+// path to the same product 301s to its permalink path. A single segment that is a category slug
+// (the old /verslun/<category> URLs) 301s to /voruflokkur/<chain>/.
+const segments = (Astro.params.path ?? '').split('/').filter(Boolean);
+const slug = segments[segments.length - 1] ?? '';
+// A failed lookup is an outage (a missing slug is an empty 200 list), so it answers 503, not 404.
+let down = false;
+const product = slug
+  ? await getProductBySlug(slug).catch(() => {
+      down = true;
+      return null;
+    })
+  : null;
+const terms = await loadCatalogTerms();
+if (!product && terms.degraded) down = true; // the old /verslun/<category> lookup couldn't run
+const legacyCategory = !product && segments.length === 1 ? terms.categories.find((c) => c.slug === slug) : undefined;
+const canonicalPath = product ? productPath(product.permalink, product.slug) : '';
+const redirectTo = legacyCategory
+  ? categoryPath(categoryChain(terms.categories, legacyCategory.id)) + Astro.url.search
+  : product && decodeURIComponent(Astro.url.pathname) !== decodeURIComponent(canonicalPath)
+    ? canonicalPath + Astro.url.search
+    : null;
+if (redirectTo) return Astro.redirect(redirectTo, 301);
+if (!product) {
+  if (down) markUnavailable(Astro.response);
+  else Astro.response.status = 404;
+}
+
+let variationAttrs: { name: string; options: string[] }[] = [];
+let variationsFailed = false;
+let variations: PdpVariation[] = [];
+
+if (product && product.type === 'variable') {
+  variationAttrs = (product.attributes ?? []).filter((a) => a.variation).map((a) => ({ name: a.name, options: a.options }));
+  const raw = await getVariations(product.id).catch(() => {
+    variationsFailed = true;
+    return [];
+  });
+  variations = raw.map((v) => ({
+    id: v.id,
+    attributes: v.attributes.map((a) => ({ name: a.name, option: a.option })),
+    price: v.price,
+    regular_price: v.regular_price,
+    sale_price: v.sale_price,
+    on_sale: v.on_sale,
+    stock_status: v.stock_status,
+    sku: v.sku,
+    image: v.image?.src ? { src: mediaUrl(v.image.src), alt: v.image.alt ?? '' } : null,
+  }));
+}
+
+// "Tengdar vörur": live shows five. Exclude self BEFORE the fetch caps the count, so a
+// self-referential related_id can't consume a slot.
+const relatedIds = (product?.related_ids ?? []).filter((id) => id !== product?.id);
+const related = product && relatedIds.length ? await getProductsByIds(relatedIds, 5).catch(() => []) : [];
+
+const name = product ? decodeEntities(product.name) : '';
+const img = product ? productImage(product) : { src: '', alt: '' };
+// Tile colours (lib/photoBg) for the purchase island: the colourway swatches (the flat-edge colour only), and how the
+// first gallery tile draws each variation photo it swaps in (photoFit for that 4:5 tile). A variation photo is
+// usually a gallery photo too, so it's sampled from that one's srcset.
+const photoBgs: Record<string, string> = {};
+const mainFits: Record<string, PhotoFit> = {};
+if (product) {
+  const srcsetOf = new Map(product.images.map((im) => [mediaUrl(im.src), mediaSrcset(im.srcset)]));
+  for (const src of new Set([img.src, ...variations.flatMap((v) => (v.image?.src ? [v.image.src] : []))])) {
+    const colour = photoBg(src, srcsetOf.get(src));
+    if (colour) photoBgs[src] = colour;
+    const fit = photoFitOf(src, srcsetOf.get(src), TILE_ASPECT.gallery);
+    if (fit) mainFits[src] = fit;
+  }
+}
+const inStock = product?.stock_status === 'instock';
+const percent = product?.on_sale ? salePercent(product.price_html) : null;
+const textOf = (html?: string) => decodeEntities((html ?? '').replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
+const excerptHtml = product && textOf(product.short_description) ? sanitizeHtml(stripShortcodes(product.short_description!)) : '';
+const descHtml = product && textOf(product.description) ? sanitizeHtml(stripShortcodes(product.description!)) : '';
+
+// Breadcrumbs as WooCommerce builds them on live: Heim / Verslun / <main category chain>.
+// Goya's summary leaves off the product's own name.
+const crumbs: { label: string; href?: string }[] = [
+  { label: 'Heim', href: '/' },
+  { label: 'Verslun', href: '/verslun/' },
+  ...productCrumbTrail(terms.categories, (product?.categories ?? []).map((c) => c.id)).map((t) => ({ label: t.name, href: t.path })),
+];
+
+// "Frekari upplýsingar": WooCommerce's additional-information table (visible attributes, plus
+// weight/dimensions when set).
+const infoRows: { label: string; value: string }[] = [];
+if (product) {
+  if (product.weight) infoRows.push({ label: 'Þyngd', value: `${product.weight} kg` });
+  const d = product.dimensions;
+  if (d && (d.length || d.width || d.height)) infoRows.push({ label: 'Ummál', value: `${[d.length, d.width, d.height].filter(Boolean).join(' × ')} cm` });
+  for (const a of product.attributes ?? []) if (a.visible && a.options.length) infoRows.push({ label: a.name, value: a.options.join(', ') });
+}
+
+// Meta block (live: Vörunúmer / Flokkar / Merkimiðar / Vörumerki, terms alphabetical).
+const byName = <T extends { name: string }>(list: T[] = []) =>
+  list.map((t) => ({ ...t, name: decodeEntities(t.name) })).sort((a, b) => a.name.localeCompare(b.name, 'is'));
+const metaCats = byName(product?.categories).map((c) => ({ name: c.name, href: categoryPath(categoryChain(terms.categories, c.id)) }));
+const metaTags = byName(product?.tags).map((t) => ({ name: t.name, href: `/merkimidar/${t.slug}/` }));
+const metaBrands = byName(product?.brands).map((b) => ({ name: b.name, href: `/brand/${b.slug}/` }));
+const hasMeta = Boolean(product?.sku) || metaCats.length > 0 || metaTags.length > 0 || metaBrands.length > 0;
+
+// Under the title (SPEC § PDP, "Men's Shoes"): the card's category, then the brand ("Hlaupaskór · Hoka").
+const subtitle = product
+  ? productSubtitle({
+      category: cardCategories((product.categories ?? []).map((c) => ({ id: c.id, name: decodeEntities(c.name) })), terms.categories, 1)[0]?.name,
+      brands: product.brands,
+      name,
+    })
+  : '';
+
+// Structured data for the product detail page.
+const canonicalUrl = new URL(canonicalPath || Astro.url.pathname, Astro.site ?? 'https://musikogsport.is/').href;
+let productLdObj: ReturnType<typeof productLd> | null = null;
+let breadcrumbLdObj: ReturnType<typeof breadcrumbList> | null = null;
+if (product) {
+  const images = (product.images.length ? product.images.map((im) => mediaUrl(im.src) || im.src) : [img.src]).filter(Boolean);
+  const varPrices = variations.map((v) => Number(v.price)).filter((n) => n > 0);
+  productLdObj = productLd({
+    name,
+    url: canonicalUrl,
+    images,
+    description: (textOf(product.short_description) || textOf(product.description)).slice(0, 500) || undefined,
+    sku: product.sku,
+    brand: metaBrands[0]?.name,
+    inStock,
+    price: product.price,
+    priceRange:
+      product.type === 'variable' && varPrices.length
+        ? { low: Math.min(...varPrices), high: Math.max(...varPrices), count: varPrices.length }
+        : undefined,
+  });
+  breadcrumbLdObj = breadcrumbList([...crumbs, { label: name }], Astro.site?.href ?? 'https://musikogsport.is/', canonicalUrl);
+}
+const shareUrl = `https://www.facebook.com/sharer.php?u=${encodeURIComponent(canonicalUrl)}`;
+---
+
+{
+  product ? (
+    <Base title={name} description={textOf(product.short_description).slice(0, 150)} image={img.src} ogType="product">
+      {productLdObj && <script type="application/ld+json" is:inline slot="head" set:html={ld(productLdObj)} />}
+      {breadcrumbLdObj && <script type="application/ld+json" is:inline slot="head" set:html={ld(breadcrumbLdObj)} />}
+
+      <div class="pdp">
+        <Breadcrumbs items={crumbs} />
+        <PdpGallery images={product.images} name={name} />
+
+        <PdpRail>
+          <div class="pdp-head">
+            <h1 class="pdp-title">{name}</h1>
+            {subtitle && <p class="pdp-subtitle">{subtitle}</p>}
+            <div class="pdp-price">
+              <PriceTag product={product} />
+              {percent !== null && <span class="pdp-price__off">{formatSaleBadge(percent)}</span>}
+            </div>
+          </div>
+
+          <ProductPurchase
+            client:load
+            productId={product.id}
+            type={product.type}
+            inStock={inStock}
+            variationAttrs={variationAttrs}
+            variations={variations}
+            variationsFailed={variationsFailed}
+            baseImage={{ src: img.src, alt: img.alt }}
+            baseSku={product.sku}
+            priceVaries={pricesVary(variations)}
+            photoBgs={photoBgs}
+            mainFits={mainFits}
+          >
+            <a slot="size-guide" class="pdp-sizeguide" href="/staerdir/" data-sizeguide><Icon name="ruler" size={20} stroke-width={1.5} />Stærðartafla</a>
+          </ProductPurchase>
+
+          {/* Base.astro's delegated wishlist toggle: aria-pressed and the header count follow localStorage. */}
+          <button
+            type="button"
+            class="pdp-wish wish-pdp"
+            data-wish
+            data-id={product.id}
+            data-slug={product.slug}
+            data-path={canonicalPath}
+            data-name={name}
+            data-image={img.src}
+            aria-pressed="false"
+          >
+            Óskalisti <Icon name="heart" size={20} stroke-width={1.5} />
+          </button>
+
+          {excerptHtml && <div class="pdp-excerpt" set:html={excerptHtml} />}
+
+          <div class="pdp-tabs">
+            {descHtml && (
+              <details class="pdp-tab" id="lysing">
+                <summary class="pdp-tab__title">Lýsing<Icon name="chevron-down" size={24} stroke-width={1.5} class="pdp-tab__chevron" /></summary>
+                <div class="pdp-tab__panel pdp-desc__inner" set:html={descHtml} />
+              </details>
+            )}
+            {(infoRows.length > 0 || hasMeta) && (
+              <details class="pdp-tab">
+                <summary class="pdp-tab__title">Frekari upplýsingar<Icon name="chevron-down" size={24} stroke-width={1.5} class="pdp-tab__chevron" /></summary>
+                <div class="pdp-tab__panel">
+                  {infoRows.length > 0 && (
+                    <table class="pdp-attrs">
+                      <tbody>
+                        {infoRows.map((r) => (
+                          <tr>
+                            <th scope="row">{r.label}</th>
+                            <td>{r.value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {/* Label/value pairs in a two-column grid; data-pdp-sku stays on the value alone (the purchase
+                      island rewrites its text when a variation is chosen). */}
+                  {hasMeta && (
+                    <div class="pdp-meta">
+                      {product.sku && (
+                        <span class="pdp-meta__row"><span class="pdp-meta__k">Vörunúmer:</span> <span class="pdp-meta__v" data-pdp-sku>{product.sku}</span></span>
+                      )}
+                      {metaCats.length > 0 && (
+                        <span class="pdp-meta__row">
+                          <span class="pdp-meta__k">{metaCats.length === 1 ? 'Flokkur:' : 'Flokkar:'}</span>
+                          <span class="pdp-meta__v">{metaCats.map((c, i) => (<>{i > 0 && ', '}<a href={c.href}>{c.name}</a></>))}</span>
+                        </span>
+                      )}
+                      {metaTags.length > 0 && (
+                        <span class="pdp-meta__row">
+                          <span class="pdp-meta__k">{metaTags.length === 1 ? 'Merkimiði:' : 'Merkimiðar:'}</span>
+                          <span class="pdp-meta__v">{metaTags.map((t, i) => (<>{i > 0 && ', '}<a href={t.href}>{t.name}</a></>))}</span>
+                        </span>
+                      )}
+                      {metaBrands.length > 0 && (
+                        <span class="pdp-meta__row">
+                          <span class="pdp-meta__k">Vörumerki:</span>
+                          <span class="pdp-meta__v">{metaBrands.map((b, i) => (<>{i > 0 && ', '}<a href={b.href}>{b.name}</a></>))}</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </details>
+            )}
+            {/* Summarised from /skilmalar/ (Afhendingartími, Skilaréttur, Skilafrestur). */}
+            <details class="pdp-tab">
+              <summary class="pdp-tab__title">Sending og skil<Icon name="chevron-down" size={24} stroke-width={1.5} class="pdp-tab__chevron" /></summary>
+              <div class="pdp-tab__panel">
+                <p>Afhendingartími er að jafnaði 2–5 virkir dagar eftir að pöntun berst og greiðsla hefur borist. Varan er send með Póstinum og þú færð SMS þegar hún er komin. Einnig er hægt að sækja pöntunina í verslun okkar.</p>
+                <p>Þú getur skilað vöru innan 14 daga frá staðfestingu pöntunar ef hún er ónotuð, í fullkomnu lagi og í upprunalegum umbúðum, og færð inneignarnótu. Sendingarkostnaður er ekki endurgreiddur.</p>
+                <p><a href="/skilmalar/">Lesa skilmálana</a></p>
+              </div>
+            </details>
+          </div>
+
+          <div class="pdp-share">
+            <span>Deila</span>
+            <a href={shareUrl} target="_blank" rel="noopener" aria-label="Deila á Facebook">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M14 8h3V4h-3c-2.8 0-4 1.8-4 4.3V10H7v4h3v8h4v-8h3l1-4h-4V8.6c0-.4.3-.6.6-.6Z" fill="currentColor" /></svg>
+            </a>
+          </div>
+        </PdpRail>
+      </div>
+
+      <SizeGuide />
+      <RelatedProducts products={related} />
+    </Base>
+  ) : (
+    <Base title={down ? 'Tímabundin bilun' : 'Vara fannst ekki'}>
+      <NotFound unavailable={down} title="Vara fannst ekki" message="Þessi vara er ekki til eða hefur verið fjarlægð." />
+    </Base>
+  )
+}

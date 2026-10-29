@@ -37,7 +37,51 @@ export function setDroppoint(d: Droppoint | null): void {
   }
 }
 
+// ---------- confirmed against Pósturinn's current list (CO-03) ----------
+// A saved locker can be retired or renamed upstream. It counts for checkout only once the picker has fetched the
+// lockers for the postcode and found it there (or the shopper picked it from that list). Until then, and while a
+// fetch is in flight or after one failed, checkout asks for a locker.
+
+/** The locker id last confirmed against the fetched list, or null. */
+export const verifiedDroppoint = atom<string | null>(null);
+
+/** A fetch of the lockers started (a new postcode): nothing is confirmed until it answers. */
+export function startDroppointCheck(): void {
+  verifiedDroppoint.set(null);
+}
+
+/** After a successful fetch for `postcode`: a saved locker for it that is still listed is confirmed; one that is no
+ *  longer listed is cleared, so the shopper must choose again. A locker saved for another postcode is left alone. */
+export function reconcileDroppoint(postcode: string, ids: string[]): void {
+  const chosen = droppoint.get();
+  if (!chosen || chosen.postcode !== postcode) {
+    verifiedDroppoint.set(null);
+    return;
+  }
+  if (ids.includes(chosen.id)) {
+    verifiedDroppoint.set(chosen.id);
+  } else {
+    setDroppoint(null);
+    verifiedDroppoint.set(null);
+  }
+}
+
+/** The shopper picked a locker from the fetched list (or "— Veldu póstbox —": null). */
+export function chooseDroppoint(postcode: string, item: { id: string; name: string } | null): void {
+  setDroppoint(item ? { postcode, id: item.id, name: item.name } : null);
+  verifiedDroppoint.set(item ? item.id : null);
+}
+
+/** Checkout's gate: a locker chosen for this postcode and confirmed in Pósturinn's current list. */
+export function postboxReady(chosen: Droppoint | null, verified: string | null, postcode: string): boolean {
+  return chosen !== null && chosen.postcode === postcode && verified === chosen.id;
+}
+
 /** True for shipping rates that require a parcel-locker selection (Pakki Póstbox). */
 export function rateNeedsPostbox(rateId: string | undefined | null): boolean {
-  return !!rateId && (rateId.startsWith('DPO') || rateId.startsWith('DNO'));
+  // Only DPO exists: the Posturinn plugin folds the postbox service into a single
+  // generic 'DPO' rate and DNO is disabled upstream (2026-06-16 audit A1). If a
+  // DPT (Pakki Pakkaport) rate is ever enabled it must NOT reuse this flow — it
+  // needs its own /parcelpoints picker and the postis_dpt_parcelpoints field.
+  return !!rateId && rateId.startsWith('DPO');
 }

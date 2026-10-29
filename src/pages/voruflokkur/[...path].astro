@@ -1,0 +1,58 @@
+---
+// /voruflokkur/<parent>/<child>/[page/N/] — category archive in live's URL shape.
+import Base from '../../layouts/Base.astro';
+import ArchiveView from '../../components/ArchiveView.astro';
+import NotFound from '../../components/NotFound.astro';
+import { loadArchive } from '../../lib/archive';
+import { filterTitle } from '../../lib/facets';
+import { loadCatalogTerms } from '../../lib/catalogTerms';
+import { resolveCategoryPath } from '../../lib/categoryTree';
+import { archiveHref, pageLinks, splitPagination } from '../../lib/paths';
+import { markUnavailable } from '../../lib/http';
+import { ld, breadcrumbList } from '../../lib/jsonld';
+
+export const prerender = false;
+
+const params = Astro.url.searchParams;
+const segments = (Astro.params.path ?? '').split('/').filter(Boolean);
+const split = splitPagination(segments);
+const terms = await loadCatalogTerms();
+const resolved = split ? resolveCategoryPath(terms.categories, split.segments) : null;
+
+// page/1/ or a non-canonical chain → 301 to the canonical URL (keeping filters).
+if (!split && segments.length >= 2) {
+  const base = resolveCategoryPath(terms.categories, segments.slice(0, -2));
+  if (base && segments[segments.length - 1] === '1') return Astro.redirect(archiveHref(base.path, 1, params), 301);
+}
+if (split && resolved && !resolved.canonical) return Astro.redirect(archiveHref(resolved.path, split.page, params), 301);
+
+const page = split?.page ?? 1;
+const archive = resolved ? await loadArchive(params, page, { categoryId: resolved.term.id }) : null;
+const found = Boolean(resolved && archive && !archive.unavailable && page <= Math.max(1, archive.result.totalPages));
+const down = terms.degraded || Boolean(archive?.unavailable);
+if (down) markUnavailable(Astro.response);
+else if (!found) Astro.response.status = 404;
+
+const crumbs = [
+  { label: 'Heim', href: '/' },
+  { label: 'Verslun', href: '/verslun/' },
+  ...(resolved?.trail ?? []).map((t, i, all) => (i === all.length - 1 ? { label: t.name } : { label: t.name, href: t.path })),
+];
+const siteHref = Astro.site?.href ?? 'https://musikogsport.is/';
+const canonicalUrl = resolved ? new URL(archiveHref(resolved.path, page), siteHref).href : '';
+const breadcrumbLdObj = found ? breadcrumbList(crumbs, siteHref, canonicalUrl) : null;
+const name = resolved?.term.name ?? '';
+---
+
+{
+  found && archive && resolved ? (
+    <Base pageLinks={pageLinks(resolved.path, page, archive.result.totalPages, params)} title={page > 1 ? `${filterTitle(name, archive.activeLabels)} — síða ${page}` : filterTitle(name, archive.activeLabels)} description={`${name} — vörur í vefverslun Músík og Sport.`}>
+      {breadcrumbLdObj && <script type="application/ld+json" is:inline slot="head" set:html={ld(breadcrumbLdObj)} />}
+      <ArchiveView title={name} navCategoryId={resolved.term.id} crumbs={crumbs} basePath={resolved.path} params={params} archive={archive} page={page} />
+    </Base>
+  ) : (
+    <Base title={down ? 'Tímabundin bilun' : 'Flokkur fannst ekki'}>
+      <NotFound unavailable={down} title="Flokkur fannst ekki" message="Þessi vöruflokkur er ekki til." />
+    </Base>
+  )
+}

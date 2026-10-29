@@ -1,0 +1,41 @@
+---
+// /brand/<slug>/[page/N/] — product_brand archive in live's URL shape.
+import Base from '../../layouts/Base.astro';
+import ArchiveView from '../../components/ArchiveView.astro';
+import NotFound from '../../components/NotFound.astro';
+import { loadArchive } from '../../lib/archive';
+import { filterTitle } from '../../lib/facets';
+import { loadCatalogTerms } from '../../lib/catalogTerms';
+import { archiveHref, pageLinks, splitPagination } from '../../lib/paths';
+import { markUnavailable } from '../../lib/http';
+
+export const prerender = false;
+
+const params = Astro.url.searchParams;
+const segments = (Astro.params.path ?? '').split('/').filter(Boolean);
+const split = splitPagination(segments);
+const pageOne = !split && segments.length === 3 && segments[2] === '1' ? archiveHref(`/brand/${segments[0]}/`, 1, params) : null;
+if (pageOne) return Astro.redirect(pageOne, 301);
+const terms = await loadCatalogTerms();
+const brand = split && split.segments.length === 1 ? terms.brands.find((b) => b.slug === split.segments[0]) : undefined;
+const page = split?.page ?? 1;
+const archive = brand ? await loadArchive(params, page, { brandId: brand.id }) : null;
+const found = Boolean(brand && archive && !archive.unavailable && page <= Math.max(1, archive.result.totalPages));
+const down = terms.degraded || Boolean(archive?.unavailable);
+if (down) markUnavailable(Astro.response);
+else if (!found) Astro.response.status = 404;
+const basePath = brand ? `/brand/${brand.slug}/` : '/';
+const crumbs = [{ label: 'Heim', href: '/' }, { label: brand?.name ?? '' }];
+---
+
+{
+  found && archive && brand ? (
+    <Base pageLinks={pageLinks(basePath, page, archive.result.totalPages, params)} title={page > 1 ? `${filterTitle(`Vörumerki: ${brand.name}`, archive.activeLabels)} — síða ${page}` : filterTitle(`Vörumerki: ${brand.name}`, archive.activeLabels)} description={`${brand.name} — vörumerki í vefverslun Músík og Sport.`}>
+      <ArchiveView title={brand.name} crumbs={crumbs} basePath={basePath} params={params} archive={archive} page={page} />
+    </Base>
+  ) : (
+    <Base title={down ? 'Tímabundin bilun' : 'Vörumerki fannst ekki'}>
+      <NotFound unavailable={down} title="Vörumerki fannst ekki" message="Þetta vörumerki er ekki til." />
+    </Base>
+  )
+}

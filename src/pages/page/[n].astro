@@ -1,0 +1,42 @@
+---
+// Product search results in WordPress's URL shape: /?s=<q>&post_type=product (rewritten here from
+// index.astro as page 1) and /page/N/?s=<q>&post_type=product for later pages.
+import Base from '../../layouts/Base.astro';
+import ArchiveView from '../../components/ArchiveView.astro';
+import NotFound from '../../components/NotFound.astro';
+import { loadArchive } from '../../lib/archive';
+import { filterTitle } from '../../lib/facets';
+import { archiveHref, splitPagination } from '../../lib/paths';
+import { markUnavailable } from '../../lib/http';
+import { parseLiveFilters } from '../../lib/liveFilters';
+
+export const prerender = false;
+
+const params = Astro.url.searchParams;
+const query = parseLiveFilters(params).search ?? ''; // trimmed and length-capped, as the search itself
+const raw = Astro.params.n ?? '';
+const viaHome = Astro.originPathname === '/';
+
+const pageOne = query && raw === '1' && !viaHome ? archiveHref('/', 1, params) : null;
+if (pageOne) return Astro.redirect(pageOne, 301);
+const page = raw === '1' && viaHome ? 1 : (splitPagination(['page', raw])?.page ?? 0);
+const archive = query && page >= 1 ? await loadArchive(params, page) : null;
+const found = Boolean(archive && !archive.unavailable && page <= Math.max(1, archive.result.totalPages));
+const down = Boolean(archive?.unavailable);
+if (down) markUnavailable(Astro.response);
+else if (!found) Astro.response.status = 404;
+const title = `Leitarniðurstöður: „${query}“`;
+const crumbs = [{ label: 'Heim', href: '/' }, { label: 'Verslun', href: '/verslun/' }, { label: `Leitarniðurstöður fyrir „${query}“` }];
+---
+
+{
+  found && archive ? (
+    <Base title={filterTitle(`Þú leitaðir að „${query}“`, archive.activeLabels)} noindex>
+      <ArchiveView title={title} crumbs={crumbs} basePath="/" params={params} archive={archive} page={page} />
+    </Base>
+  ) : (
+    <Base title={down ? 'Tímabundin bilun' : 'Síða fannst ekki'} noindex>
+      <NotFound unavailable={down} title="Síða fannst ekki" message={query ? 'Engar fleiri niðurstöður.' : 'Þessi síða er ekki til.'} />
+    </Base>
+  )
+}

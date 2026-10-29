@@ -1,50 +1,113 @@
 ---
+// The nike-look product card (SPEC § Wall): a square image on #f5f5f5 with no chrome, then 16px lines — a label
+// ("Útsala" / "Uppselt", cardLabel), the full title (clamped to two lines in CSS), the first of the product's
+// categories (cardCategories), Woo's price with the "-N%" in green after it, and "N litir" when the product comes
+// in several colours. On hover or focus WooCommerce's loop action appears under the price as a quiet text link:
+// "Veldu kosti" (a link to the product) for variable products, "Setja í körfu" (adds straight to the cart) for
+// simple ones in stock, and "Frekari upplýsingar" otherwise, as WooCommerce's add_to_cart_text() decides (labels
+// from WooCommerce's is_IS language pack, which live uses).
+// variant 'tile' (home carousels): no label or colours line, up to two categories, "Uppselt" on the image.
 import type { WooProduct } from '../lib/types';
 import { productImage } from '../lib/img';
-import { splitBrand } from '../lib/brand';
+import { cardFillFor } from '../lib/photoBgServer';
 import { decodeEntities } from '../lib/decode';
+import { productPath } from '../lib/paths';
+import { formatSaleBadge, salePercent } from '../lib/price';
+import { loadCatalogTerms } from '../lib/catalogTerms';
+import { cardCategories } from '../lib/categoryTree';
+import { cardLabel, colourCount, colourLabel } from '../lib/productCard';
 import ProductImage from './ProductImage.astro';
 import PriceTag from './PriceTag.astro';
-import Icon from './Icon.astro';
 
 interface Props {
   product: WooProduct;
   eager?: boolean;
+  /** 'grid' (the wall) or 'tile' (home carousels). */
+  variant?: 'grid' | 'tile';
 }
-const { product, eager = false } = Astro.props;
+const { product, eager = false, variant = 'grid' } = Astro.props;
+const tile = variant === 'tile';
+const terms = await loadCatalogTerms();
 const img = productImage(product);
-const out = product.stock_status === 'outofstock';
-const { brand, rest } = splitBrand(product.name);
+// the gap the whole (contained) photo leaves in the square tile, filled side by side from the photo's own edge once
+// it's been read (lib/photoBg cardFill); none: the page shows through
+const photoFill = cardFillFor(img.src, img.srcset);
+// The rendered image width, from the wall and carousel CSS (measured with the filter rail shown and hidden, since the
+// rail is the visitor's choice and `sizes` can't see it, each range takes the wider of the two). Wall cells have a
+// 48px gutter each side (96px), a 252px rail column and 16px between images; the frame stops growing at 1800px.
+//   >=1800  rail 3-up 468px (hidden 4-up 410)     1400-1799  rail 3-up (100vw - 348px) / 3 - 16px
+//   1200-1399  hidden 3-up (100vw - 96px) / 3 - 16px     992-1199  rail 2-up (100vw - 348px) / 2 - 16px
+//   <=991  2-up edge to edge, 50vw (a few px over). Home tiles: min(440px, 30.56vw) from 992px, min(300px, 77vw) below.
+// The browser picks a ~360–720w candidate instead of the original.
+const sizes = tile
+  ? '(min-width: 992px) min(440px, 30.56vw), min(300px, 77vw)'
+  : '(min-width: 1800px) 468px, (min-width: 1400px) calc((100vw - 348px) / 3 - 16px), (min-width: 1200px) calc((100vw - 96px) / 3 - 16px), (min-width: 992px) calc((100vw - 348px) / 2 - 16px), 50vw';
 const fullName = decodeEntities(product.name);
+const href = productPath(product.permalink, product.slug);
+const out = product.stock_status === 'outofstock';
+const percent = !out && product.on_sale ? salePercent(product.price_html) : null;
+const cats = cardCategories(
+  (product.categories ?? []).map((c) => ({ id: c.id, name: decodeEntities(c.name) })),
+  terms.categories,
+  tile ? 2 : 1,
+);
+// The Store API the wall reads has no publish date, so "Nýtt" never shows here (see productCard.ts).
+const label = tile ? null : cardLabel({ discounted: percent !== null, outOfStock: out });
+const colours = tile ? 0 : colourCount(product.attributes);
+const addsToCart = product.type === 'simple' && !out;
+const actionText = product.type === 'variable' ? 'Veldu kosti' : addsToCart ? 'Setja í körfu' : 'Frekari upplýsingar';
 ---
 
-<div class="product-card-wrap">
-  <a class="product-card" href={`/vara/${product.slug}`}>
-    <div class="product-card__media">
-      <ProductImage src={img.src} alt={img.alt} loading={eager ? 'eager' : 'lazy'} />
-      {out && <span class="badge badge--muted">Uppselt</span>}
-      {!out && product.on_sale && <span class="badge badge--sale">Tilboð</span>}
-      <div class="product-card__quick">
-        <span class="pill">Skoða <Icon name="arrow-up-right" /></span>
+<div class:list={['product-card', tile && 'product-card--tile']}>
+  <a class="product-card__media" href={href} tabindex="-1" aria-hidden="true" {...photoFill}>
+    <ProductImage src={img.src} srcset={img.srcset} sizes={sizes} alt={img.alt} width={450} height={450} loading={eager ? 'eager' : 'lazy'} />
+    {out && tile && <span class="badge badge--muted">Uppselt</span>}
+  </a>
+  <div class="product-card__caption">
+    {label && <span class:list={['product-card__label', `product-card__label--${label.tone}`]}>{label.text}</span>}
+    <h3 class="product-card__title"><a href={href} title={fullName}>{fullName}</a></h3>
+    {
+      cats.length > 0 && (
+        <span class="product-card__cats">
+          {cats.map((c, i) => (<>{i > 0 && ', '}<a href={c.path}>{c.name}</a></>))}
+        </span>
+      )
+    }
+    <div class="product-card__after">
+      <div class="product-card__price">
+        <PriceTag product={product} />
+        {percent !== null && <span class="product-card__off">{formatSaleBadge(percent)}</span>}
+      </div>
+      {colours > 0 && <span class="product-card__colours">{colourLabel(colours)}</span>}
+      <div class="product-card__action">
+        {
+          addsToCart ? (
+            <button type="button" data-card-add={product.id} aria-label={`${actionText}: ${fullName}`}>{actionText}</button>
+          ) : (
+            <a href={href} aria-label={`${actionText}: ${fullName}`}>{actionText}</a>
+          )
+        }
       </div>
     </div>
-    <div class="product-card__body">
-      {brand && <span class="product-card__brand">{brand}</span>}
-      <h3 class="product-card__title">{rest}</h3>
-      <PriceTag product={product} />
-    </div>
-  </a>
-  <button
-    class="wish-btn"
-    type="button"
-    data-wish
-    data-id={product.id}
-    data-slug={product.slug}
-    data-name={fullName}
-    data-image={img.src}
-    aria-pressed="false"
-    aria-label={`Setja „${fullName}“ á óskalista`}
-  >
-    <Icon name="heart" size={18} />
-  </button>
+  </div>
 </div>
+
+<script>
+  // "Setja í körfu" on a card: WooCommerce's ajax add to cart, then the side cart opens (as on the PDP).
+  // The cart store runs cart calls one at a time, so quick adds on several cards can't lose an item.
+  import { addToCart, openCart } from '../lib/cartStore';
+
+  document.addEventListener('click', async (e) => {
+    const btn = (e.target as Element | null)?.closest<HTMLButtonElement>('[data-card-add]');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    try {
+      await addToCart(Number(btn.dataset.cardAdd), 1);
+    } catch {
+      /* the side cart shows cartError */
+    } finally {
+      btn.disabled = false;
+      openCart();
+    }
+  });
+</script>

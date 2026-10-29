@@ -1,0 +1,798 @@
+<title>Refined Goya Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600&display=swap">
+<style>
+  /* Layout: one review column; each area is a chapter with a status strip, decisions to make, then evidence. */
+  :root {
+    --bg: #ffffff;
+    --panel: #f6f5f3;
+    --ink: #282828;
+    --text: #5f5f5f;
+    --rule: #e4e2de;
+    --accent: #f17e1b;        /* the shop's campaign orange */
+    --accent-ink: #b5570a;    /* orange text that passes on white */
+    --good: #2f7d49;
+    --warn: #a15c00;
+    --muted-chip: #ecebe8;
+    --font: 'Jost', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1b1b1a; --panel: #242422; --ink: #f1efea; --text: #b9b6af; --rule: #3a3936;
+      --accent: #f5933e; --accent-ink: #f5a764; --good: #6fc08b; --warn: #e2a04a; --muted-chip: #2f2e2b;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1b1b1a; --panel: #242422; --ink: #f1efea; --text: #b9b6af; --rule: #3a3936;
+    --accent: #f5933e; --accent-ink: #f5a764; --good: #6fc08b; --warn: #e2a04a; --muted-chip: #2f2e2b;
+    color-scheme: dark;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 17px; line-height: 1.6; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding-block: 40px 80px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  h1, h2, h3 { color: var(--ink); font-weight: 500; line-height: 1.2; text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(30px, 4.5vw, 44px); letter-spacing: -0.01em; }
+  h2 { font-size: 26px; }
+  h3 { font-size: 19px; }
+  p { margin: 0; max-width: 68ch; }
+  a { color: var(--ink); }
+  .masthead { display: grid; gap: 14px; padding-bottom: 28px; border-bottom: 1px solid var(--rule); }
+  .masthead::before { content: ''; width: 56px; height: 4px; background: var(--accent); }
+  .eyebrow { font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent-ink); font-weight: 600; }
+  .areas { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; list-style: none; padding: 0; }
+  .areas li { font-size: 14px; padding: 4px 10px; border: 1px solid var(--rule); color: var(--text); }
+  .areas li.is-now { border-color: var(--ink); color: var(--ink); font-weight: 500; }
+  .areas li.is-blocked { border-style: dashed; }
+  .areas li.is-done { color: var(--good); border-color: currentColor; }
+  .bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .bar-demo { display: grid; gap: 6px; min-width: 0; }
+  .bar-demo .bar { background: #f17e1b; padding: 8px 14px; font-size: 14px; line-height: 20px; text-align: center; display: grid; gap: 4px; }
+  .bar-demo .bar--white { color: #ffffff; }
+  .bar-demo .bar--ink { color: #282828; }
+  .bar-demo small { font-size: 13px; }
+  .approved { border-left: 3px solid var(--good); padding: 10px 16px; background: var(--panel); }
+  .chapter { display: grid; gap: 36px; padding-top: 40px; }
+  .chapter-head { display: grid; gap: 10px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+  .stat { background: var(--bg); padding: 16px 18px; display: grid; gap: 4px; min-width: 0; }
+  .stat b { color: var(--ink); font-weight: 500; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 14px; }
+  .ask { background: var(--panel); padding: 24px; display: grid; gap: 14px; border-left: 3px solid var(--accent); }
+  .ask ol { margin: 0; padding-left: 1.3em; display: grid; gap: 10px; }
+  .ask code, td code, p code { font-family: var(--mono); font-size: 0.86em; background: var(--muted-chip); padding: 1px 5px; }
+  section { display: grid; gap: 16px; }
+  .verdicts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px 24px; list-style: none; padding: 0; margin: 0; }
+  .verdicts li { display: flex; gap: 10px; align-items: baseline; font-size: 15px; min-width: 0; }
+  .chip { flex: none; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border: 1px solid currentColor; }
+  .chip--closed { color: var(--good); }
+  .chip--fixed { color: var(--good); border-style: dashed; }
+  .chip--wait { color: var(--warn); }
+  .verdicts code { font-family: var(--mono); font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+  .fixed { display: grid; gap: 8px; margin: 0; padding-left: 1.2em; }
+  .pairs { display: grid; gap: 40px; }
+  figure { margin: 0; display: grid; gap: 10px; }
+  figcaption { display: grid; gap: 2px; }
+  figcaption strong { color: var(--ink); font-weight: 500; }
+  figcaption span { font-size: 15px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+  .pair--phone { grid-template-columns: repeat(2, minmax(0, 360px)); }
+  .shot { display: grid; gap: 6px; min-width: 0; }
+  .shot img { display: block; width: 100%; height: auto; border: 1px solid var(--rule); background: #fff; }
+  .shot small { font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600; color: var(--text); }
+  .shot--after small { color: var(--accent-ink); }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--rule); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; min-width: 560px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text); font-weight: 600; background: var(--panel); }
+  td { color: var(--ink); }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.old { color: var(--text); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text) 50%, transparent); }
+  tr:last-child td { border-bottom: 0; }
+  .note { font-size: 15px; }
+  .later { color: var(--text); }
+  @media (max-width: 640px) {
+    .pair, .pair--phone { grid-template-columns: 1fr; }
+    .ask { padding: 18px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">Músik og Sport · storefront appearance pass</p>
+    <h1>Refined Goya review</h1>
+    <p>Live's brand stays: logo, colours and Jost. Everything around it gets polished, one area at a time. Each area waits for your go-ahead before the next one starts.</p>
+    <ul class="areas" aria-label="Areas">
+      <li class="is-done">00 Foundation ✓</li>
+      <li class="is-done">01 Shell ✓</li>
+      <li class="is-done">02 Cards &amp; listings ✓</li>
+      <li class="is-done">03 Home ✓</li>
+      <li class="is-done">04 Cart &amp; checkout ✓</li>
+      <li class="is-now">05 Content &amp; login</li>
+      <li class="is-blocked">06 Product page</li>
+      <li class="is-blocked">07 Account</li>
+      <li>08 Ship</li>
+    </ul>
+  </header>
+
+  <article class="chapter" id="area-05">
+    <div class="chapter-head">
+      <p class="eyebrow">Area 05 · ready for review</p>
+      <h2>Contact, content pages, error pages and login</h2>
+      <p>The pages outside the shop: contact, about and privacy, the 404 and 503 pages, and the signed-out login (page, popup and lost password).</p>
+    </div>
+
+    <div class="stats" role="list">
+      <div class="stat" role="listitem"><b>3 icons</b><span>on the contact page now show a glyph, mapped from live's own icon names</span></div>
+      <div class="stat" role="listitem"><b>788 → 518 px</b><span>map height on desktop (300 px on phones, with a placeholder)</span></div>
+      <div class="stat" role="listitem"><b>44 px</b><span>eye button, lost-password link and contact links on phones</span></div>
+      <div class="stat" role="listitem"><b>161 / 161</b><span>tests (2 new for the icon mapping), type check clean, build green, no new route failures</span></div>
+    </div>
+
+    <div class="ask">
+      <h3>What I need from you</h3>
+      <ol>
+        <li><strong>Approve area 05, or tell me what to change.</strong> You asked me to carry on through every area, so the consolidated review (/ship) runs next either way.</li>
+      </ol>
+    </div>
+
+    <section aria-labelledby="h-changed-05">
+      <h3 id="h-changed-05">What changed</h3>
+      <ul class="fixed">
+        <li><strong>Contact icons</strong>: live's WPBakery names (t-shirt, location, user) map to the phone, pin and person glyphs that match each column. Any icon without a mapping renders nothing rather than an empty circle.</li>
+        <li><strong>Contact layout</strong>: content rows capped at 1140 px, bold values in ink at medium weight, links underlined, and the map at clamp(360 px, 36 vw, 520 px).</li>
+        <li><strong>Contact form</strong>: a heading, centred at 720 px, Nafn and Netfang side by side from 768 px, a full-width Senda on phones.</li>
+        <li><strong>About and privacy</strong>: headings sized like the WordPress pages, a centred 720 px reading column, underlines only on real links.</li>
+        <li><strong>404 and 503</strong>: balanced lines, a lighter code, buttons that wrap and stack on phones with a 20 px inset.</li>
+        <li><strong>Login</strong>: centred and borderless on phones with less dead space above the footer; the remember row stays on one line; the lost link is underlined; the eye is a 44 px target; the button uses the same black as checkout.</li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="h-pairs-05">
+      <h3 id="h-pairs-05">Before and after</h3>
+      <div class="pairs">
+        <figure>
+          <figcaption><strong>Contact details</strong><span>Real icons (phone, pin, person) instead of three empty circles; the values are ink links with an underline.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area05/icons-1440-before.webp" alt="Contact details before" width="900" height="263" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area05/icons-1440-after.webp" alt="Contact details after" width="900" height="263" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Contact form</strong><span>Centred at 720 px under "Sendu okkur skilaboð", with Nafn and Netfang side by side and a wider Senda.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area05/form-1440-before.webp" alt="Contact form before" width="900" height="375" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area05/form-1440-after.webp" alt="Contact form after" width="900" height="375" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Contact, phone</strong><span>A tighter stack of the three columns, and the map gets a grey placeholder at 300 px instead of a tall blank gap.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area05/contact-390-before.webp" alt="Contact, phone before" width="420" height="969" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area05/contact-390-after.webp" alt="Contact, phone after" width="420" height="969" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Login, phone</strong><span>Centred (it sat 15 px right of centre), with "Muna eftir mér" and an underlined "Týnt lykilorð?" on one line and a 44 px eye button.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area05/login-390-before.webp" alt="Login, phone before" width="420" height="538" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area05/login-390-after.webp" alt="Login, phone after" width="420" height="538" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>About page</strong><span>The text column is centred under its centred heading, and the button text is no longer underlined.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area05/about-1440-before.webp" alt="About page before" width="900" height="483" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area05/about-1440-after.webp" alt="About page after" width="900" height="483" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>404, phone</strong><span>Buttons inset from the screen edge and stacked; balanced title and copy.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area05/notfound-390-before.webp" alt="404, phone before" width="420" height="538" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area05/notfound-390-after.webp" alt="404, phone after" width="420" height="538" loading="lazy"></div>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-also-05">
+      <h3 id="h-also-05">Also</h3>
+      <ul class="fixed">
+        <li>Probed on the production build: all three contact icons render, the form still sends name, email, topic and message, the eye switches the password field to text, and the 404 answers with status 404.</li>
+        <li><strong>Areas 06 and 07 are still blocked.</strong> Product, account, thank-you and view-order pages answer 503 until the WooCommerce REST key is restored in wp-admin and <code>.env</code>. I haven't styled them blind.</li>
+        <li>Commit <code>84075eb</code>. Nothing is pushed.</li>
+      </ul>
+    </section>
+  </article>
+
+  <article class="chapter" id="area-04">
+    <div class="chapter-head">
+      <p class="eyebrow">Area 04 · approved</p>
+      <h2>Cart and checkout</h2>
+      <p>Presentation only: no new state, handlers or steps on the money path. The cart and checkout keep every field and button; what changes is the grid, the totals hierarchy and the tap targets.</p>
+    </div>
+
+    <div class="stats" role="list">
+      <div class="stat" role="listitem"><b>1 total</b><span>clearly marked: 22 px under a black rule, where "Samtals" used to look like every other row</span></div>
+      <div class="stat" role="listitem"><b>44 px</b><span>quantity stepper and remove button on /karfa/ (were 30 px and 20 px)</span></div>
+      <div class="stat" role="listitem"><b>Bacs order ✓</b><span>a real local bank-transfer order through the new checkout saved kennitala, skiptimiði and the note; then deleted and stock restored</span></div>
+      <div class="stat" role="listitem"><b>159 / 159</b><span>tests, type check clean, build green, no new route failures</span></div>
+    </div>
+
+    <div class="ask">
+      <h3>What I need from you</h3>
+      <ol>
+        <li><strong>Approved</strong> ("continue", 2026-10-18).</li>
+      </ol>
+      <p class="note">Checked with the screenshot set, a quantity and stepper probe at both widths, and the bacs smoke order (local, guarded so only bacs could be submitted; Straumur was never called).</p>
+    </div>
+
+    <section aria-labelledby="h-changed-04">
+      <h3 id="h-changed-04">What changed</h3>
+      <ul class="fixed">
+        <li><strong>Cart totals</strong> sit on a grey panel instead of a dark box flush against the edge, with equal page gutters.</li>
+        <li><strong>The total</strong> is 22 px semibold under a black rule; Millisamtala stays as the quiet first row.</li>
+        <li><strong>Shipping</strong>: the "Vörusendingar" label sits above its options in both the cart and checkout, so "Reikna sendingarkostnað" and the rate names no longer wrap beside it.</li>
+        <li><strong>Coupon button</strong> is outlined, so it no longer competes with the black checkout button.</li>
+        <li><strong>"Halda áfram að versla"</strong> is a text link with a ‹ instead of a second bordered button.</li>
+        <li><strong>Cart lines</strong>: a boxed 44 px stepper, a 44 px × in the product's row rather than on its own line, and the unit price ("12.495 kr. / stk.") only when the quantity is above 1, so one item no longer shows its price twice.</li>
+        <li><strong>On phones</strong> the totals come before the coupon field.</li>
+        <li><strong>Checkout fields</strong>: Kennitala beside company, Land and Íbúð full width, Póstnúmer beside Borg / Bær (Borg no longer hangs alone), even 28 px spacing, and a space before "(valfrjálst)" and "*".</li>
+        <li><strong>Skiptimiði and Skilaboð</strong> run full width, one above the other.</li>
+        <li><strong>Order review</strong>: a "Þín pöntun" heading on desktop, the product name using the full width, a tidier shipping hint, and payment methods as separate boxes, with the chosen one ringed in black on white and its description indented under the label.</li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="h-pairs-04">
+      <h3 id="h-pairs-04">Before and after</h3>
+      <div class="pairs">
+        <figure>
+          <figcaption><strong>Cart, desktop</strong><span>Totals on a grey panel with the shipping label above its options and the total under a black rule; outline coupon button, boxed stepper, and the × in line with the product.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area04/cart-1440-before.webp" alt="Cart, desktop before" width="900" height="350" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area04/cart-1440-after.webp" alt="Cart, desktop after" width="900" height="350" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Checkout, desktop</strong><span>Fields in pairs (Kennitala + company, Póstnúmer + Borg / Bær) with even 28 px spacing, "Kennitala (valfrjálst)" with its space, full-width extras, a "Þín pöntun" heading level with the form, and a ring on the selected payment method.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area04/checkout-1440-before.webp" alt="Checkout, desktop before" width="900" height="688" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area04/checkout-1440-after.webp" alt="Checkout, desktop after" width="900" height="688" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Cart, phone</strong><span>A text back link, a boxed stepper, and the totals panel before the coupon field, so the checkout button comes sooner.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area04/cart-390-before.webp" alt="Cart, phone before" width="420" height="1023" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area04/cart-390-after.webp" alt="Cart, phone after" width="420" height="1023" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Checkout fields, phone</strong><span>Even spacing and label suffixes with a space.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area04/fields-390-before.webp" alt="Checkout fields, phone before" width="420" height="1346" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area04/fields-390-after.webp" alt="Checkout fields, phone after" width="420" height="1346" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Order review, phone</strong><span>The product name gets the width instead of wrapping word by word; the shipping hint sits under its label; the total is larger; the selected payment method has a ring.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area04/review-390-before.webp" alt="Order review, phone before" width="420" height="1050" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area04/review-390-after.webp" alt="Order review, phone after" width="420" height="1050" loading="lazy"></div>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-also-04">
+      <h3 id="h-also-04">Also</h3>
+      <ul class="fixed">
+        <li>Partly addressed: on phones the checkout button still sits below the fold on the cart, and the checkout's coupon bar still opens the page. Fixing either needs the sticky bars or collapsible summary deferred in the plan.</li>
+        <li>The side cart is unchanged; its compact stepper stays.</li>
+        <li>Commit <code>db9915c</code>. Nothing is pushed.</li>
+      </ul>
+    </section>
+  </article>
+
+  <article class="chapter" id="area-03">
+    <div class="chapter-head">
+      <p class="eyebrow">Area 03 · approved</p>
+      <h2>Homepage: banners, carousels and the phone hero</h2>
+      <p>The homepage gets the new cards from area 02 automatically. This area fixes what's specific to it: banner crops and readability, the carousel arrows, row spacing and the hero title on phones.</p>
+    </div>
+
+    <div class="stats" role="list">
+      <div class="stat" role="listitem"><b>7 of 7</b><span>homepage issues addressed</span></div>
+      <div class="stat" role="listitem"><b>0 px</b><span>sideways overflow (the old carousel arrow stuck out 15 px past the screen)</span></div>
+      <div class="stat" role="listitem"><b>Readable</b><span>banner titles, such as "FIMLEIKAR", which was white on light grey at about 1.2:1</span></div>
+      <div class="stat" role="listitem"><b>159 / 159</b><span>tests, type check clean, build green, no new route failures</span></div>
+    </div>
+
+    <div class="ask">
+      <h3>What I need from you</h3>
+      <ol>
+        <li><strong>Approved</strong> ("continue", 2026-10-18).</li>
+      </ol>
+      <p class="note">This area was checked with the screenshot metrics, browser probes of the arrow behaviour, and my own review of every shot. The multi-reviewer pass used for areas 00 to 02 is off for this session.</p>
+    </div>
+
+    <section aria-labelledby="h-changed-03">
+      <h3 id="h-changed-03">What changed</h3>
+      <ul class="fixed">
+        <li><strong>Banners</strong> are slightly darker, matching live's 15% shade, with a soft gradient under the title so white labels read on light photos.</li>
+        <li><strong>Banner crops</strong> anchor to the top like live, so the "SPAIN AWAY JERSEY" lettering and the advertised boot are no longer cut off.</li>
+        <li><strong>Banner titles</strong> wrap onto two lines instead of running across logos and laces, at medium weight.</li>
+        <li><strong>Carousel arrows</strong> are white circles inside the row. On desktop they appear when you hover or tab into the row, like live; on phones they stay visible, and they hide when there's nothing more to scroll.</li>
+        <li><strong>Row spacing</strong>: the gap above "Vinsælt núna" matches live (50 px), and phone row headings are a little larger, as on live.</li>
+        <li><strong>The phone hero title</strong> uses normal letter spacing at 29 px, so "LIVERPOOL" no longer runs together.</li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="h-pairs-03">
+      <h3 id="h-pairs-03">Before and after</h3>
+      <div class="pairs">
+        <figure>
+          <figcaption><strong>Two-up banners</strong><span>Top-anchored crop (the jersey lettering is back), live's darkening, and titles wrapping clear of the logo.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area03/banners2-1440-before.webp" alt="Two banners before" width="900" height="437" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area03/banners2-1440-after.webp" alt="Two banners after" width="900" height="437" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Three tall banners</strong><span>"FIMLEIKAR" and "BÖRN" are readable on the scrim, and "ALLT FYRIR HLAUP" wraps onto two lines.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area03/banners-tall-1440-before.webp" alt="Tall banners before" width="900" height="450" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area03/banners-tall-1440-after.webp" alt="Tall banners after" width="900" height="450" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Full-width banner</strong><span>The football boot this banner advertises shows again at the top right.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area03/banners-wide-1440-before.webp" alt="Wide banner before" width="900" height="375" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area03/banners-wide-1440-after.webp" alt="Wide banner after" width="900" height="375" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Product row</strong><span>The clipped arrow that stuck out past the right edge is gone. Arrows now appear inside the row on hover.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area03/row-1440-before.webp" alt="Product row before" width="900" height="425" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area03/row-1440-after.webp" alt="Product row after" width="900" height="425" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Phone hero</strong><span>The title at 29 px with normal spacing.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area03/hero-390-before.webp" alt="Phone hero before" width="420" height="747" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area03/hero-390-after.webp" alt="Phone hero after" width="420" height="747" loading="lazy"></div>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-also-03">
+      <h3 id="h-also-03">Also</h3>
+      <ul class="fixed">
+        <li>Commit <code>9341ead</code>. Nothing is pushed.</li>
+      </ul>
+    </section>
+  </article>
+
+  <article class="chapter" id="area-02">
+    <div class="chapter-head">
+      <p class="eyebrow">Area 02 · approved 18 October</p>
+      <h2>Product cards and listing pages</h2>
+      <p>Every product listing (categories, shop, search, brands, tags and the homepage rows) shares one card. It now shows the full product name, the whole shoe, two categories instead of a run-on list, and prices that line up. On phones, two products sit side by side.</p>
+    </div>
+
+    <div class="stats" role="list">
+      <div class="stat" role="listitem"><b>1 → 2</b><span>products per row on phones, so prices show on the first screen</span></div>
+      <div class="stat" role="listitem"><b>Full names</b><span>no more "Hoka Clifton 10…" eight times on one search page</span></div>
+      <div class="stat" role="listitem"><b>21 of 25</b><span>issues closed, 3 partly. The review also found 4 focus and scroll regressions, now fixed.</span></div>
+      <div class="stat" role="listitem"><b>159 / 159</b><span>unit tests (4 new), type check clean, build green, no new route or crawl failures</span></div>
+    </div>
+
+    <p class="approved">Approved. Titles keep their reserved second line, so categories and prices stay aligned across each row.</p>
+
+    <section aria-labelledby="h-verdicts-02">
+      <h3 id="h-verdicts-02">Issues this area set out to close</h3>
+      <ul class="verdicts">
+        <li><span class="chip chip--closed">Closed</span><code>archive/card-image-cropped</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>archive/titles-cut-to-three-words</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>archive/cats-wrap-misaligns-prices</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>archive/sidebar-not-sticky</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>archive/gap-below-load-more</code></li>
+        <li><span class="chip chip--fixed">Fixed after review</span><code>archive/filter-sidebar-hierarchy</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>archive/sale-badge-copy-shape</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>archive/mobile-single-column-grid</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>archive/mobile-load-more-width</code></li>
+        <li><span class="chip chip--wait">390 fixed, 360 as before</span><code>archive/mobile-toolbar-sort-truncated</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/titles-cut-to-three-words</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/image-cover-crops-shoes</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/duplicate-category-names</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/price-baseline-misaligned</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/flat-caption-hierarchy</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/sale-badge-style-copy</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/reset-shown-without-filters</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/sidebar-empty-column</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/mobile-single-column-grid</code></li>
+        <li><span class="chip chip--wait">390 fixed, 360 as before</span><code>search/sort-label-truncated-mobile</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/mobile-filter-tap-targets</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>home/card-title-three-word-cut</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>home/card-category-noise</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>home/sale-badge</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>home/card-image-backgrounds</code></li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="h-fixed-02">
+      <h3 id="h-fixed-02">What the review caught, now fixed</h3>
+      <ul class="fixed">
+        <li>The new sticky filter sidebar hid its last group ("Félag/Lið") below the screen, inside a second scroll area. The sidebar now has a single scroll, and a soft shadow shows when more filters sit above or below.</li>
+        <li>Tabbing to a category hidden behind the "…" slid the whole line sideways. The line no longer moves.</li>
+        <li>The title's keyboard focus ring was clipped, and the action row's ring touched the category line. Both now show in full.</li>
+        <li>Filter rows are compact again. "Endursetja" shows only while a filter is on, as a quiet link instead of a full-width button.</li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="h-pairs-02">
+      <h3 id="h-pairs-02">Before and after</h3>
+      <div class="pairs">
+        <figure>
+          <figcaption><strong>Category page, desktop</strong><span>Whole shoes, full names, one line of categories and aligned prices. The filter groups are separated, and the sidebar stays in view as you scroll.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area02/archive-1440-before.webp" alt="Category page before: cropped shoes, three-word titles" width="900" height="562" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area02/archive-1440-after.webp" alt="Category page after: whole shoes, full titles, aligned prices" width="900" height="562" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Search results</strong><span>Each Hoka can be told apart now ("Clifton 10 M / PTYG", "Clifton 10 W / LRMT"…). Categories are no longer repeated ("Hlaup, Hlaup…"), and sale badges are solid chips.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area02/search-1440-before.webp" alt="Search results before" width="900" height="562" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area02/search-1440-after.webp" alt="Search results after" width="900" height="562" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Sale page</strong><span>White on deep red "-55%" chips that read on any photo. The sale price stays live's red.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area02/sale-1440-before.webp" alt="Sale page before" width="900" height="562" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area02/sale-1440-after.webp" alt="Sale page after" width="900" height="562" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Homepage row "Nýjar vörur í vefverslun"</strong><span>The same card on the homepage: full names, two categories, and studio and packshot photos on one consistent grey tile.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area02/homerow-1440-before.webp" alt="Homepage product row before" width="900" height="425" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area02/homerow-1440-after.webp" alt="Homepage product row after" width="900" height="425" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Phone: category page</strong><span>Two products per row, with prices on the first screen, and a toolbar split into "Sía" and the full sort label.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area02/archive-390-before.webp" alt="Phone category page before: one product per row" width="420" height="909" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area02/archive-390-after.webp" alt="Phone category page after: two products per row" width="420" height="909" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Phone: search</strong><span>The same two-up grid on search results.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area02/search-390-before.webp" alt="Phone search before" width="420" height="909" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area02/search-390-after.webp" alt="Phone search after" width="420" height="909" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Phone: sale cards</strong><span>Chips, full names and prices in a compact two-up card.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area02/sale-cards-390-before.webp" alt="Phone sale cards before" width="420" height="586" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area02/sale-cards-390-after.webp" alt="Phone sale cards after" width="420" height="586" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Phone: filter panel</strong><span>Rows and "+" toggles are 44 px tall for easier tapping, with separators between groups.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area02/ov-filters-390-before.webp" alt="Phone filter panel before" width="420" height="909" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area02/ov-filters-390-after.webp" alt="Phone filter panel after" width="420" height="909" loading="lazy"></div>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-also-02">
+      <h3 id="h-also-02">Also checked</h3>
+      <ul class="fixed">
+        <li>"Sýna fleiri" adds the next 27 products at both widths, with no duplicates, and the grid keeps its columns.</li>
+        <li>The empty gap above the footer shrank from 140 px to the footer's own 60 px.</li>
+        <li>Commits <code>8b47ac3</code> and <code>6abe869</code>. Nothing is pushed.</li>
+      </ul>
+    </section>
+  </article>
+
+  <article class="chapter" id="area-01">
+    <div class="chapter-head">
+      <p class="eyebrow">Area 01 · approved 16 October</p>
+      <h2>Shell: campaign bar, store notice and footer</h2>
+      <p>The parts that frame every page. On phones the orange bar no longer breaks the opening hours or fills a ninth of the screen, and the footer now lines up with the page.</p>
+    </div>
+
+    <div class="stats" role="list">
+      <div class="stat" role="listitem"><b>93 → 78 px</b><span>campaign bar on a 390 px phone (120 → 78 px at 360)</span></div>
+      <div class="stat" role="listitem"><b>"10-18" kept whole</b><span>opening hours on one line, and "Dalshraun 10" never split</span></div>
+      <div class="stat" role="listitem"><b>10 of 10</b><span>issues closed, plus 2 small regressions the review found and fixed</span></div>
+      <div class="stat" role="listitem"><b>155 / 155</b><span>unit tests (6 new), type check clean, build green, no new route or crawl failures</span></div>
+    </div>
+
+    <p class="approved">Approved. You chose to keep the campaign bar's white text, as on live. It stays a known exception (2.71:1), like the sale price.</p>
+
+    <section aria-labelledby="h-verdicts-01">
+      <h3 id="h-verdicts-01">Issues this area set out to close</h3>
+      <ul class="verdicts">
+        <li><span class="chip chip--closed">Closed</span><code>home/mobile-campaign-hours-break</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>archive/campaign-bar-hours-break</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>account/campaign-bar-mobile-wrap</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/campaign-bar-wrap-mobile</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>contact/sitewide-campaign-wrap-mobile</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>home/header-hero-micro-offsets (bar)</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>home/footer-label-spacing</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>archive/mobile-footer-inset</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/mobile-footer-logo-oversized</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>store-notice-contrast</code></li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="h-fixed-01">
+      <h3 id="h-fixed-01">What the review caught, now fixed</h3>
+      <ul class="fixed">
+        <li>The close button's keyboard focus ring was white on orange (2.71:1). It now uses the shop's dark ring (5.4:1).</li>
+        <li>With the notice text darker, its "Loka" link no longer stood out. It's now underlined.</li>
+        <li>On phones the bar text sat slightly left of centre, and the two messages ran together. It's now centred under the logo, with a small gap between the messages.</li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="h-pairs-01">
+      <h3 id="h-pairs-01">Before and after</h3>
+      <div class="pairs">
+        <figure>
+          <figcaption><strong>Campaign bar on a phone (390 px)</strong><span>The messages stack. The hours stay on one line, and the move notice breaks after "Dalshraun 10 -" instead of mid-time.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area01/campaign-390-before.webp" alt="Phone campaign bar before: two narrow columns, hours broken as 10- / 18" width="420" height="162" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area01/campaign-390-after.webp" alt="Phone campaign bar after: stacked, hours on one line" width="420" height="162" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Campaign bar on a small phone (360 px)</strong><span>Before, each message took four lines and the bar was 120 px tall.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area01/campaign-360-before.webp" alt="Small-phone campaign bar before" width="390" height="163" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area01/campaign-360-after.webp" alt="Small-phone campaign bar after" width="390" height="163" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Desktop bar and header</strong><span>The two halves are centred across the full width, as on live, and the close X is a little heavier.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area01/header-1440-before.webp" alt="Desktop campaign bar and header before" width="900" height="81" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area01/header-1440-after.webp" alt="Desktop campaign bar and header after" width="900" height="81" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Footer on a phone</strong><span>Aligned with the page's 20 px edge, the logo at a proportionate 160 px, and lighter labels.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area01/footer-390-before.webp" alt="Phone footer before: oversized logo, indented text" width="420" height="1238" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area01/footer-390-after.webp" alt="Phone footer after: smaller logo, aligned text" width="420" height="1238" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Footer on desktop</strong><span>Medium-weight labels and slightly more air under the headings.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area01/footer-1440-before.webp" alt="Desktop footer before" width="900" height="350" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area01/footer-1440-after.webp" alt="Desktop footer after" width="900" height="350" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Store notice</strong><span>Darker text (7.7:1, was 4.4:1) and an underlined "Loka".</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area01/notice-390-before.webp" alt="Store notice before" width="420" height="69" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area01/notice-390-after.webp" alt="Store notice after" width="420" height="69" loading="lazy"></div>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-also-01">
+      <h3 id="h-also-01">Also in this area</h3>
+      <ul class="fixed">
+        <li>The back-to-top button's edge is darker. It only appears after scrolling, so it isn't in the screenshots.</li>
+        <li>The header logo position stays as built, because the audit's measurement contradicts the original clone's.</li>
+        <li>Commits <code>71d4732</code> and <code>3e5b5fd</code> on <code>feat/refined-goya</code>. Nothing is pushed.</li>
+      </ul>
+    </section>
+  </article>
+
+  <article class="chapter" id="area-00">
+    <div class="chapter-head">
+      <p class="eyebrow">Area 00 · approved 16 October</p>
+      <h2>Foundation: contrast, form controls, buttons and copy</h2>
+      <p>The groundwork every later area builds on: legible greys, form fields and checkboxes you can see, one button style with proper states, and Icelandic everywhere the shop still spoke English.</p>
+    </div>
+
+    <div class="stats" role="list">
+      <div class="stat" role="listitem"><b>3,345 → 462</b><span>contrast failures across 69 page shots</span></div>
+      <div class="stat" role="listitem"><b>15 of 17</b><span>targeted issues closed, 1 fixed after review, 1 waiting on the product key</span></div>
+      <div class="stat" role="listitem"><b>149 / 149</b><span>unit tests (1 new), type check clean, build green</span></div>
+      <div class="stat" role="listitem"><b>No new failures</b><span>in the route check and link crawl. The known ones are product pages, waiting on the WooCommerce key.</span></div>
+    </div>
+
+    <p class="approved">Approved with no copy vetoes. Every change below is part of the branch.</p>
+
+    <section aria-labelledby="h-verdicts">
+      <h3 id="h-verdicts">Issues this area set out to close</h3>
+      <p class="note">Checked by four independent reviewers against before/after screenshots and measurements. Every regression they claimed was re-checked by two skeptics.</p>
+      <ul class="verdicts">
+        <li><span class="chip chip--closed">Closed</span><code>archive/faint-text-contrast</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>archive/filter-checkbox-contrast</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>archive/english-ui-labels</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/low-contrast-greys</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>search/mixed-language-labels</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>checkout/mixed-english-copy</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>checkout/low-contrast-borders-meta</code></li>
+        <li><span class="chip chip--fixed">Fixed after review</span><code>checkout/small-checkboxes-radios</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>cart/meta-low-contrast</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>cart/duplicate-samtals (copy)</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>account/field-label-contrast</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>account/input-checkbox-border-contrast</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>account/checkbox-undersized</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>contact/form-low-contrast</code></li>
+        <li><span class="chip chip--closed">Closed</span><code>home/intro-pill-buttons</code></li>
+        <li><span class="chip chip--wait">Waiting on key</span><code>pdp/english-badge-share-copy</code></li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="h-fixed">
+      <h3 id="h-fixed">What the review caught, now fixed</h3>
+      <ul class="fixed">
+        <li>The new focus ring also drew a box around fields that have no border: the search overlay, the phone-menu search, the sort menu and the quantity box. Those now show focus by darkening their own underline or box.</li>
+        <li>Checkboxes and the fields on the grey checkout panel showed a two-tone focus ring. They now turn fully dark, like every other field.</li>
+        <li>The side cart still said "Samtals" for the subtotal. It now says "Millisamtala", like the cart and checkout.</li>
+        <li>Shipping-method radios, which appear only after an address is entered, were still 13 px. They are now 20 px like the payment radios.</li>
+        <li>The tag page breadcrumb and the search and brand tab titles were brought into Icelandic as well.</li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="h-pairs">
+      <h3 id="h-pairs">Before and after</h3>
+      <p class="note">Screenshots from a production build of this branch, on the same local data. Product pages still show the outage page until the WooCommerce key is restored.</p>
+      <div class="pairs">
+        <figure>
+          <figcaption><strong>Category page, desktop: filters and breadcrumbs</strong><span>Breadcrumbs and card categories are darker. Filter checkboxes are 20 px with a visible edge.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area00/archive-1440-before.webp" alt="Category page filter sidebar before: faint breadcrumbs and almost invisible checkboxes" width="900" height="460" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area00/archive-1440-after.webp" alt="Category page filter sidebar after: darker breadcrumbs and clearly outlined checkboxes" width="900" height="460" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Checkout, desktop</strong><span>Fields have a 1 px darker edge and readable labels. "Land", "Íbúð, hæð o.fl.", "(valfrjálst)" and "Til baka í körfu" replace the English. The subtotal reads Millisamtala, and the radios and checkbox are 20 px.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area00/checkout-1440-before.webp" alt="Checkout before" width="900" height="562" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area00/checkout-1440-after.webp" alt="Checkout after" width="900" height="562" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Search results</strong><span>Icelandic quotes „hoka“, "-40%" badges instead of "- 40 % Off", and darker greys.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area00/search-1440-before.webp" alt="Search results before" width="900" height="562" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area00/search-1440-after.webp" alt="Search results after" width="900" height="562" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Cart, desktop</strong><span>"Halda áfram að versla", Millisamtala for the subtotal, and a coupon field with a visible edge.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area00/cart-1440-before.webp" alt="Cart before" width="900" height="562" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area00/cart-1440-after.webp" alt="Cart after" width="900" height="562" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Search overlay</strong><span>The review found a stray focus box here. Focus now shows as the underline turning dark.</span></figcaption>
+          <div class="pair">
+            <div class="shot"><small>Before</small><img src="img/area00/ov-search-1440-before.webp" alt="Search overlay before" width="900" height="562" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area00/ov-search-1440-after.webp" alt="Search overlay after" width="900" height="562" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Phone: category page</strong><span>"Sía" instead of "Filters", and darker breadcrumbs and categories.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area00/archive-390-before.webp" alt="Category page on a phone before" width="420" height="909" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area00/archive-390-after.webp" alt="Category page on a phone after" width="420" height="909" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Phone: sign-in</strong><span>Field edges and labels are readable, and the remember-me checkbox is 20 px.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area00/account-390-before.webp" alt="Sign-in on a phone before" width="420" height="909" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area00/account-390-after.webp" alt="Sign-in on a phone after" width="420" height="909" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Phone: checkout</strong><span>The same field and copy changes on a phone.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area00/checkout-390-before.webp" alt="Checkout on a phone before" width="420" height="909" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area00/checkout-390-after.webp" alt="Checkout on a phone after" width="420" height="909" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Phone: cart</strong><span>"Halda áfram að versla", Millisamtala, and darker line details.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area00/cart-390-before.webp" alt="Cart on a phone before" width="420" height="909" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area00/cart-390-after.webp" alt="Cart on a phone after" width="420" height="909" loading="lazy"></div>
+          </div>
+        </figure>
+        <figure>
+          <figcaption><strong>Phone: side cart</strong><span>"Karfa" instead of "Cart", and Millisamtala for the subtotal.</span></figcaption>
+          <div class="pair pair--phone">
+            <div class="shot"><small>Before</small><img src="img/area00/ov-sidecart-390-before.webp" alt="Side cart before" width="420" height="909" loading="lazy"></div>
+            <div class="shot shot--after"><small>After</small><img src="img/area00/ov-sidecart-390-after.webp" alt="Side cart after" width="420" height="909" loading="lazy"></div>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-contrast">
+      <h3 id="h-contrast">Contrast, before and after</h3>
+      <p class="note">The readability minimum is 4.5:1 for small text and 3:1 for field edges. The new shades are darker versions of the same greys, as you agreed.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Element</th><th>Before</th><th>After</th></tr></thead>
+          <tbody>
+            <tr><td>Breadcrumbs, card categories, struck prices, small details</td><td class="num old">#999 · 2.85:1</td><td class="num">#767676 · 4.54:1</td></tr>
+            <tr><td>Form field edges</td><td class="num old">#ddd, 2 px · 1.36:1</td><td class="num">#949494, 1 px · 3.03:1</td></tr>
+            <tr><td>Filter checkboxes</td><td class="num old">#e5e5e5, 16 px · 1.26:1</td><td class="num">#949494, 20 px · 3.03:1</td></tr>
+            <tr><td>Field labels</td><td class="num old">60% ink · 4.06:1</td><td class="num">#686868 · 5.57:1</td></tr>
+            <tr><td>Small details on the grey checkout panel</td><td class="num old">#999 · about 2.7:1</td><td class="num">#686868 · 5.29:1</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note later">Still below the minimum, by decision or for a later area: sale price text <code>#ef5c5c</code> at 3.3:1 (your accepted exception), the campaign bar at 2.71:1 (area 01 question), the store notice at 4.42:1 (area 01), and banner titles over photos (area 03).</p>
+    </section>
+
+    <section aria-labelledby="h-copy">
+      <h3 id="h-copy">Copy changes: veto any you'd rather keep</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Where</th><th>Before</th><th>After</th></tr></thead>
+          <tbody>
+            <tr><td>Filter panel title and phone button</td><td class="old">Filters</td><td>Sía</td></tr>
+            <tr><td>Filter panel close</td><td class="old">Done</td><td>Sýna vörur</td></tr>
+            <tr><td>Load more button</td><td class="old">Load More</td><td>Sýna fleiri</td></tr>
+            <tr><td>Sale badge (cards, product page)</td><td class="old">- 55 % Off · 55 % Off</td><td>-55%</td></tr>
+            <tr><td>Cart back link</td><td class="old">Continue Shopping</td><td>Halda áfram að versla</td></tr>
+            <tr><td>Checkout back link</td><td class="old">Back to Cart</td><td>Til baka í körfu</td></tr>
+            <tr><td>Subtotal (cart, side cart, checkout, receipt, order view)</td><td class="old">Samtals</td><td>Millisamtala (the grand total stays Samtals)</td></tr>
+            <tr><td>Address line 2 (checkout, saved addresses)</td><td class="old">Apartment, suite, unit, etc.</td><td>Íbúð, hæð o.fl.</td></tr>
+            <tr><td>Country</td><td class="old">Country / Region</td><td>Land</td></tr>
+            <tr><td>Optional fields</td><td class="old">(optional)</td><td>(valfrjálst)</td></tr>
+            <tr><td>Exchange-slip checkbox</td><td class="old">Viltu skiptimiða ? (Ekki er settur skiptimiði á útsöluvörur) (optional)</td><td>Viltu skiptimiða? Ekki er settur skiptimiði á útsöluvörur.</td></tr>
+            <tr><td>Product page details</td><td class="old">Brand:</td><td>Vörumerki:</td></tr>
+            <tr><td>Product page share</td><td class="old">Share</td><td>Deila</td></tr>
+            <tr><td>Side cart title</td><td class="old">Cart</td><td>Karfa</td></tr>
+            <tr><td>Phone menu back button</td><td class="old">Back</td><td>Til baka</td></tr>
+            <tr><td>Contact form note</td><td class="old">Fields marked with an * are required</td><td>Reitir merktir með * eru nauðsynlegir</td></tr>
+            <tr><td>Search title and breadcrumb</td><td class="old">“hoka”</td><td>„hoka“</td></tr>
+            <tr><td>Search tab title</td><td class="old">Þú leitaðir af "hoka"</td><td>Þú leitaðir að „hoka“</td></tr>
+            <tr><td>Brand tab title</td><td class="old">Nike Archives</td><td>Nike</td></tr>
+            <tr><td>Tag page breadcrumb</td><td class="old">Vörur merktar “Börn”</td><td>Vörur merktar „Börn“</td></tr>
+            <tr><td>Cart coupon placeholder</td><td class="old">Afsláttarkóði:</td><td>Afsláttarkóði</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-also">
+      <h3 id="h-also">Also in this area</h3>
+      <ul class="fixed">
+        <li>All buttons share one height, a 2 px border and the same hover, pressed and keyboard-focus states. The homepage's rounded pill buttons are now square like the rest.</li>
+        <li>"In stock" and "paid" green is a little deeper, so it reads on white.</li>
+        <li>Branch <code>feat/refined-goya</code>, commits <code>278b5e5</code> and <code>c1a5a09</code>. Nothing is pushed.</li>
+      </ul>
+    </section>
+  </article>
+</div>

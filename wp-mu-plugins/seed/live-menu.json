@@ -1,0 +1,814 @@
+[
+ {
+  "title": "Verslun",
+  "href": "/verslun/",
+  "children": []
+ },
+ {
+  "title": "Konur",
+  "href": "/verslun/?kyn=konur",
+  "children": [
+   {
+    "title": "Fatnaður",
+    "href": "/voruflokkur/fatnadur/?kyn=konur",
+    "children": [
+     {
+      "title": "Peysur",
+      "href": "/voruflokkur/fatnadur/efri-likami/peysur-efri-likami/?kyn=konur",
+      "children": []
+     },
+     {
+      "title": "Buxur & leggings",
+      "href": "/voruflokkur/fatnadur/nedri-likami/buxur-leggings/?kyn=konur",
+      "children": []
+     },
+     {
+      "title": "Bolir",
+      "href": "/voruflokkur/fatnadur/efri-likami/bolir-efri-likami/?kyn=konur",
+      "children": []
+     },
+     {
+      "title": "Íþróttatoppar",
+      "href": "/voruflokkur/fatnadur/efri-likami/topp-ur/?kyn=konur",
+      "children": []
+     },
+     {
+      "title": "Sund",
+      "href": "/voruflokkur/fatnadur/sundfatnadur-fatnadur-2/?kyn=konur",
+      "children": []
+     },
+     {
+      "title": "Yfirhafnir",
+      "href": "/voruflokkur/fatnadur/yfirhafnir/?kyn=konur",
+      "children": []
+     }
+    ]
+   },
+   {
+    "title": "Skór",
+    "href": "/voruflokkur/skor/?kyn=konur",
+    "children": [
+     {
+      "title": "Hlaupa-& æfingaskór",
+      "href": "/voruflokkur/skor/?kyn=konur&product-category=hlaupa-aefingarskor-ithrottaskor",
+      "children": []
+     },
+     {
+      "title": "Strigaskór",
+      "href": "/voruflokkur/skor/?kyn=konur&product-category=strigaskor-skor-2",
+      "children": []
+     },
+     {
+      "title": "Inniskór",
+      "href": "/voruflokkur/skor/?kyn=konur&product-category=inniskor",
+      "children": []
+     },
+     {
+      "title": "Fótboltaskór",
+      "href": "/voruflokkur/skor/?kyn=konur&product-category=fotboltaskor-ithrottaskor",
+      "children": []
+     },
+     {
+      "title": "Handboltaskór",
+      "href": "/voruflokkur/skor/?kyn=konur&product-category=handboltaskor-ithrottaskor",
+      "children": []
+     }
+    ]
+   },
+   {
+    "title": "Vinsælt núna",
+    "href": "/verslun/?orderby=popularity&kyn=konur",
+    "children": [
+     {
+      "title": "Hoka",
+      "href": "/?s=hoka&post_type=product",
+      "children": []
+     },
+     {
+      "title": "Allt fyrir hlaup",
+      "href": "/voruflokkur/fatnadur/hlaup/?kyn=konur",
+      "children": []
+     },
+     {
+      "title": "Casall",
+      "href": "/verslun/?brand=casall",
+      "children": []
+     },
+     {
+      "title": "Æfingabúnaður og gripsokkar",
+      "href": "/voruflokkur/aefingarvorur/aefingabunadur/?brand=casall,move-active",
+      "children": []
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "title": "Börn",
+  "href": "/verslun/?kyn=born",
+  "children": [
+   {
+    "title": "Félagslið",
+    "href": "/voruflokkur/fatnadur/lidafatnadur-fatnadur-2/?kyn=born",
+    "children": [
+     {
+      "title": "Stjarnan",
+      "href": "/voruflokkur/stjarnan/",
+      "children": []
+     },
+     {
+      "title": "Haukar",
+      "href": "/?s=haukar&post_type=product",
+      "children": []
+     },
+     {
+      "title": "FH",
+      "href": "/voruflokkur/aefingarvorur/fh/",
+      "children": []
+     },
+     {
+      "title": "Liverpool",
+      "href": "/voruflokkur/fatnadur/lidafatnadur-fatnadur-2/?team=liverpool&kyn=born",
+      "children": []
+     },
+     {
+      "title": "WORLD CUP",
+      "href": "/merkimidar/worldcup/?kyn=born",
+      "children": []
+     },
+     {
+      "title": "Manchester United",
+      "href": "/?s=united&post_type=product&kyn=born",
+      "children": []
+     },
+     {
+      "title": "Arsenal",
+      "href": "/?s=arsenal&post_type=product",
+      "children": []
+     },
+     {
+      "title": "Inter milan",
+      "href": "/?s=Inter+Milan+&post_type=product",
+      "children": []
+     },
+     {
+      "title": "Paris Saint-Germain",
+      "href": "/?s=paris&post_type=product",
+      "children": []
+     },
+     {
+      "title": "Barcelona",
+      "href": "/?s=barcelona&post_type=product",
+      "children": []
+     },
+     {
+      "title": "ÍSLAND",
+      "href": "/merkimidar/island/",
+      "children": []
+     },
+     {
+      "title": "Real Madrid",
+      "href": "/?s=REAL&post_type=product",
+      "children": []
+     }
+    ]
+   },
+   {
+    "title": "Fatnaður",
+    "href": "/voruflokkur/fatnadur/?kyn=born",
+    "children": [
+     {
+      "title": "Bolir",
+      "href": "/voruflokkur/fatnadur/efri-likami/bolir-efri-likami/?kyn=born",
+      "children": []
+     },
+     {
+      "title": "Buxur,stuttbuxur og leggings",
+      "href": "/voruflokkur/fatnadur/nedri-likami/buxur-leggings/?kyn=born",
+      "children": []
+     },
+     {
+      "title": "Peysur",
+      "href": "/voruflokkur/fatnadur/efri-likami/peysur-efri-likami/?kyn=born",
+      "children": []
+     },
+     {
+      "title": "Toppar",
+      "href": "/voruflokkur/fatnadur/efri-likami/topp-ur/?kyn=born",
+      "children": []
+     },
+     {
+      "title": "Sund",
+      "href": "/voruflokkur/fatnadur/sundfatnadur-fatnadur-2/?kyn=born",
+      "children": []
+     },
+     {
+      "title": "Sokkar & nærföt",
+      "href": "/voruflokkur/fatnadur/nedri-likami/sokkar-naerfatnadur/?kyn=born",
+      "children": []
+     },
+     {
+      "title": "Didriksons",
+      "href": "/voruflokkur/didriksons/",
+      "children": []
+     },
+     {
+      "title": "Útivera",
+      "href": "/voruflokkur/fatnadur/yfirhafnir/?kyn=born",
+      "children": [
+       {
+        "title": "Regnfatnaður",
+        "href": "/voruflokkur/fatnadur/vetur/",
+        "children": []
+       },
+       {
+        "title": "Yfirhafnir",
+        "href": "/voruflokkur/fatnadur/yfirhafnir/?kyn=born",
+        "children": []
+       },
+       {
+        "title": "Hanskar & vettlingar",
+        "href": "/voruflokkur/fatnadur/efri-likami/hanskar-vettlingar/?kyn=born",
+        "children": []
+       },
+       {
+        "title": "Húfur",
+        "href": "/voruflokkur/fatnadur/efri-likami/hufur-treflar/?kyn=born",
+        "children": []
+       },
+       {
+        "title": "Didriksons",
+        "href": "/brand/didriksons/?kyn=born",
+        "children": []
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "title": "Skór",
+    "href": "/voruflokkur/skor/?kyn=born",
+    "children": [
+     {
+      "title": "Fótboltaskór",
+      "href": "/voruflokkur/skor/ithrottaskor/fotboltaskor-ithrottaskor/?kyn=born",
+      "children": []
+     },
+     {
+      "title": "Strigaskór",
+      "href": "/voruflokkur/skor/strigaskor-skor-2/?kyn=born",
+      "children": []
+     },
+     {
+      "title": "Stígvél & kuldaskór",
+      "href": "/voruflokkur/skor/stigvel-kuldaskor/?kyn=born",
+      "children": []
+     },
+     {
+      "title": "Inniskór",
+      "href": "/voruflokkur/skor/inniskor/?kyn=born",
+      "children": []
+     },
+     {
+      "title": "Körfuboltaskór",
+      "href": "/voruflokkur/skor/ithrottaskor/korfuboltaskor/?kyn=born",
+      "children": []
+     },
+     {
+      "title": "Handboltaskór",
+      "href": "/voruflokkur/skor/ithrottaskor/handboltaskor-ithrottaskor/?kyn=born",
+      "children": []
+     }
+    ]
+   },
+   {
+    "title": "Fyrir æfingu",
+    "href": "/voruflokkur/aefingarvorur/",
+    "children": [
+     {
+      "title": "Fimleikar",
+      "href": "/voruflokkur/aefingarvorur/fimleikar/",
+      "children": []
+     },
+     {
+      "title": "Boltar, markmannshanskar og legghlífar",
+      "href": "/voruflokkur/aefingarvorur/boltar-aefingarvorur/",
+      "children": []
+     },
+     {
+      "title": "Hjólahjálmar & sumarvörur",
+      "href": "/voruflokkur/sumar/",
+      "children": []
+     }
+    ]
+   },
+   {
+    "title": "Íþróttir",
+    "href": "/voruflokkur/ithrott/?kyn=born",
+    "children": [
+     {
+      "title": "Sund",
+      "href": "/voruflokkur/fatnadur/sundfatnadur-fatnadur-2/?kyn=born",
+      "children": []
+     },
+     {
+      "title": "Fimleikar",
+      "href": "/voruflokkur/aefingarvorur/fimleikar/",
+      "children": []
+     },
+     {
+      "title": "Útivera",
+      "href": "/voruflokkur/fatnadur/yfirhafnir/?kyn=born",
+      "children": []
+     }
+    ]
+   },
+   {
+    "title": "Vinsælt núna",
+    "href": "/verslun/?kyn=born&orderby=popularity",
+    "children": [
+     {
+      "title": "Kivat",
+      "href": "/?s=kivat&post_type=product",
+      "children": []
+     },
+     {
+      "title": "Flex Runner barnaskór",
+      "href": "/?s=Flex+runner&post_type=product",
+      "children": []
+     },
+     {
+      "title": "Boltar, legghlífar, markmannshanskar",
+      "href": "/voruflokkur/aefingarvorur/boltar-aefingarvorur/",
+      "children": []
+     },
+     {
+      "title": "Crocs",
+      "href": "/?s=crocs&post_type=product",
+      "children": []
+     },
+     {
+      "title": "Skechers",
+      "href": "/?s=Skechers&post_type=product",
+      "children": []
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "title": "Karlar",
+  "href": "/verslun/?kyn=karlar",
+  "children": [
+   {
+    "title": "Fatnaður",
+    "href": "/voruflokkur/fatnadur/?kyn=karlar",
+    "children": [
+     {
+      "title": "Peysur",
+      "href": "/voruflokkur/fatnadur/?kyn=karlar&product-category=peysur-efri-likami",
+      "children": []
+     },
+     {
+      "title": "Bolir",
+      "href": "/voruflokkur/fatnadur/?kyn=karlar&product-category=bolir-efri-likami",
+      "children": []
+     },
+     {
+      "title": "Buxur & stuttbuxur",
+      "href": "/voruflokkur/fatnadur/?kyn=karlar&product-category=buxur-leggings",
+      "children": []
+     },
+     {
+      "title": "Sokkar & nærbuxur",
+      "href": "/voruflokkur/fatnadur/?kyn=karlar&product-category=sokkar-naerfatnadur",
+      "children": []
+     }
+    ]
+   },
+   {
+    "title": "Skór",
+    "href": "/voruflokkur/skor/?product-category=strigaskor-skor-2&kyn=karlar",
+    "children": [
+     {
+      "title": "Strigaskór",
+      "href": "/voruflokkur/skor/?kyn=karlar&product-category=strigaskor-skor-2",
+      "children": []
+     },
+     {
+      "title": "Hlaupa-& æfingaskór",
+      "href": "/voruflokkur/skor/?kyn=karlar&product-category=hlaupa-aefingarskor-ithrottaskor",
+      "children": []
+     },
+     {
+      "title": "Inniskór",
+      "href": "/voruflokkur/skor/?product-category=inniskor&kyn=karlar",
+      "children": []
+     },
+     {
+      "title": "Handboltaskór",
+      "href": "/voruflokkur/skor/?kyn=karlar&product-category=handboltaskor-ithrottaskor",
+      "children": []
+     },
+     {
+      "title": "Fótboltaskór",
+      "href": "/voruflokkur/skor/?kyn=karlar&product-category=fotboltaskor-ithrottaskor",
+      "children": []
+     }
+    ]
+   },
+   {
+    "title": "Sund",
+    "href": "/voruflokkur/fatnadur/?kyn=karlar&product-category=sundfatnadur-fatnadur-2",
+    "children": []
+   },
+   {
+    "title": "Útivist",
+    "href": "/voruflokkur/fatnadur/?kyn=karlar&product-category=yfirhafnir",
+    "children": [
+     {
+      "title": "Úlpur,jakkar & útivistarbuxur",
+      "href": "/voruflokkur/fatnadur/?kyn=karlar&product-category=yfirhafnir",
+      "children": []
+     },
+     {
+      "title": "Hanskar",
+      "href": "/voruflokkur/fatnadur/?kyn=karlar&product-category=hanskar-vettlingar",
+      "children": []
+     },
+     {
+      "title": "Húfur",
+      "href": "/voruflokkur/fatnadur/?product-category=hufur-treflar",
+      "children": []
+     }
+    ]
+   },
+   {
+    "title": "Félagslið",
+    "href": "/voruflokkur/fatnadur/?product-category=lidafatnadur-fatnadur-2&kyn=karlar",
+    "children": [
+     {
+      "title": "World Cup",
+      "href": "/merkimidar/worldcup/?kyn=karlar",
+      "children": []
+     },
+     {
+      "title": "Liverpool",
+      "href": "/?s=liverpool&post_type=product&kyn=karlar",
+      "children": []
+     },
+     {
+      "title": "Arsenal",
+      "href": "/?s=arsenal&post_type=product&kyn=karlar",
+      "children": []
+     },
+     {
+      "title": "Manchester United",
+      "href": "/?s=united&post_type=product&kyn=karlar",
+      "children": []
+     },
+     {
+      "title": "ÍSLAND",
+      "href": "/merkimidar/island/",
+      "children": []
+     },
+     {
+      "title": "Real Madrid",
+      "href": "/?s=REAL&post_type=product&kyn=karlar",
+      "children": []
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "title": "Fatnaður",
+  "href": "/voruflokkur/fatnadur/",
+  "children": [
+   {
+    "title": "Bolir",
+    "href": "/voruflokkur/fatnadur/efri-likami/bolir-efri-likami/",
+    "children": []
+   },
+   {
+    "title": "Buxur & leggings",
+    "href": "/voruflokkur/fatnadur/nedri-likami/buxur-leggings/",
+    "children": []
+   },
+   {
+    "title": "Félagsfatnaður",
+    "href": "/voruflokkur/fatnadur/lidafatnadur-fatnadur-2/",
+    "children": []
+   },
+   {
+    "title": "Hanskar & vettlingar",
+    "href": "/voruflokkur/fatnadur/efri-likami/hanskar-vettlingar/",
+    "children": []
+   },
+   {
+    "title": "Húfur & treflar",
+    "href": "/voruflokkur/fatnadur/efri-likami/hufur-treflar/",
+    "children": []
+   },
+   {
+    "title": "Peysur",
+    "href": "/voruflokkur/fatnadur/efri-likami/peysur-efri-likami/",
+    "children": []
+   },
+   {
+    "title": "Toppar",
+    "href": "/voruflokkur/fatnadur/efri-likami/topp-ur/",
+    "children": []
+   },
+   {
+    "title": "Skíði/snjóbretti",
+    "href": "/voruflokkur/fatnadur/skidi-snjobretti/",
+    "children": []
+   },
+   {
+    "title": "Sokkar & nærfatnaður",
+    "href": "/voruflokkur/fatnadur/nedri-likami/sokkar-naerfatnadur/",
+    "children": []
+   },
+   {
+    "title": "Efri líkami",
+    "href": "/voruflokkur/fatnadur/efri-likami/",
+    "children": []
+   },
+   {
+    "title": "Neðri líkami",
+    "href": "/voruflokkur/fatnadur/nedri-likami/",
+    "children": []
+   },
+   {
+    "title": "Sundfatnaður",
+    "href": "/voruflokkur/fatnadur/sundfatnadur-fatnadur-2/",
+    "children": []
+   },
+   {
+    "title": "Yfirhafnir",
+    "href": "/voruflokkur/fatnadur/yfirhafnir/",
+    "children": []
+   }
+  ]
+ },
+ {
+  "title": "Skór",
+  "href": "/voruflokkur/skor/",
+  "children": [
+   {
+    "title": "Hlaupa & æfingarskór",
+    "href": "/voruflokkur/skor/ithrottaskor/hlaupa-aefingarskor-ithrottaskor/",
+    "children": []
+   },
+   {
+    "title": "Íþróttaskór",
+    "href": "/voruflokkur/skor/ithrottaskor/",
+    "children": []
+   },
+   {
+    "title": "Fótboltaskór",
+    "href": "/voruflokkur/skor/ithrottaskor/fotboltaskor-ithrottaskor/",
+    "children": []
+   },
+   {
+    "title": "Handboltaskór",
+    "href": "/voruflokkur/skor/ithrottaskor/handboltaskor-ithrottaskor/",
+    "children": []
+   },
+   {
+    "title": "Körfuboltaskór",
+    "href": "/voruflokkur/skor/ithrottaskor/korfuboltaskor/",
+    "children": []
+   },
+   {
+    "title": "Inniskór",
+    "href": "/voruflokkur/skor/inniskor/",
+    "children": []
+   },
+   {
+    "title": "Stígvél/kuldaskór",
+    "href": "/voruflokkur/skor/stigvel-kuldaskor/",
+    "children": []
+   },
+   {
+    "title": "Strigaskór",
+    "href": "/voruflokkur/skor/strigaskor-skor-2/",
+    "children": []
+   }
+  ]
+ },
+ {
+  "title": "Íþrótt",
+  "href": "/voruflokkur/ithrott/",
+  "children": [
+   {
+    "title": "Liðafatnaður",
+    "href": "/voruflokkur/fatnadur/lidafatnadur-fatnadur-2/",
+    "children": []
+   },
+   {
+    "title": "Hlaup",
+    "href": "/voruflokkur/ithrott/hlaup-ithrott/",
+    "children": []
+   },
+   {
+    "title": "Fótbolti",
+    "href": "/voruflokkur/ithrott/fotbolti/",
+    "children": []
+   },
+   {
+    "title": "Handbolti",
+    "href": "/voruflokkur/ithrott/handbolti/",
+    "children": []
+   },
+   {
+    "title": "Körfubolti",
+    "href": "/voruflokkur/ithrott/korfubolti/",
+    "children": []
+   },
+   {
+    "title": "Crossfit",
+    "href": "/voruflokkur/ithrott/crossfit/",
+    "children": []
+   },
+   {
+    "title": "Fimleikar",
+    "href": "/voruflokkur/ithrott/fimleikar-ithrott/",
+    "children": []
+   },
+   {
+    "title": "Frjálsar",
+    "href": "/voruflokkur/ithrott/frjalsar/",
+    "children": []
+   },
+   {
+    "title": "Golf",
+    "href": "/voruflokkur/ithrott/golf/",
+    "children": []
+   },
+   {
+    "title": "Hjól",
+    "href": "/voruflokkur/ithrott/hjol/",
+    "children": []
+   },
+   {
+    "title": "Yoga",
+    "href": "/voruflokkur/ithrott/joga/",
+    "children": []
+   },
+   {
+    "title": "Skíði",
+    "href": "/voruflokkur/ithrott/skidi/",
+    "children": []
+   },
+   {
+    "title": "Sund",
+    "href": "/voruflokkur/ithrott/sund/",
+    "children": []
+   }
+  ]
+ },
+ {
+  "title": "Æfingavörur",
+  "href": "/voruflokkur/aefingarvorur/",
+  "children": [
+   {
+    "title": "Sumar",
+    "href": "/voruflokkur/sumar/",
+    "children": []
+   },
+   {
+    "title": "Æfingabúnaður",
+    "href": "/voruflokkur/aefingarvorur/aefingabunadur/",
+    "children": []
+   },
+   {
+    "title": "Boltar, legghlífar & markmannshanskar",
+    "href": "/voruflokkur/aefingarvorur/boltar-aefingarvorur/",
+    "children": []
+   },
+   {
+    "title": "Brúsar",
+    "href": "/voruflokkur/aefingarvorur/brusar/",
+    "children": []
+   },
+   {
+    "title": "FH",
+    "href": "/voruflokkur/aefingarvorur/fh/",
+    "children": []
+   },
+   {
+    "title": "Fimleikafélagið Björk",
+    "href": "/voruflokkur/aefingarvorur/fimleikafelagid-bjork/",
+    "children": []
+   },
+   {
+    "title": "Fimleikar",
+    "href": "/voruflokkur/aefingarvorur/fimleikar/",
+    "children": []
+   },
+   {
+    "title": "Fótboltamyndir og fl",
+    "href": "/voruflokkur/aefingarvorur/fotboltamyndir-og-fl/",
+    "children": []
+   },
+   {
+    "title": "Töskur",
+    "href": "/voruflokkur/aefingarvorur/toskur-aefingarvorur/",
+    "children": []
+   }
+  ]
+ },
+ {
+  "title": "NET-LAGERSALA",
+  "href": "/voruflokkur/sale/",
+  "children": []
+ },
+ {
+  "title": "Vörumerki",
+  "href": "/",
+  "children": [
+   {
+    "title": "Adidas",
+    "href": "/brand/adidas/",
+    "children": []
+   },
+   {
+    "title": "Arena",
+    "href": "/brand/arena/",
+    "children": []
+   },
+   {
+    "title": "Casall",
+    "href": "/brand/casall/",
+    "children": []
+   },
+   {
+    "title": "Didriksons",
+    "href": "/brand/didriksons/",
+    "children": []
+   },
+   {
+    "title": "GK Elite",
+    "href": "/brand/gkelite/",
+    "children": []
+   },
+   {
+    "title": "Hoka",
+    "href": "/brand/hoka/",
+    "children": []
+   },
+   {
+    "title": "Kivat",
+    "href": "/brand/kivat/",
+    "children": []
+   },
+   {
+    "title": "Move Active",
+    "href": "/brand/move-active/",
+    "children": []
+   },
+   {
+    "title": "Nike",
+    "href": "/brand/nike/",
+    "children": []
+   },
+   {
+    "title": "Puma",
+    "href": "/brand/puma/",
+    "children": []
+   },
+   {
+    "title": "Skechers",
+    "href": "/brand/skechers/",
+    "children": []
+   },
+   {
+    "title": "Speedo",
+    "href": "/brand/speedo/",
+    "children": []
+   },
+   {
+    "title": "Stanley",
+    "href": "/brand/stanley/",
+    "children": []
+   },
+   {
+    "title": "Tenson",
+    "href": "/brand/tenson/",
+    "children": []
+   },
+   {
+    "title": "Trofe",
+    "href": "/brand/trofe/",
+    "children": []
+   },
+   {
+    "title": "Viking",
+    "href": "/brand/viking/",
+    "children": []
+   }
+  ]
+ }
+]

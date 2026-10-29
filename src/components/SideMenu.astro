@@ -1,0 +1,65 @@
+---
+// The phone/tablet menu drawer: a white panel from the right over a dimmed page. Large text rows slide
+// between panels (lib/menuPanels): tapping an item with children opens its panel, "Til baka" returns.
+// Below the list: sign-in and wishlist pills. Without JS every entry is a plain link to its page.
+import Icon from './Icon.astro';
+import { buildPanels } from '../lib/menuPanels';
+import type { SiteChrome } from '../lib/siteChrome';
+import { linkRel } from '../lib/safeUrl';
+
+interface Props {
+  chrome: SiteChrome;
+}
+const { chrome } = Astro.props;
+const panels = buildPanels(chrome.primary);
+const instagram = 'https://www.instagram.com/musikogsport/';
+---
+
+<div class="side-menu" id="side-menu" data-side-menu aria-hidden="true" inert role="dialog" aria-modal="true" aria-label="Valmynd">
+  <div class="side-menu__bar">
+    <button class="side-menu__close" type="button" data-menu-close aria-label="Loka valmynd">
+      <Icon name="close" stroke-width={1.5} />
+    </button>
+  </div>
+
+  <div class="side-menu__body">
+    <div class="sliding" data-sliding>
+      {
+        panels.map((panel) => (
+          <div class="sliding__panel" data-panel={panel.id} data-parent={panel.parent ?? undefined} data-active={panel.id === 'root' ? 'true' : undefined}>
+            {panel.parent && (
+              <>
+                <button class="sliding__back" type="button" data-panel-back>
+                  <Icon name="chevron-left" size={20} stroke-width={1.5} /> Til baka
+                </button>
+                <a class="sliding__title" href={panel.href ?? '#'}>{panel.title}</a>
+              </>
+            )}
+            <ul class:list={['sliding__list', panel.parent && 'sliding__list--sub']}>
+              {panel.items.map((entry) => (
+                <li>
+                  <a href={entry.href} target={entry.target || undefined} rel={linkRel(entry.target)} data-panel-open={entry.panel ?? undefined}>
+                    {entry.title}
+                    {entry.panel && <Icon name="chevron-right" size={24} stroke-width={1.5} />}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </div>
+
+    <div class="side-menu__foot">
+      <div class="side-menu__cta">
+        <a class="btn" href="/min-sida/" data-login-link><span data-login-label>Innskráning</span></a>
+        <a class="btn btn--outlined" href="/oskalisti/">Óskalisti</a>
+      </div>
+      <div class="side-menu__social">
+        <a href={instagram} target="_blank" rel="noopener" aria-label="Instagram"><Icon name="instagram" stroke-width={1.5} /></a>
+        <a href={`mailto:${chrome.footer.email}`} aria-label="Tölvupóstur"><Icon name="mail" stroke-width={1.5} /></a>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="side-menu-overlay" data-menu-close aria-hidden="true"></div>
