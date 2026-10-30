@@ -1,7 +1,9 @@
 ---
-// Black text footer: four columns (shop sections from the main menu, the WordPress footer menu as "Hjálp",
-// "Um okkur", and the store's contact details), then a full-width orange bottom bar with the company line and legal
-// links (the inner div keeps its content on the page grid while the bar's background runs edge to edge).
+// Black footer: a brand column (the footer logo on a white tile, a line about the shop, the opening hours from the
+// campaign bar's text linking to /opnunartimi/, Instagram), then four link columns (shop sections from the main menu,
+// the WordPress footer menu as "Hjálp", "Um okkur", and the store's contact details with icons), then a full-width
+// orange bottom bar with the company line and legal links (the inner div keeps its content on the page grid while
+// the bar's background runs edge to edge).
 // On phones each column is a <details> accordion: open by default (so it works without JS), closed by the
 // script below under 992px and kept open above it.
 import Icon from './Icon.astro';
@@ -21,6 +23,10 @@ const about = [
   { title: 'Um okkur', href: '/um-okkur/' },
   { title: 'Instagram', href: 'https://www.instagram.com/musikogsport/', external: true },
 ];
+const logo = chrome.logos.footer ?? { url: '/logo-footer.webp', width: 720, height: 452, alt: 'Músík og Sport' };
+// The campaign bar's right-hand text is the hours ("Opið virka daga 10-18 & laugardaga 10-16") — unless the owner has
+// put something else there, which isn't shown as hours.
+const hours = [chrome.campaign.textRight, chrome.campaign.text].find((t) => /^\s*opi[ðd]/i.test(t ?? ''));
 const legal = [
   { title: 'Skilmálar', href: '/skilmalar/' },
   { title: 'Persónuvernd', href: '/personuvernd/' },
@@ -29,6 +35,24 @@ const legal = [
 
 <footer class="site-footer">
   <div class="site-footer__cols">
+    <div class="site-footer__brand">
+      <a class="site-footer__logo" href="/" aria-label="Músík og Sport — forsíða">
+        <img src={logo.url} alt={logo.alt} width={logo.width} height={logo.height} loading="lazy" decoding="async" />
+      </a>
+      <p class="site-footer__about">Íþróttavörur frá fagfólki í yfir 30 ár.</p>
+      {
+        hours && (
+          <a class="site-footer__hours" href="/opnunartimi/">
+            <Icon name="clock" size={18} stroke-width={1.5} />
+            <span>{hours}</span>
+          </a>
+        )
+      }
+      <a class="site-footer__social" href="https://www.instagram.com/musikogsport/" target="_blank" rel="noopener" aria-label="Músík og Sport á Instagram">
+        <Icon name="instagram" size={20} stroke-width={1.5} />
+      </a>
+    </div>
+
     {
       shop.length > 0 && (
         <details class="site-footer__group" open data-footer-group>
@@ -62,11 +86,14 @@ const legal = [
       <summary class="site-footer__title">Hafðu samband<Icon name="chevron-down" stroke-width={1.5} /></summary>
       <ul class="site-footer__menu site-footer__contact">
         <li>
-          {addressLines.map((line, i) => (<>{i > 0 && <br />}{line}</>))}
+          <Icon name="pin" size={18} stroke-width={1.5} />
+          <span>
+            {addressLines.map((line, i) => (<>{i > 0 && <br />}{line}</>))}
+            {f.directionsHref && (<><br /><a href={f.directionsHref} target="_blank" rel="noopener">{f.directionsLabel}</a></>)}
+          </span>
         </li>
-        {f.directionsHref && (<li><a href={f.directionsHref} target="_blank" rel="noopener">{f.directionsLabel}</a></li>)}
-        <li><a href={`mailto:${f.email}`}>{f.email}</a></li>
-        <li><a href={`tel:${tel}`}>{f.phone}</a></li>
+        <li><Icon name="mail" size={18} stroke-width={1.5} /><a href={`mailto:${f.email}`}>{f.email}</a></li>
+        <li><Icon name="phone" size={18} stroke-width={1.5} /><a href={`tel:${tel}`}>{f.phone}</a></li>
       </ul>
     </details>
   </div>
