@@ -261,7 +261,11 @@ export default function ProductPurchase({
               </div>
             );
           })}
-          <button type="button" className="pdp-reset" data-visible={anySelected ? 'true' : 'false'} onClick={() => setSelected({})}>
+          <button type="button" className="pdp-reset" data-visible={anySelected ? 'true' : 'false'} onClick={() => {
+              setSelected({});
+              setJustAdded(false);
+              setNudged(false);
+            }}>
             <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" /><path d="m15 9-6 6M9 9l6 6" fill="none" stroke="currentColor" strokeWidth="2" /></svg>
             Hreinsa
           </button>
