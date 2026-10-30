@@ -1,9 +1,32 @@
 ---
+// Um okkur: the shop's story (written here, not in wp-admin) under a heading, three highlights drawn from it, the
+// brands it names as links, then a visit card — the footer's address and directions (wp-admin) and the Opnunartími
+// page's hours (lib/openingHours) with the live open/closed pill. Rendered per request so those follow wp-admin; a
+// missing hours page just leaves the hours out.
 import Base from '../layouts/Base.astro';
 import Breadcrumbs from '../components/Breadcrumbs.astro';
 import Icon from '../components/Icon.astro';
+import OpenStatus from '../components/OpenStatus.astro';
+import { hoursLines, parseHours, weekSummary } from '../lib/openingHours';
+import { loadSiteChrome } from '../lib/siteChrome';
+import { getWpPage } from '../lib/wp';
 
-export const prerender = true;
+export const prerender = false;
+
+const [chrome, hoursPage] = await Promise.all([loadSiteChrome(), getWpPage('opnunartimi').catch(() => null)]);
+const week = hoursPage ? parseHours(hoursLines(hoursPage.rows)) : null;
+const contact = chrome.footer;
+const highlights = [
+  { icon: 'spark', title: 'Yfir 30 ár', text: 'Íslensk íþróttaverslun með yfir 30 ára reynslu af vönduðum íþrótta- og útivistarvörum.' },
+  { icon: 'user', title: 'Fagleg ráðgjöf', text: 'Reynt íþróttafólk sem þekkir vörurnar af eigin raun og finnur réttu lausnina fyrir þig.' },
+  { icon: 'bag', title: 'Vefverslun allan sólarhringinn', text: 'Komdu í verslunina að Dalshraun 10 í Hafnarfirði eða verslaðu á netinu hvenær sem er.' },
+] as const;
+const brands = [
+  { name: 'ASICS', href: '/brand/asics/' },
+  { name: 'Adidas', href: '/brand/adidas/' },
+  { name: 'Speedo', href: '/brand/speedo/' },
+  { name: 'Didriksons', href: '/brand/didriksons/' },
+];
 ---
 
 <Base
@@ -19,24 +42,91 @@ export const prerender = true;
     </div>
   </div>
 
-  <section class="section--tight container">
-    <div class="prose">
-      <p>
-        Músík og Sport er íslensk íþróttaverslun með yfir 30 ára reynslu af sölu á vönduðum íþrótta- og útivistarvörum.
-        Hjá okkur finnur þú fatnað, skó, æfingavörur, sundvörur, bolta og útivistarfatnað frá fremstu vörumerkjum heims —
-        þar á meðal ASICS, Adidas, Speedo og Didriksons.
-      </p>
-      <p>
-        Hjá okkur starfar reynt íþróttafólk sem þekkir vörurnar af eigin raun og leggur metnað í að finna réttu lausnina
-        fyrir hvern og einn — hvort sem þú ert að taka fyrstu skrefin eða keppir á hæsta stigi. Markmið okkar er einfalt:
-        að þú farir heim með rétta búnaðinn og góða ráðgjöf í farteskinu.
-      </p>
-      <p>
-        Þú finnur okkur að Dalshraun 10 í Hafnarfirði og í vefverslun allan sólarhringinn. Velkomin/n í Músík og Sport.
-      </p>
-      <p>
-        <a class="btn btn--accent" href="/verslun">Skoða vörur <Icon name="arrow-right" size={16} /></a>
-      </p>
+  <div class="about container">
+    <ul class="about__highlights">
+      {
+        highlights.map((h) => (
+          <li class="about-card">
+            <span class="about-card__icon" aria-hidden="true">
+              <Icon name={h.icon} size={24} stroke-width={1.5} />
+            </span>
+            <h2 class="about-card__title">{h.title}</h2>
+            <p class="about-card__text">{h.text}</p>
+          </li>
+        ))
+      }
+    </ul>
+
+    <div class="about__story">
+      <div class="prose">
+        <h2>Sagan okkar</h2>
+        <p>
+          Músík og Sport er íslensk íþróttaverslun með yfir 30 ára reynslu af sölu á vönduðum íþrótta- og útivistarvörum.
+          Hjá okkur finnur þú fatnað, skó, æfingavörur, sundvörur, bolta og útivistarfatnað frá fremstu vörumerkjum heims —
+          þar á meðal ASICS, Adidas, Speedo og Didriksons.
+        </p>
+        <p>
+          Hjá okkur starfar reynt íþróttafólk sem þekkir vörurnar af eigin raun og leggur metnað í að finna réttu lausnina
+          fyrir hvern og einn — hvort sem þú ert að taka fyrstu skrefin eða keppir á hæsta stigi. Markmið okkar er einfalt:
+          að þú farir heim með rétta búnaðinn og góða ráðgjöf í farteskinu.
+        </p>
+        <p>
+          Þú finnur okkur að Dalshraun 10 í Hafnarfirði og í vefverslun allan sólarhringinn. Velkomin/n í Músík og Sport.
+        </p>
+        <p>
+          <a class="btn btn--accent" href="/verslun/">Skoða vörur <Icon name="arrow-right" size={16} /></a>
+        </p>
+      </div>
+      <aside class="about__brands" aria-labelledby="about-brands">
+        <h2 id="about-brands" class="about__brands-title">Vörumerkin okkar</h2>
+        <ul>
+          {
+            brands.map((b) => (
+              <li>
+                <a href={b.href}>
+                  {b.name}
+                  <Icon name="chevron-right" size={20} stroke-width={1.5} />
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </aside>
     </div>
-  </section>
+
+    <section class="about__visit" aria-labelledby="about-visit">
+      <div>
+        <h2 id="about-visit" class="about__visit-title">Komdu í heimsókn</h2>
+        <p class="about__address">
+          <Icon name="pin" size={20} stroke-width={1.5} />
+          <span>{contact.address}</span>
+        </p>
+        <div class="about__actions">
+          {
+            contact.directionsHref && (
+              <a class="btn btn--accent" href={contact.directionsHref} target="_blank" rel="noopener">
+                {contact.directionsLabel} <Icon name="arrow-up-right" size={16} />
+              </a>
+            )
+          }
+          <a class="btn-outline" href="/hafa-samband/">Hafa samband</a>
+        </div>
+      </div>
+      {
+        week && (
+          <div class="about__hours">
+            <OpenStatus week={week} />
+            <dl>
+              {weekSummary(week).map((g) => (
+                <div>
+                  <dt>{g.days}</dt>
+                  <dd>{g.hours}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )
+      }
+    </section>
+  </div>
 </Base>
