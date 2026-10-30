@@ -146,7 +146,7 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
       taxonomies: [category, brand],
       attributes: [team, sport, colour],
       sizes: sizes !== undefined,
-      stock: true,
+      stock: Boolean(active.lager), // only the lager row reads it, and it shows only while that filter is on
       extra: pluginAbsent ? undefined : { priceRanges: ranges, onSale: !active.utsala },
     }),
     active['product-category']
@@ -179,10 +179,11 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
     ({ id, slug, name, count, active: isActive, depth: 0, children: [], open: false, key });
   const known = (o: FacetOption) => keepOption(o, o.count === undefined ? null : NO_COUNTS);
 
-  // Útsala / Á lager: toggle rows on top of the rail.
+  // Útsala: a toggle row on top of the rail. The owner took "Aðeins vörur á lager" off the rail (2026-10-30); a link
+  // that still carries lager=1 keeps the row, so the filter it applies can be seen and removed.
   const toggles = [
     plainOption(-1, '1', 'Útsala', active.utsala ? total : saleCount, Boolean(active.utsala), 'utsala'),
-    plainOption(-2, '1', 'Aðeins vörur á lager', main?.stock.get('instock'), Boolean(active.lager), 'lager'),
+    ...(active.lager ? [plainOption(-2, '1', 'Aðeins vörur á lager', main?.stock.get('instock'), true, 'lager')] : []),
   ].filter(known);
 
   // Stærð: the sizes the products in view come in (selected ones kept), as a button grid.

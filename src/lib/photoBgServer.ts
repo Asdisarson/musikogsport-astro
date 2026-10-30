@@ -60,7 +60,8 @@ export async function samplePhotoEdges(url: string): Promise<PhotoEdges | null> 
   return readEdges({ data, width: info.width, height: info.height, channels: info.channels });
 }
 
-const cache = createPhotoBgCache<PhotoEdges>({ sample: samplePhotoEdges });
+// 8 at once: a wall page asks for up to 27 photos, and settlePhotos waits for them (each a few KB to ~100 KB)
+const cache = createPhotoBgCache<PhotoEdges>({ sample: samplePhotoEdges, concurrency: 8 });
 
 /** The photo's padded-tile colour (its whole edge one flat colour) if already known (null: default tile), undefined
  *  while it's being worked out. The hero, the colourway swatches and the wishlist use only this. */
@@ -68,6 +69,17 @@ export function photoBg(src: string | null | undefined, srcset?: string): string
   if (!src) return null;
   const edges = cache.lookup(src, srcset);
   return edges === undefined ? undefined : (edges?.ring ?? null);
+}
+
+/** Starts reading these photos and waits until the cache has nothing left to read, or `ms` passes, so the cards come
+ *  out filled on the first view instead of the next one: the wall (a short wait) and the product page's
+ *  related-products server island (already off the critical path, so a longer one). */
+export async function settlePhotos(images: { src: string; srcset?: string }[], ms: number): Promise<void> {
+  // only these photos: the cache's queue is shared with every other render, so waiting for it to empty would cost
+  // the whole bound whenever another page is being read at the same time
+  const known = () => images.every((im) => cache.lookup(im.src, im.srcset) !== undefined);
+  const end = Date.now() + ms;
+  while (!known() && Date.now() < end) await new Promise((resolve) => setTimeout(resolve, 25));
 }
 
 /** How a product card's tile fills the gap around this photo (cardFill), once known; null: no fill (the page). */

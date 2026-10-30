@@ -18,7 +18,7 @@
     }
   }
 
-  // `error` doesn't bubble: listen in the capture phase. Covers images added later (filter swaps, "Sýna fleiri").
+  // `error` doesn't bubble: listen in the capture phase. Covers images added later (filter swaps, server islands).
   document.addEventListener('error', function (e) { fallback(e.target); }, true);
 
   // Already broken before this ran: tried (currentSrc set), finished, and no pixels.

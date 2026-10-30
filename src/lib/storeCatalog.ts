@@ -182,7 +182,7 @@ export interface CountsResult {
 const toMap = (rows: { term: number; count: number }[] | null | undefined) => new Map((rows ?? []).map((r) => [r.term, r.count]));
 
 // Facet counts change only when the catalog does, and every filter click asks for a handful of them: a short
-// in-process cache (keyed by the request URL) keeps sorting, "Sýna fleiri" and back/forward from asking again.
+// in-process cache (keyed by the request URL) keeps sorting, paging and back/forward from asking again.
 // The product grid itself is never cached, so a count can trail a stock change by at most this long.
 const COUNTS_TTL_MS = 30 * 1000; // 30 s: a shorter window for a stale dead-end option after a stock change
 const clock = () => Date.now();

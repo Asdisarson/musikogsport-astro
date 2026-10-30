@@ -2,9 +2,9 @@
 // Shared body of every catalog archive (shop, category, brand, tag, search) as the nike-look wall (SPEC § Wall):
 // a header row (title with the count, "Fela síur", the sort); the active filters as removable chips; a left rail
 // (plain category links, then the collapsible filter groups, each with its own "Hreinsa") that "Fela síur" folds
-// away; a 3-column card grid (4 with the rail hidden) and "Sýna fleiri", which appends the next /page/N/. Phones: a
+// away; a 3-column card grid (4 with the rail hidden) and numbered pages (/page/N/) under it. Phones: a
 // row of category chips and a row of filter pills that open the rail as a full-screen sheet ("Sía" + close on top,
-// "Hreinsa" and "Sýna vörur (N)" at the bottom). Rail order (lib/archive): category links, the Útsala / Á lager
+// "Hreinsa" and "Sýna vörur" at the bottom). Rail order (lib/archive): category links, the Útsala / Á lager
 // toggle rows, then Stærð (a button grid), Aldur/Kyn, Verð, Vörumerki, Íþrótt, Félag/Lið and Vöruflokkar.
 //
 // Every filter control is a plain GET link (works without JS, crawlable). With JS the script below updates the page
@@ -13,7 +13,10 @@ import Breadcrumbs from './Breadcrumbs.astro';
 import ProductGrid from './ProductGrid.astro';
 import FilterOption from './FilterOption.astro';
 import Icon from './Icon.astro';
+import Pagination from './Pagination.astro';
 import { archiveHref } from '../lib/paths';
+import { productImage } from '../lib/img';
+import { settlePhotos } from '../lib/photoBgServer';
 import { SORT_OPTIONS, clearFilterHref, clearFiltersHref, toggleFilterHref } from '../lib/liveFilters';
 import { CATALOG_PER_PAGE } from '../lib/storeCatalog';
 import { LIST_SEARCH_MIN } from '../lib/facets';
@@ -34,6 +37,10 @@ interface Props {
 }
 const { title, crumbs, basePath, params, archive, page, navCategoryId } = Astro.props;
 const { result, groups, state, activeCount, activeFilters, pseudoCategories, terms } = archive;
+// A card's tile fills around its photo once the photo has been read (lib/photoBg cardFill); renders never wait for
+// that, so a page with photos nobody had looked at lately came out half filled and filled on the next view. Wait a
+// moment for this page's photos, bounded so a slow media host only costs that much once.
+await settlePhotos(result.items.map(productImage), 1200);
 
 const from = (page - 1) * CATALOG_PER_PAGE + 1;
 const to = Math.min(page * CATALOG_PER_PAGE, result.total);
@@ -47,7 +54,7 @@ const countText =
         ? `Sýni allar ${result.total} niðurstöður`
         : `Sýni ${from}–${to} af ${result.total} niðurstöðum`;
 const carried = [...params.entries()].filter(([k]) => k !== 'orderby' && k !== 'page');
-const nextHref = page < result.totalPages ? archiveHref(basePath, page + 1, params) : null;
+const pageHref = (n: number) => archiveHref(basePath, n, params);
 // The shop's links skip the brand and club pseudo-categories (Didriksons, Félag/lið, Stjarnan…) and NETTILBOD (the
 // Útsala toggle), as Vöruflokkar does.
 const catLinks =
@@ -62,7 +69,7 @@ const chipName = (key: string, label: string) => (key === 'staerd' ? `stærð ${
   <header class="archive__head">
     <Breadcrumbs items={crumbs} />
     <div class="archive__bar">
-      <h1 class="archive__title" data-swap="title" data-fkey="title" tabindex="-1">{title} <span class="archive__count" data-total={result.total}>({result.total})</span></h1>
+      <h1 class="archive__title" data-swap="title" data-fkey="title" tabindex="-1">{title} <span class="archive__count visually-hidden" data-total={result.total}>({result.total})</span></h1>
       <div class="archive__tools">
         {
           groups.length > 0 && (
@@ -252,7 +259,7 @@ const chipName = (key: string, label: string) => (key === 'staerd' ? `stærð ${
           <span class="archive-filters__clear" aria-disabled="true">Hreinsa</span>
         )
       }
-      <button class="archive-filters__done" type="button" data-filters-close data-filters-done data-fkey="sheet-done">Sýna vörur ({result.total})</button>
+      <button class="archive-filters__done" type="button" data-filters-close data-filters-done data-fkey="sheet-done">Sýna vörur</button>
     </div>
   </aside>
 
@@ -263,12 +270,9 @@ const chipName = (key: string, label: string) => (key === 'staerd' ? `stærð ${
     <div data-archive-grid data-swap="grid">
       <ProductGrid products={result.items} eagerCount={3} empty="Engar vörur fundust sem passa við valið." />
     </div>
+    {/* the pages: plain links; a filter change re-renders them with the grid */}
     <div data-swap="more">
-      {nextHref && (
-        <div class="archive__more">
-          <a class="archive__more-btn" href={nextHref} data-load-more>Sýna fleiri</a>
-        </div>
-      )}
+      <Pagination page={page} totalPages={result.totalPages} hrefFor={pageHref} />
     </div>
   </section>
 </div>
@@ -403,7 +407,6 @@ const chipName = (key: string, label: string) => (key === 'staerd' ? `stærð ${
     let pendingUrl: string | null = null; // what it is heading to (quick clicks compose on it)
     let inflight: AbortController | null = null;
     let timer = 0;
-    let generation = 0; // bumped by every swap, so a "Sýna fleiri" answer that lands after one is dropped
     // History entries are told apart by id (their saved scroll is kept in `scrolls` while this document lives). A
     // page loaded into one of our entries keeps its id; new ids start from the clock, so they never collide with
     // the ids an earlier document gave the entries around it.
@@ -511,7 +514,6 @@ const chipName = (key: string, label: string) => (key === 'staerd' ? `stærð ${
 
       regions.forEach((r, i) => r.replaceWith(document.importNode(next[i] as HTMLElement, true)));
       document.title = doc.title;
-      generation++;
 
       root.querySelectorAll<HTMLDetailsElement>('details[data-group]').forEach((d) => {
         const open = openGroups.get(d.dataset.group ?? '');
@@ -731,49 +733,6 @@ const chipName = (key: string, label: string) => (key === 'staerd' ? `stærð ${
           el: link,
         });
         return;
-      }
-
-      // "Sýna fleiri": fetch the next /page/N/, append its cards, advance (or drop) the button.
-      const more = t.closest<HTMLAnchorElement>('[data-load-more]');
-      if (more) {
-        if (!isPlainClick(e)) return;
-        e.preventDefault();
-        if (more.dataset.busy) return;
-        more.dataset.busy = 'true';
-        const gen = generation;
-        const limit = withTimeout(new AbortController().signal, FETCH_TIMEOUT_MS);
-        try {
-          const res = await fetch(more.href, { headers: { Accept: 'text/html' }, signal: limit.signal });
-          if (gen !== generation) return; // the filters changed meanwhile: this page belongs to the old grid
-          if (res.status === 404) {
-            more.closest('.archive__more')?.remove(); // the next page is gone (fewer products now)
-            return;
-          }
-          if (!res.ok) throw new Error(String(res.status)); // e.g. 503: fall back to the plain page
-          const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
-          if (gen !== generation) return;
-          const items = doc.querySelectorAll('[data-archive-grid] .product-grid > li');
-          const grid = root.querySelector('[data-archive-grid] .product-grid');
-          // The catalog can shift between pages (a new product on page 1 pushes one onto page 2): skip a card already shown.
-          const cardHref = (li: Element) => li.querySelector('.product-card__title a')?.getAttribute('href');
-          const shown = new Set([...(grid?.children ?? [])].map(cardHref).filter(Boolean));
-          items.forEach((li) => {
-            const href = cardHref(li);
-            if (href && shown.has(href)) return;
-            grid?.appendChild(document.importNode(li, true));
-          });
-          const status = root.querySelector('[role=status]');
-          const added = doc.querySelector('[role=status]')?.textContent;
-          if (status && added) status.textContent = added;
-          const next = doc.querySelector<HTMLAnchorElement>('[data-load-more]');
-          if (next) more.href = next.getAttribute('href') ?? '';
-          else more.closest('.archive__more')?.remove();
-        } catch {
-          window.location.href = more.href; // fall back to the plain page (also after a timeout)
-        } finally {
-          limit.clear();
-          delete more.dataset.busy;
-        }
       }
     });
   }

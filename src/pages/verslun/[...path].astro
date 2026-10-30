@@ -22,6 +22,7 @@ import { ld, productLd, breadcrumbList } from '../../lib/jsonld';
 import { loadCatalogTerms } from '../../lib/catalogTerms';
 import { cardCategories, categoryChain, productCrumbTrail } from '../../lib/categoryTree';
 import { categoryPath, movedCategoryTarget, productPath } from '../../lib/paths';
+import { sizeChartFor, wantAttr } from '../../lib/sizeGuide';
 import { markUnavailable } from '../../lib/http';
 import type { PdpVariation } from '../../lib/types';
 
@@ -132,6 +133,10 @@ const metaTags = byName(product?.tags).map((t) => ({ name: t.name, href: `/merki
 const metaBrands = byName(product?.brands).map((b) => ({ name: b.name, href: `/brand/${b.slug}/` }));
 const hasMeta = Boolean(product?.sku) || metaCats.length > 0 || metaTags.length > 0 || metaBrands.length > 0;
 
+// "Stærðartafla" beside the size picker: the /staerdir/ charts for this product's Kyn and clothing type (lib/sizeGuide);
+// none for shoes, hats and gloves, or gear.
+const sizeWant = sizeChartFor((product?.categories ?? []).map((c) => categoryChain(terms.categories, c.id)));
+
 // Under the title (SPEC § PDP, "Men's Shoes"): the card's category, then the brand ("Hlaupaskór · Hoka").
 const subtitle = product
   ? productSubtitle({
@@ -201,7 +206,11 @@ const shareUrl = `https://www.facebook.com/sharer.php?u=${encodeURIComponent(can
             photoBgs={photoBgs}
             mainFits={mainFits}
           >
-            <a slot="size-guide" class="pdp-sizeguide" href="/staerdir/" data-sizeguide><Icon name="ruler" size={20} stroke-width={1.5} />Stærðartafla</a>
+            {sizeWant && (
+              <a slot="size-guide" class="pdp-sizeguide" href="/staerdir/" data-sizeguide data-sizeguide-want={wantAttr(sizeWant)}>
+                <Icon name="ruler" size={20} stroke-width={1.5} />Stærðartafla
+              </a>
+            )}
           </ProductPurchase>
 
           {/* Base.astro's delegated wishlist toggle: aria-pressed and the header count follow localStorage. */}

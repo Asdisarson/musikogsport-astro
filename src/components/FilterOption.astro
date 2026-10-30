@@ -1,8 +1,8 @@
 ---
-// One filter option as live's "Product Filters for WooCommerce" draws it: a square checkbox + label,
-// optional (count), and a "+" that expands sub-categories. Each option is a plain link that toggles
-// the filter in the URL, so filtering works without JS. variant="size": a button in the Stærð grid — the
-// size label on the button, its count only in the accessible name ("42, 125 vörur").
+// One filter option as live's "Product Filters for WooCommerce" draws it: a square checkbox + label and a "+" that
+// expands sub-categories. Each option is a plain link that toggles the filter in the URL, so filtering works without
+// JS. Product counts are not shown (owner, 2026-10-30). variant="size": a button in the Stærð grid, its count kept in
+// the accessible name only ("42, 125 vörur").
 import type { FacetOption } from '../lib/archive';
 import { countWord } from '../lib/facets';
 import { toggleFilterHref, type FilterKey } from '../lib/liveFilters';
@@ -63,7 +63,7 @@ const swatch = option.swatch ? `--swatch-a:${option.swatch[0]};--swatch-b:${opti
         >
           <span class="filter-option__box" aria-hidden="true"></span>
           {swatch && <span class="filter-option__swatch" style={swatch} aria-hidden="true"></span>}
-          <span class="filter-option__label">{option.name}{counted && <span class="filter-option__count"> ({option.count})</span>}</span>
+          <span class="filter-option__label">{option.name}</span>
         </a>
         {
           hasChildren && (

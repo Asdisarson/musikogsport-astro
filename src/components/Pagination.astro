@@ -1,4 +1,6 @@
 ---
+// The wall's numbered pages (ArchiveView, under the grid): previous / next as the carousels' round arrows, the first,
+// last and neighbouring page numbers, "…" for the rest. Plain links: no JS needed, and crawlable.
 interface Props {
   page: number;
   totalPages: number;
@@ -22,29 +24,39 @@ function pageList(cur: number, total: number): (number | '…')[] {
 }
 
 const items = totalPages > 1 ? pageList(page, totalPages) : [];
+const prevIcon = '<path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.8" />';
+const nextIcon = '<path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.8" />';
 ---
 
 {
   totalPages > 1 && (
     <nav class="pagination" aria-label="Síður">
       {page > 1 ? (
-        <a href={hrefFor(page - 1)} rel="prev" aria-label="Fyrri síða">‹</a>
+        <a class="round-btn round-btn--prev" href={hrefFor(page - 1)} rel="prev" aria-label="Fyrri síða">
+          <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" set:html={prevIcon} />
+        </a>
       ) : (
-        <span class="is-disabled" aria-hidden="true">‹</span>
+        <span class="round-btn round-btn--prev" aria-disabled="true" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="24" height="24" set:html={prevIcon} />
+        </span>
       )}
       {items.map((it) =>
         it === '…' ? (
-          <span class="gap">…</span>
+          <span class="gap" aria-hidden="true">…</span>
         ) : it === page ? (
-          <span class="is-current" aria-current="page">{it}</span>
+          <span class="pagination__page is-current" aria-current="page">{it}</span>
         ) : (
-          <a href={hrefFor(it)}>{it}</a>
+          <a class="pagination__page" href={hrefFor(it)} aria-label={`Síða ${it}`}>{it}</a>
         ),
       )}
       {page < totalPages ? (
-        <a href={hrefFor(page + 1)} rel="next" aria-label="Næsta síða">›</a>
+        <a class="round-btn round-btn--next" href={hrefFor(page + 1)} rel="next" aria-label="Næsta síða">
+          <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" set:html={nextIcon} />
+        </a>
       ) : (
-        <span class="is-disabled" aria-hidden="true">›</span>
+        <span class="round-btn round-btn--next" aria-disabled="true" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="24" height="24" set:html={nextIcon} />
+        </span>
       )}
     </nav>
   )

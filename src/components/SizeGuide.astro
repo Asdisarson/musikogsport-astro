@@ -1,41 +1,230 @@
 ---
 // Live's size chart popup: any `[data-sizeguide]` link (the product page puts "Stærðartafla" beside "Veldu stærð",
-// inside the purchase island) opens it, and it lazily lifts the content of /staerdir/ (the WordPress page). The plain
-// link is the no-JS fallback. Clicks are caught on the document, so the island's hydration can't drop the listener.
+// inside the purchase island) opens it, and it lazily lifts the charts of /staerdir/ (the WordPress page). The link's
+// data-sizeguide-want (lib/sizeGuide) picks the charts for the product's Kyn and clothing type, shown as tabs; the
+// plain link is the no-JS fallback, and "Sjá allar stærðartöflur" opens the whole page. Clicks are caught on the
+// document, so the island's hydration can't drop the listener.
+//
+// Each WordPress table is rebuilt from its cell text twice: wide (sizes across, the measure names pinned on the left)
+// and sideways (sizes down the side). A chart shows wide where it fits the popup and sideways where it doesn't (a
+// phone, or many sizes on a tablet), measured again whenever the popup changes size. Phones get a bottom sheet. A
+// size already chosen in the picker is highlighted in both layouts.
 ---
 
-<dialog class="popup" data-sizeguide-dialog aria-labelledby="sizeguide-title">
-  <button class="popup__close" type="button" data-popup-close aria-label="Loka">
-    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
-  </button>
-  <h4 class="popup__title" id="sizeguide-title">Stærðartafla</h4>
-  <div class="popup__body" data-sizeguide-body><p>Sæki stærðartöflu…</p></div>
+<dialog class="popup sizeguide" data-sizeguide-dialog aria-labelledby="sizeguide-title">
+  <div class="sizeguide__head">
+    <span class="sizeguide__grab" aria-hidden="true"></span>
+    <button class="popup__close" type="button" data-popup-close aria-label="Loka">
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
+    </button>
+    <h4 class="popup__title" id="sizeguide-title">Stærðartafla</h4>
+    <p class="sizeguide__chosen" data-sizeguide-chosen hidden></p>
+    <div class="sizeguide__tabs" role="tablist" aria-label="Stærðartöflur" data-sizeguide-tabs hidden></div>
+  </div>
+  <div class="sizeguide__body" data-sizeguide-body><p class="sizeguide__status">Sæki stærðartöflu…</p></div>
+  <p class="sizeguide__all"><a href="/staerdir/">Sjá allar stærðartöflur</a></p>
 </dialog>
 
 <script>
+  import { parseWant, pickSections, sizeIndex, transpose } from '../lib/sizeGuide';
+
+  /** One WordPress table as cell text: an optional title row ("Alpha Sizing"), then the size row and the measures. */
+  interface Chart {
+    caption: string;
+    rows: string[][];
+  }
+  interface Section {
+    heading: string;
+    charts: Chart[];
+  }
+
   const dialog = document.querySelector<HTMLDialogElement>('[data-sizeguide-dialog]');
+  const tabs = dialog?.querySelector<HTMLElement>('[data-sizeguide-tabs]');
   const body = dialog?.querySelector<HTMLElement>('[data-sizeguide-body]');
-  let loaded = false;
+  const chosenNote = dialog?.querySelector<HTMLElement>('[data-sizeguide-chosen]');
+  let sections: Promise<Section[]> | null = null;
+
+  /** "KONUR / EFRI LÍKAMI" → "Konur · Efri líkami" */
+  const label = (heading: string) =>
+    heading
+      .split('/')
+      .map((p) => p.trim().toLocaleLowerCase('is'))
+      .filter(Boolean)
+      .map((p) => p.charAt(0).toLocaleUpperCase('is') + p.slice(1))
+      .join(' · ');
+
+  const cellText = (el: Element) => (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+  function readChart(table: HTMLTableElement): Chart {
+    const rows = [...table.rows].map((tr) => [...tr.cells].map(cellText));
+    const width = Math.max(0, ...rows.map((r) => r.length));
+    // a one-cell row over a wider table is the table's own title ("Alpha Sizing", "NÚMERAÐAR STÆRÐIR")
+    const captions = rows.filter((r) => r.length === 1 && width > 1).map((r) => r[0]);
+    return { caption: captions.join(' · '), rows: rows.filter((r) => !(r.length === 1 && width > 1) && r.some(Boolean)) };
+  }
+
+  /** The page's charts: each <h4> with the tables up to the next heading. */
+  function splitSections(content: Element): Section[] {
+    const out: Section[] = [];
+    for (const h of content.querySelectorAll('h4')) {
+      const charts: Chart[] = [];
+      for (let n = h.nextElementSibling; n && !/^H[1-4]$/.test(n.tagName); n = n.nextElementSibling) {
+        const found = n.matches('table') ? [n as HTMLTableElement] : [...n.querySelectorAll('table')];
+        charts.push(...found.map(readChart).filter((c) => c.rows.length > 0));
+      }
+      if (charts.length) out.push({ heading: cellText(h), charts });
+    }
+    return out;
+  }
+
+  async function loadSections(href: string): Promise<Section[]> {
+    // a hung request opens the size page itself (the caller's catch) instead of leaving "Sæki stærðartöflu…"
+    const res = await fetch(href, { headers: { Accept: 'text/html' }, signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(String(res.status));
+    const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+    const content = doc.querySelector('.wp-page');
+    const found = content ? splitSections(content) : [];
+    if (!found.length) throw new Error('no charts');
+    return found;
+  }
+
+  /** A table from cell text: the first row as an ink header, the first cell of each row as its row header. `mark`:
+   *  the chosen size's column (wide) or row (sideways), -1 for none. */
+  function buildTable(rows: string[][], mark: { column?: number; row?: number }): HTMLTableElement {
+    const table = document.createElement('table');
+    rows.forEach((cells, r) => {
+      const tr = (r === 0 ? table.createTHead() : table.tBodies[0] ?? table.createTBody()).insertRow();
+      if (r > 0 && r === mark.row) tr.className = 'is-chosen';
+      cells.forEach((text, c) => {
+        const cell = document.createElement(r === 0 || c === 0 ? 'th' : 'td');
+        if (r === 0) cell.scope = 'col';
+        else if (c === 0) cell.scope = 'row';
+        if (c > 0 && c === mark.column) cell.classList.add('is-chosen');
+        cell.textContent = text;
+        tr.append(cell);
+      });
+    });
+    return table;
+  }
+
+  function buildChart(chart: Chart, chosen: string): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'sizeguide__chart';
+    if (chart.caption) {
+      const cap = document.createElement('p');
+      cap.className = 'sizeguide__caption';
+      cap.textContent = chart.caption;
+      wrap.append(cap);
+    }
+    const at = sizeIndex(chart.rows[0] ?? [], chosen);
+    const wide = document.createElement('div');
+    wide.className = 'sizeguide__scroll sizeguide__wide';
+    wide.append(buildTable(chart.rows, { column: at }));
+    const tall = document.createElement('div');
+    tall.className = 'sizeguide__scroll sizeguide__tall';
+    tall.append(buildTable(transpose(chart.rows), { row: at }));
+    wrap.append(wide, tall);
+    return wrap;
+  }
+
+  /** Each shown chart wide when its wide table fits the popup, else sideways. */
+  function fitCharts() {
+    body?.querySelectorAll<HTMLElement>('.sizeguide__panel:not([hidden]) .sizeguide__chart').forEach((chart) => {
+      const wide = chart.querySelector<HTMLElement>('.sizeguide__wide');
+      if (!wide) return;
+      chart.dataset.layout = 'wide';
+      chart.dataset.layout = wide.scrollWidth > wide.clientWidth + 1 ? 'tall' : 'wide';
+    });
+  }
+  if (body) new ResizeObserver(fitCharts).observe(body);
+
+  function select(index: number, focus = false) {
+    tabs?.querySelectorAll<HTMLButtonElement>('[role="tab"]').forEach((t, i) => {
+      const on = i === index;
+      t.setAttribute('aria-selected', String(on));
+      t.tabIndex = on ? 0 : -1;
+      if (on && focus) t.focus();
+      if (on) t.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+    body?.querySelectorAll<HTMLElement>('.sizeguide__panel').forEach((p, i) => (p.hidden = i !== index));
+    fitCharts();
+  }
+
+  function render(all: Section[], picked: number[], chosen: string) {
+    if (!tabs || !body || !chosenNote) throw new Error('size chart markup missing');
+    const shown = picked.map((i) => all[i]);
+    const many = shown.length > 1;
+    chosenNote.hidden = !chosen;
+    chosenNote.textContent = chosen ? `Valin stærð: ${chosen}` : '';
+    tabs.hidden = !many;
+    tabs.replaceChildren(
+      ...shown.map((s, i) => {
+        const tab = document.createElement('button');
+        tab.type = 'button';
+        tab.className = 'sizeguide__tab';
+        tab.id = `sizeguide-tab-${i}`;
+        tab.setAttribute('role', 'tab');
+        tab.setAttribute('aria-controls', `sizeguide-panel-${i}`);
+        tab.textContent = label(s.heading);
+        tab.addEventListener('click', () => select(i));
+        return tab;
+      }),
+    );
+    body.replaceChildren(
+      ...shown.map((s, i) => {
+        const panel = document.createElement('section');
+        panel.className = 'sizeguide__panel';
+        panel.id = `sizeguide-panel-${i}`;
+        if (many) {
+          panel.setAttribute('role', 'tabpanel');
+          panel.setAttribute('aria-labelledby', `sizeguide-tab-${i}`);
+        } else {
+          const h = document.createElement('h5');
+          h.className = 'sizeguide__heading';
+          h.textContent = label(s.heading);
+          panel.append(h);
+        }
+        panel.append(...s.charts.map((c) => buildChart(c, chosen)));
+        return panel;
+      }),
+    );
+    select(0);
+  }
+
   document.addEventListener('click', async (e) => {
     const link = (e.target as Element | null)?.closest<HTMLAnchorElement>('a[data-sizeguide]');
-    if (!link || !dialog || !body) return;
+    if (!link) return;
+    if (!dialog || !tabs || !body) return; // no popup on this page: the plain link opens /staerdir/
     e.preventDefault();
     dialog.showModal();
-    if (loaded) return;
+    // the size already picked beside this link, to highlight in the charts
+    const picked = link.closest('.pdp-var')?.querySelector('.pdp-swatch[aria-checked="true"]');
+    // a photo swatch has no text: its name is the button's aria-label
+    const chosen = (picked?.textContent?.trim() || picked?.getAttribute('aria-label')?.trim()) ?? '';
     try {
-      // a hung request opens the size page itself (the catch) instead of leaving "Sæki stærðartöflu…"
-      const res = await fetch(link.href, { headers: { Accept: 'text/html' }, signal: AbortSignal.timeout(10000) });
-      if (!res.ok) throw new Error(String(res.status));
-      // Our own server-rendered, sanitized page — moved over as nodes, not re-parsed strings.
-      const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
-      const content = doc.querySelector('.wp-page');
-      if (!content) throw new Error('no content');
-      body.replaceChildren(...[...content.childNodes].map((n) => document.importNode(n, true)));
-      loaded = true;
+      sections ??= loadSections(link.href).catch((err) => {
+        sections = null; // a later open tries again
+        throw err;
+      });
+      const all = await sections;
+      const want = parseWant(link.dataset.sizeguideWant);
+      render(all, want ? pickSections(all.map((s) => s.heading), want) : all.map((_, i) => i), chosen);
     } catch {
       window.location.href = link.href;
     }
   });
+
+  // arrow keys, Home and End move between the tabs (WAI-ARIA tabs, automatic activation)
+  tabs?.addEventListener('keydown', (e) => {
+    const list = [...tabs.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const at = Math.max(0, list.findIndex((t) => t.getAttribute('aria-selected') === 'true'));
+    const to =
+      e.key === 'ArrowRight' ? (at + 1) % list.length : e.key === 'ArrowLeft' ? (at - 1 + list.length) % list.length : e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : -1;
+    if (to < 0) return;
+    e.preventDefault();
+    select(to, true);
+  });
+
   dialog?.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
     if (t === dialog || t.closest('[data-popup-close]')) dialog.close();

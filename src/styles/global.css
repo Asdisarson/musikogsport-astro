@@ -47,7 +47,6 @@
     --btn-hover: #707072;      /* primary pill hover fill (white text 4.7:1) */
     --btn-ink: #ffffff;
     --control-h: 60px;         /* pill buttons */
-    --control-h-lg: 60px;      /* large buttons (Sýna fleiri, login, contact form) */
     --field-h: 48px;           /* text inputs */
     --radius-pill: 30px;
     --radius-size: 4px;        /* size buttons, text inputs */
@@ -336,10 +335,10 @@
   .btn--sm { min-height: 40px; padding: 0 20px; font-size: 16px; }
   .btn--block { display: flex; width: 100%; }
   .btn[disabled], .btn[aria-disabled='true'] { background: var(--surface); border-color: var(--surface); color: var(--disabled-text); pointer-events: none; }
-  :is(.btn:not(.btn--ghost, .btn--outlined), .btn-dark, .archive__more-btn):active,
+  :is(.btn:not(.btn--ghost, .btn--outlined), .btn-dark):active,
   .pdp-atc:active:not(:disabled) { background: #000; border-color: #000; color: #fff; }
   :is(.btn--ghost, .btn--outlined, .btn-outline, .coupon__apply):active:not(:disabled) { background: var(--surface); border-color: var(--ink); color: var(--ink); }
-  :is(.btn, .btn-dark, .btn-outline, .archive__more-btn, .coupon__apply, .pdp-atc, .pill, .search-pill):focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  :is(.btn, .btn-dark, .btn-outline, .coupon__apply, .pdp-atc, .pill, .search-pill):focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
   /* forms: 48px fields, 4px corners, a 3:1 edge */
   input:not([type]), input[type='text'], input[type='email'], input[type='tel'], input[type='password'], input[type='number'], input[type='search'], select, textarea, .select {
@@ -365,14 +364,17 @@
   .breadcrumbs a { color: var(--meta); }
   .breadcrumbs a:hover { color: var(--ink); }
 
-  /* pagination (Pagination.astro; no route renders it today, the wall pages with "Sýna fleiri"): 16px text, the
-     current page underlined in black */
-  .pagination { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin: 48px 0 0; font-size: 16px; line-height: 24px; }
-  .pagination a, .pagination span { display: inline-grid; place-items: center; min-width: 44px; min-height: 44px; padding: 0 8px; color: var(--ink); }
-  .pagination a:hover { text-decoration: underline; text-underline-offset: 6px; }
-  .pagination .is-current { font-weight: 500; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 6px; }
-  .pagination .is-disabled { color: var(--disabled-text); }
-  .pagination .gap { color: var(--meta); }
+  /* the wall's pages (Pagination.astro, under the grid): round 44px numbers, the current one filled black; previous
+     and next as the carousels' round arrows, greyed at the ends */
+  .pagination { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin: 0; padding-top: 48px; font-size: 16px; font-weight: 500; line-height: 24px; font-variant-numeric: tabular-nums; }
+  .pagination__page { display: inline-grid; place-items: center; min-width: 44px; height: 44px; padding: 0 12px; border-radius: var(--radius-pill); color: var(--ink); transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+  a.pagination__page:hover { background: var(--surface); }
+  .pagination__page.is-current { background: var(--ink); color: var(--btn-ink); }
+  .pagination .gap { display: inline-grid; place-items: center; min-width: 24px; height: 44px; color: var(--meta); }
+  .pagination .round-btn { width: 44px; height: 44px; }
+  .pagination .round-btn--prev { margin-right: 8px; }
+  .pagination .round-btn--next { margin-left: 8px; }
+  :is(.pagination__page, .pagination .round-btn):focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
   /* prices: #707072 (cards and the product page restyle them); sale ins --sale, struck del --meta */
   .price { color: var(--muted); font-size: 18px; display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
@@ -624,7 +626,6 @@
   .filter-option__box { flex: none; width: 20px; height: 20px; border: 1px solid var(--ink); border-radius: 4px; background: var(--paper); }
   .filter-option__link:hover .filter-option__box { box-shadow: inset 0 0 0 1px var(--ink); }
   .filter-option__link[aria-checked='true'] .filter-option__box { background: var(--ink) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpath d='M1 5l3.5 3.5L11 1.5' fill='none' stroke='%23fff' stroke-width='1.8'/%3E%3C/svg%3E") no-repeat center / 12px 10px; }
-  .filter-option__count { color: var(--meta); }
   .filter-option[hidden] { display: none; }
   /* search box above a long option list (Vörumerki, Félag/Lið) */
   .filter-search { padding: 0 0 12px; }
@@ -666,11 +667,6 @@
   .filter-sizes__more-hide, .filter-sizes__more[open] .filter-sizes__more-show { display: none; }
   .filter-sizes__more[open] .filter-sizes__more-hide { display: inline; }
 
-  /* "Sýna fleiri": a 60px black pill, centred */
-  .archive__more { display: flex; justify-content: center; padding-top: 48px; }
-  .archive__more-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 180px; min-height: var(--control-h-lg); padding: 0 32px; border: 0; border-radius: var(--radius-pill); background: var(--btn); color: var(--btn-ink); font-size: 16px; font-weight: 500; line-height: 24px; transition: background var(--dur) var(--ease); }
-  .archive__more-btn:hover { background: var(--btn-hover); color: #fff; }
-  .archive__more-btn[data-busy] { opacity: 0.5; pointer-events: none; }
 
   .archive .product-grid { gap: 48px 0; }
   .archive .product-grid > li { min-width: 0; padding-inline: 8px; }
@@ -723,7 +719,7 @@
     .archive .product-grid > li { padding-inline: 0; }
     .archive .product-card__caption { padding: 12px 12px 0; }
     .archive .empty { padding: 24px var(--gutter); }
-    .archive__more { padding: 40px var(--gutter) 0; }
+    .archive .pagination { gap: 4px; padding: 40px var(--gutter) 0; }
     .archive-active { padding: 0 var(--gutter) 16px; }
     .archive-active__list { margin: 0; }
     .archive-filters__reset { display: none; }   /* the sheet's own "Hreinsa" and the chips' "Hreinsa allt" */
@@ -910,6 +906,69 @@
   .popup__close:hover { background: var(--surface); }
   .popup__title { font-size: 24px; margin: 0 0 24px; text-align: center; }
   .popup__body .vc-row + .vc-row { margin-top: 40px; }
+
+  /* The size chart popup (SizeGuide.astro): a fixed head (title, the size already chosen, pill tabs, one per chart)
+     over a scrolling body of chart cards, "Sjá allar stærðartöflur" in a footer. A card: an ink size row, the
+     measure names pinned on the left while the sizes scroll sideways, zebra rows, tabular numbers; the chosen size's
+     column (row, sideways) is picked out. A chart shows wide (sizes across) where that fits and sideways (sizes down
+     the side) where it doesn't — the script measures it (data-layout). Tablets and up: a centred dialog. Phones: a
+     bottom sheet that slides up. */
+  .sizeguide { width: min(920px, calc(100vw - 40px)); max-height: min(86vh, 880px); padding: 0; overflow: hidden; }
+  .sizeguide[open] { display: flex; flex-direction: column; }
+  .sizeguide__head { flex: none; padding: 36px 40px 0; }
+  .sizeguide__grab { display: none; }
+  .sizeguide .popup__title { margin: 0 0 8px; font-family: var(--font-display); font-stretch: var(--display-stretch); font-weight: 600; font-size: 32px; line-height: 1; text-transform: uppercase; }
+  .sizeguide__chosen { margin: 0 0 16px; text-align: center; font-size: 14px; line-height: 20px; color: var(--meta); }
+  .sizeguide__chosen[hidden] { display: none; }
+  .sizeguide__head > :last-child { margin-bottom: 24px; }
+  .sizeguide__tabs { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .sizeguide__tabs[hidden] { display: none; }
+  .sizeguide__tab { flex: none; min-height: 44px; padding: 8px 20px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--paper); color: var(--ink); font: inherit; font-size: 15px; font-weight: 500; line-height: 24px; white-space: nowrap; transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease), color var(--dur) var(--ease); }
+  .sizeguide__tab:hover { border-color: var(--ink); }
+  .sizeguide__tab[aria-selected='true'] { border-color: var(--ink); background: var(--ink); color: var(--btn-ink); }
+  .sizeguide__tab:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .sizeguide__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 40px 8px; }
+  .sizeguide__heading { margin: 0 0 16px; font-size: 16px; font-weight: 500; line-height: 24px; text-align: center; color: var(--meta); }
+  .sizeguide__status { margin: 0 0 24px; text-align: center; color: var(--meta); }
+  .sizeguide__chart { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--paper); }
+  .sizeguide__chart + .sizeguide__chart { margin-top: 16px; }
+  .sizeguide__caption { margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--rule); font-size: 13px; font-weight: 500; line-height: 20px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--meta); }
+  .sizeguide__scroll { overflow-x: auto; scrollbar-width: thin; }
+  .sizeguide__tall, .sizeguide__chart[data-layout='tall'] .sizeguide__wide { display: none; }
+  .sizeguide__chart[data-layout='tall'] .sizeguide__tall { display: block; }
+  .sizeguide__chart table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 15px; line-height: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sizeguide__chart :is(th, td) { padding: 12px 14px; border: 0; text-align: center; font-weight: 400; }
+  .sizeguide__chart thead th { background: var(--ink); color: var(--btn-ink); font-weight: 500; }
+  .sizeguide__chart tbody tr:nth-child(odd) > * { background: var(--paper); }
+  .sizeguide__chart tbody tr:nth-child(even) > * { background: var(--surface); }
+  /* the measure names ("Chest (cm)", "Age"), or the sizes when sideways: first column, pinned while the rest scrolls */
+  .sizeguide__chart tr > :first-child { position: sticky; left: 0; z-index: 1; text-align: left; font-weight: 500; box-shadow: inset -1px 0 0 var(--rule); }
+  .sizeguide__chart thead tr > :first-child { box-shadow: inset -1px 0 0 rgb(255 255 255 / 0.2); }
+  /* the size chosen in the picker */
+  .sizeguide__chart tbody .is-chosen, .sizeguide__chart tbody tr.is-chosen > * { background: var(--rule); font-weight: 600; }
+  .sizeguide__chart thead .is-chosen { box-shadow: inset 0 -3px 0 var(--btn-ink); }
+  .sizeguide__all { flex: none; margin: 0; padding: 16px 40px 24px; border-top: 1px solid var(--rule); text-align: center; font-size: 14px; }
+  .sizeguide__all a { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+  @media (max-width: 991px) {
+    .sizeguide__head { padding-inline: 24px; }
+    .sizeguide__body { padding-inline: 24px; }
+  }
+  @media (max-width: 767px) {
+    .sizeguide { width: 100%; max-width: 100%; max-height: 88dvh; margin: auto 0 0; border-radius: 16px 16px 0 0; }
+    .sizeguide[open] { animation: sizeguide-up 0.3s var(--ease); }
+    .sizeguide__head { padding: 8px 16px 0; }
+    .sizeguide__grab { display: block; width: 40px; height: 4px; margin: 0 auto 16px; border-radius: 2px; background: var(--line); }
+    .sizeguide .popup__close { top: 12px; right: 8px; }
+    .sizeguide .popup__title { font-size: 24px; }
+    .sizeguide__head > :last-child { margin-bottom: 16px; }
+    .sizeguide__tabs { flex-wrap: nowrap; justify-content: flex-start; margin-inline: -16px; padding-inline: 16px; overflow-x: auto; scrollbar-width: none; }
+    .sizeguide__tabs::-webkit-scrollbar { display: none; }
+    .sizeguide__body { padding: 0 16px 8px; }
+    .sizeguide__chart :is(th, td) { padding: 12px 10px; }
+    .sizeguide__all { padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); }
+  }
+  @keyframes sizeguide-up { from { transform: translateY(100%); } }
+  @media (prefers-reduced-motion: reduce) { .sizeguide[open] { animation: none; } }
 
   @media (max-width: 991px) {
     .pdp { display: block; max-width: none; padding: 0 var(--gutter); }

@@ -117,5 +117,10 @@ $one_raw = ($captured['reply_to'] ?? null) === [] && count($custom) === 1 && str
     && substr_count($custom[0], '@') === 1 && substr($custom[0], -strlen('<me@example.is>')) === '<me@example.is>';
 $check('wp_mail: one Reply-To address, the sender', $one_parsed || $one_raw, json_encode($captured, JSON_UNESCAPED_UNICODE));
 
+// Sold-out products stay listed: the option reads "no" whatever is stored (pre_option short-circuits the read).
+// WooCommerce's own default is "no" too, so the filter itself is checked as well.
+$check('hide out of stock items: pinned off', has_filter('pre_option_woocommerce_hide_out_of_stock_items') !== false
+    && get_option('woocommerce_hide_out_of_stock_items') === 'no');
+
 wp_set_current_user($before_user);
 echo $fail === 0 ? "ALL PASS\n" : "$fail FAILED\n";

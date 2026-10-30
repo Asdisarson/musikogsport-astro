@@ -8,6 +8,7 @@
  *  - GET /wp-json/mos/v1/page/<slug>  raw content of a published page
  *  - POST /wp-json/mos/v1/contact  contact form (stored as a private post and e-mailed)
  *  - Store API `mos_and_cat=<ids>` on wc/store/v1/products and …/collection-data (an extra AND'ed category clause)
+ *  Keeps sold-out products listed: WooCommerce's "Hide out of stock items" option is pinned to "no".
  *  Hides WordPress's user list from the public (REST users routes, ?author= archives, oEmbed author fields),
  *  because user slugs are login names.
  *  Registers the storefront's menu locations so editors assign menus under Appearance → Menus.
@@ -101,6 +102,10 @@ function mos_and_cat_clause(array $ids): array {
         'include_children' => true,
     ];
 }
+
+// The storefront lists every published product, sold out or not (owner, 2026-10-30): WooCommerce's "Hide out of
+// stock items from the catalog" (which the Store API obeys) is pinned off, whatever the settings page says.
+add_filter('pre_option_woocommerce_hide_out_of_stock_items', static fn () => 'no');
 
 add_action('pre_get_posts', static function (WP_Query $query) {
     $ids = $GLOBALS['mos_and_cat'] ?? [];

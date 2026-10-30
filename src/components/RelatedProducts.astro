@@ -5,6 +5,8 @@
 // A server island (`server:defer` on the product page): the uncached product lookup runs after the page has been
 // sent, not before it. ProductRow's carousel script comes back with the island HTML, and Astro's island loader
 // inserts it with createContextualFragment, which runs it.
+import { productImage } from '../lib/img';
+import { settlePhotos } from '../lib/photoBgServer';
 import { getProductsByIds } from '../lib/woo';
 import ProductRow from './ProductRow.astro';
 
@@ -15,6 +17,9 @@ interface Props {
 const { ids } = Astro.props;
 // A failed lookup shows no row, as before the island.
 const products = await getProductsByIds(ids, 5).catch(() => []);
+// The tiles fill around each photo as the wall's cards do (lib/photoBg cardFill), which needs the photo read first;
+// renders never wait for that, but this island is already off the critical path, so it waits a moment for them.
+await settlePhotos(products.map(productImage), 2000);
 ---
 
 {
