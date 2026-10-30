@@ -280,8 +280,8 @@ export function readEdges(px: RawPixels, rules = EDGE_RULES): PhotoEdges | null 
 }
 
 /** The tiles' shapes (width / height) as global.css draws them: .product-card__media (aspect-ratio 1, cardFill),
- *  .pdp-gallery__item a (4 / 5; on a desktop the photo's own shape, tileAspect) and .pdp-thumb (60×60) (photoFit). The answers depend on the tile, so keep these in
- *  step with the CSS. */
+ *  .pdp-gallery__item a (4 / 5; on a desktop the photo's own shape, tileAspect) and .pdp-thumb (60×60) (photoFit).
+ *  The answers depend on the tile, so keep these in step with the CSS. */
 export const TILE_ASPECT = { card: 1, gallery: 4 / 5, thumb: 1 } as const;
 
 /** The product page's stacked gallery tile on a desktop (PdpGallery, --tile-aspect): the photo's own shape, so a

@@ -29,13 +29,13 @@ const LIMIT = 12;
 // Either lookup failing just leaves its share out; both failing shows no row, as before the island.
 const scoped: WooProduct[] = categoryId
   ? await storeProducts({ categoryIds: [categoryId], andCategoryIds: audienceIds, stockStatus: ['instock'], orderby: 'popularity', order: 'desc', per_page: LIMIT + 1 })
-      .then((r) => r.items)
+      .then((r) => r.items.filter((p) => p.id !== productId))
       .catch(() => [])
   : [];
 const seen = new Set([productId, ...scoped.map((p) => p.id)]);
-const missing = LIMIT - (scoped.length - (scoped.some((p) => p.id === productId) ? 1 : 0));
+const missing = LIMIT - scoped.length;
 const topUp = missing > 0 ? await getProductsByIds(ids.filter((id) => !seen.has(id)), missing).catch(() => []) : [];
-const products = [...scoped.filter((p) => p.id !== productId), ...topUp].slice(0, LIMIT);
+const products = [...scoped, ...topUp].slice(0, LIMIT);
 // The tiles fill around each photo as the wall's cards do (lib/photoBg cardFill), which needs the photo read first;
 // renders never wait for that, but this island is already off the critical path, so it waits a moment for them.
 await settlePhotos(products.map(productImage), 2000);

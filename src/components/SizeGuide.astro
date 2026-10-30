@@ -198,9 +198,9 @@
     e.preventDefault();
     dialog.showModal();
     // the size already picked beside this link, to highlight in the charts
-    const picked = link.closest('.pdp-var')?.querySelector('.pdp-swatch[aria-checked="true"]');
+    const swatch = link.closest('.pdp-var')?.querySelector('.pdp-swatch[aria-checked="true"]');
     // a photo swatch has no text: its name is the button's aria-label
-    const chosen = (picked?.textContent?.trim() || picked?.getAttribute('aria-label')?.trim()) ?? '';
+    const chosen = (swatch?.textContent?.trim() || swatch?.getAttribute('aria-label')?.trim()) ?? '';
     try {
       sections ??= loadSections(link.href).catch((err) => {
         sections = null; // a later open tries again

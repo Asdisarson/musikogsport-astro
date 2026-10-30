@@ -36,7 +36,8 @@ function daysOf(label: string): number[] | null {
 function clock(h: string, m: string | undefined): string | null {
   const hh = Number(h);
   const mm = Number(m ?? '0');
-  return hh <= 24 && mm < 60 ? `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}` : null;
+  if (!(hh <= 24 && mm < 60)) return null;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
 const HOURS = /^(.+?)[\s:]+(?:frá\s+)?(?:kl\.?\s*)?(\d{1,2})(?:[:.](\d{2}))?\s*[-–]\s*(?:kl\.?\s*)?(\d{1,2})(?:[:.](\d{2}))?\.?$/i;
@@ -67,19 +68,22 @@ export function parseHours(lines: string[]): Week | null {
 /** The week in a few lines for a card: days in a row with the same hours together ("Virka daga", "Laugardagur og
  *  sunnudagur", "Mánudagur – miðvikudagur"). */
 export function weekSummary(week: Week): { days: string; hours: string }[] {
-  const text = (d: Day) => (d ? `${d.open} – ${d.close}` : 'Lokað');
+  const hoursText = (d: Day) => (d ? `${d.open} – ${d.close}` : 'Lokað');
   const groups: { from: number; to: number; hours: string }[] = [];
   week.forEach((d, i) => {
     const last = groups[groups.length - 1];
-    if (last && last.hours === text(d)) last.to = i;
-    else groups.push({ from: i, to: i, hours: text(d) });
+    if (last && last.hours === hoursText(d)) last.to = i;
+    else groups.push({ from: i, to: i, hours: hoursText(d) });
   });
   if (groups.length === 1 && week.length === 7) return [{ days: 'Alla daga', hours: groups[0].hours }];
   const lower = (i: number) => DAY_NAMES[i].toLowerCase();
-  return groups.map(({ from, to, hours }) => ({
-    days: from === 0 && to === 4 ? 'Virka daga' : from === to ? DAY_NAMES[from] : to === from + 1 ? `${DAY_NAMES[from]} og ${lower(to)}` : `${DAY_NAMES[from]} – ${lower(to)}`,
-    hours,
-  }));
+  const daysText = (from: number, to: number) => {
+    if (from === 0 && to === 4) return 'Virka daga';
+    if (from === to) return DAY_NAMES[from];
+    if (to === from + 1) return `${DAY_NAMES[from]} og ${lower(to)}`;
+    return `${DAY_NAMES[from]} – ${lower(to)}`;
+  };
+  return groups.map(({ from, to, hours }) => ({ days: daysText(from, to), hours }));
 }
 
 /** Whether the shop is open at `now`, which weekday that is (Monday = 0), and a line saying so. */

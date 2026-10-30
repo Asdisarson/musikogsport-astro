@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { addToCart, openCart } from '../lib/cartStore';
 import { formatISK } from '../lib/format';
+import { gridStep } from '../lib/gridNav';
 import { PLACEHOLDER } from '../lib/img';
 import { applyPhotoFit, photoBgProps, type PhotoFit } from '../lib/photoBg';
 import { isColourAttribute } from '../lib/productCard';
 import { choiceHint, isSizeAttribute, optionImages, optionState, resolveVariation } from '../lib/variations';
 import { qtyFromInput } from '../lib/validate';
-import { gridStep } from '../lib/gridNav';
 import type { PdpVariation } from '../lib/types';
 
 // The add-to-cart form (nike-look, SPEC § PDP; WooCommerce + Variation Swatches semantics): per attribute a label
