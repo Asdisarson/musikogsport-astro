@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeFilterList, colourSwatch, countWord, coversEnough, filterTitle, HIDDEN_SHOP_CATEGORY_SLUGS, keepOption, matchCountFromStock, pseudoCategoryIds, sizeBlocks, SIZE_GROUP_HEADINGS } from './facets';
+import { activeFilterList, colourSwatch, countWord, coversEnough, filterTitle, HIDDEN_SHOP_CATEGORY_SLUGS, isPlainColour, keepOption, matchCountFromStock, pseudoCategoryIds, sizeBlocks, SIZE_GROUP_HEADINGS } from './facets';
 import type { CategoryTerm, FilterKey, TermRef } from './liveFilters';
 
 describe('keepOption (the dead-end fix)', () => {
@@ -204,6 +204,19 @@ describe('coversEnough (near-empty Íþrótt / Félag/Lið / Litur groups are le
     expect(coversEnough(g([1], false, false), 400)).toBe(true);
     expect(coversEnough(g([1]), undefined)).toBe(true);
     expect(coversEnough(g([1]), 0)).toBe(true);
+  });
+});
+
+describe('isPlainColour', () => {
+  it('keeps one-colour terms', () => {
+    expect(isPlainColour({ slug: 'svartur', name: 'Svartur' })).toBe(true);
+    expect(isPlainColour({ slug: 'mahagony-red', name: 'Mahagony Red' })).toBe(true);
+    expect(isPlainColour({ slug: 'dusty-pink', name: 'Ljósbleikur' })).toBe(true);
+  });
+  it('drops two-colour terms and ISLAND', () => {
+    expect(isPlainColour({ slug: 'blar-hvitur', name: 'Blár/hvítur' })).toBe(false);
+    expect(isPlainColour({ slug: 'hvitt-svart', name: 'Hvítt/svart' })).toBe(false);
+    expect(isPlainColour({ slug: 'island', name: 'ISLAND' })).toBe(false);
   });
 });
 

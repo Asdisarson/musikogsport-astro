@@ -2,7 +2,7 @@
 // shares live's filter semantics, page size and facet groups.
 import { loadCatalogTerms, loadSizeTerms, type CatalogData } from './catalogTerms';
 import { categoryChain, childrenOf, STRUCTURAL_ROOT_SLUGS } from './categoryTree';
-import { activeFilterList, colourSwatch, COVERAGE_GROUPS, coversEnough, keepOption, pseudoCategoryIds, sizeBlocks, type ActiveFilter, type SizeBlock } from './facets';
+import { activeFilterList, colourSwatch, COVERAGE_GROUPS, coversEnough, isPlainColour, keepOption, pseudoCategoryIds, sizeBlocks, type ActiveFilter, type SizeBlock } from './facets';
 import {
   KYN_PARENT_SLUG,
   PRICE_PRESETS,
@@ -245,9 +245,11 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
     options: treeOptions,
   };
 
-  // Litur: checkbox rows with a swatch; commonest colours first (the term list is alphabetical).
+  // Litur: checkbox rows with a swatch; commonest colours first (the term list is alphabetical). Only plain colours
+  // (isPlainColour); a link that still selects a two-colour term or ISLAND keeps that row, so it can be removed.
   const colourGroup = listGroup('litur', 'Litur', terms.colours, main?.attribute ?? null);
   colourGroup.options = colourGroup.options
+    .filter((o) => o.active || isPlainColour(o))
     .map((o) => ({ ...o, swatch: colourSwatch(o.slug) }))
     .sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
 

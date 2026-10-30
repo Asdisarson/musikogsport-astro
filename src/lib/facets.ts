@@ -168,6 +168,12 @@ const COLOUR_HEX: Record<string, string> = {
   appelsinugulur: '#f08a1d',
 };
 
+/** Whether a colour term is listed in the Litur filter: the owner took the two-colour terms ("Blár/hvítur") and
+ *  ISLAND (a team kit, no colour) off it (2026-10-30). */
+export function isPlainColour(term: { slug: string; name: string }): boolean {
+  return !term.name.includes('/') && term.slug !== 'island';
+}
+
 /** One or two swatch colours for a colour term, or undefined when the slug isn't a known colour (no swatch). */
 export function colourSwatch(slug: string): string[] | undefined {
   const hex = (key: string) => (Object.hasOwn(COLOUR_HEX, key) ? COLOUR_HEX[key] : undefined);
