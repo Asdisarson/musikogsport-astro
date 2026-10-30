@@ -149,9 +149,9 @@ export default function ProductPurchase({
   // Only when the missing attribute has an option left to pick: a hint over all-crossed-out swatches can't be acted on.
   const hint = isVariable && !variationsFailed ? choiceHint(attrNames, selected, { attrs: variationAttrs, variations }) : null;
   const hintId = `pdp-hint-${productId}`;
-  // Phones: a bottom bar with "Setja í körfu" once there is something to add (a simple product in stock, or every
-  // option picked and that variation in stock)
-  const barReady = isVariable ? resolved?.stock_status === 'instock' && attrNames.every((n) => selected[n]) : inStock;
+  // Phones: a bottom bar with "Setja í körfu" once every option is picked and that variation is in stock (never on a
+  // simple product)
+  const barReady = isVariable && resolved?.stock_status === 'instock' && attrNames.every((n) => selected[n]);
   const missing = hint ? attrNames.find((n) => !selected[n]) : undefined;
 
   function choose(attr: string, option: string) {
@@ -309,7 +309,7 @@ export default function ProductPurchase({
         <div className="pdp-bar">
           <div className="pdp-bar__text">
             <span className="pdp-bar__name">{name}</span>
-            {isVariable && resolved && <span className="pdp-bar__choice">{attrNames.map((n) => (isSizeAttribute(n) ? `Stærð ${selected[n]}` : selected[n])).join(' · ')}</span>}
+            {resolved && <span className="pdp-bar__choice">{attrNames.map((n) => (isSizeAttribute(n) ? `Stærð ${selected[n]}` : selected[n])).join(' · ')}</span>}
           </div>
           <button type="button" className="pdp-atc pdp-bar__atc" disabled={!canAdd} aria-busy={adding} onClick={handleAdd}>
             Setja í körfu

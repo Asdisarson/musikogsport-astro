@@ -892,7 +892,7 @@
   .pdp-atc:disabled:not([aria-busy='true']) { background: var(--surface); color: var(--disabled-text); }
   .pdp-atc[aria-busy='true'] { opacity: 0.6; }
   .pdp-hint { margin: 8px 0 0; font-size: 16px; line-height: 24px; color: var(--text); text-align: center; }
-  /* phones: a bottom bar with the name, the choice and "Setja í körfu", sliding up once there is something to add
+  /* phones: a bottom bar with the name, the choice and "Setja í körfu", sliding up once a variation is picked
      (ProductPurchase); above the store notice when that shows; the back-to-top button moves over it */
   .pdp-bar { display: none; }
   @media (max-width: 991px) {
