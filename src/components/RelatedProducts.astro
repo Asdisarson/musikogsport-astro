@@ -8,6 +8,7 @@
 // sent, not before it. ProductRow's carousel script comes back with the island HTML, and Astro's island loader
 // inserts it with createContextualFragment, which runs it.
 import { productImage } from '../lib/img';
+import { log } from '../lib/logger';
 import { settlePhotos } from '../lib/photoBgServer';
 import { relatedRequests } from '../lib/relatedLimit';
 import { storeProducts } from '../lib/storeCatalog';
@@ -38,7 +39,13 @@ const scoped: WooProduct[] = allowed && categoryId
   : [];
 const seen = new Set([productId, ...scoped.map((p) => p.id)]);
 const missing = LIMIT - scoped.length;
-const topUp = allowed && missing > 0 ? await getProductsByIds(ids.filter((id) => !seen.has(id)), missing).catch(() => []) : [];
+const topUp =
+  allowed && missing > 0
+    ? await getProductsByIds(ids.filter((id) => !seen.has(id)), missing).catch((err) => {
+        log.warn('[related] related_ids top-up failed', { productId, err });
+        return [];
+      })
+    : [];
 const products = [...scoped, ...topUp].slice(0, LIMIT);
 // The tiles fill around each photo as the wall's cards do (lib/photoBg cardFill), which needs the photo read first;
 // renders never wait for that, but this island is already off the critical path, so it waits a moment for them.
