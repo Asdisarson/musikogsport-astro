@@ -301,15 +301,15 @@
   /* footer: black, four 14px text columns, then a full-width logo-orange 12px bottom bar; phones: <details> accordions.
      Columns and bar content sit on the same grid as .container (max-width + gutter inside). */
   .site-footer { margin-top: 80px; background: var(--footer-bg); color: var(--footer-text); font-size: 14px; line-height: 20px; }
-  .site-footer__cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; max-width: calc(var(--maxw) + 2 * var(--gutter)); margin-inline: auto; padding: 64px var(--gutter) 72px; }
+  .site-footer__cols { display: grid; grid-template-columns: repeat(3, minmax(0, 300px)); gap: 48px; max-width: calc(var(--maxw) + 2 * var(--gutter)); margin-inline: auto; padding: 40px var(--gutter) 48px; }
   .site-footer__contact li { display: flex; align-items: flex-start; gap: 10px; }
   .site-footer__contact svg { flex: none; margin-top: 1px; color: var(--footer-text); }
   .site-footer__cols :focus-visible { outline-color: var(--footer-text); }   /* the ink ring would vanish on black */
-  .site-footer__title { display: flex; align-items: center; justify-content: space-between; margin: 0 0 24px; list-style: none; color: var(--footer-text); font-size: 14px; font-weight: 500; line-height: 20px; cursor: default; }
+  .site-footer__title { display: flex; align-items: center; justify-content: space-between; margin: 0 0 16px; list-style: none; color: var(--footer-text); font-size: 14px; font-weight: 500; line-height: 20px; cursor: default; }
   .site-footer__title::-webkit-details-marker { display: none; }
   .site-footer__title svg { display: none; flex: none; width: 24px; height: 24px; transition: transform var(--dur) var(--ease); }
   .site-footer__menu { list-style: none; margin: 0; padding: 0; color: var(--footer-meta); font-weight: 500; }
-  .site-footer__menu li + li { margin-top: 12px; }
+  .site-footer__menu li + li { margin-top: 8px; }
   .site-footer__menu a { color: var(--footer-meta); }
   .site-footer__menu a:hover { color: var(--footer-text); }
   .site-footer__bar { background: var(--brand); color: var(--ink); }
