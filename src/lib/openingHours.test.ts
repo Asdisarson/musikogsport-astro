@@ -44,6 +44,9 @@ describe('parseHours', () => {
     expect(parseHours([])).toBeNull();
     expect(parseHours(['Virkir dagar frá kl 25:00 - 18:00'])).toBeNull();
   });
+  it('gives up on a day range that wraps past Sunday rather than reading it backwards', () => {
+    expect(parseHours(['Föstudagur - mánudagur kl. 12 - 18'])).toBeNull();
+  });
 });
 
 describe('weekSummary', () => {

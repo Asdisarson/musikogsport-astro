@@ -29,7 +29,12 @@ function daysOf(label: string): number[] | null {
   if (/alla daga/.test(l)) return [0, 1, 2, 3, 4, 5, 6];
   if (/virk/.test(l)) return [0, 1, 2, 3, 4];
   const named = DAY_STEMS.flatMap((stem, i) => (l.includes(stem) ? [i] : []));
-  if (named.length === 2 && /[-–]|til/.test(l)) return Array.from({ length: named[1] - named[0] + 1 }, (_, k) => named[0] + k);
+  if (named.length === 2 && /[-–]|til/.test(l)) {
+    // A range runs in the order it's written; one that wraps past Sunday (föstudagur – mánudagur) isn't read.
+    const [from, to] = named;
+    if (l.indexOf(DAY_STEMS[from]) > l.indexOf(DAY_STEMS[to])) return null;
+    return Array.from({ length: to - from + 1 }, (_, k) => from + k);
+  }
   return named.length ? named : null;
 }
 
