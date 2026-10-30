@@ -313,7 +313,8 @@
   .site-footer__menu a { color: var(--footer-meta); }
   .site-footer__menu a:hover { color: var(--footer-text); }
   .site-footer__bar { background: var(--brand); color: var(--ink); }
-  .site-footer__bar-inner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; max-width: calc(var(--maxw) + 2 * var(--gutter)); margin-inline: auto; padding: 20px var(--gutter); font-size: 12px; font-weight: 500; line-height: 16px; }
+  .site-footer__bar-inner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 32px; max-width: calc(var(--maxw) + 2 * var(--gutter)); margin-inline: auto; padding: 18px var(--gutter); font-size: 13px; font-weight: 500; line-height: 20px; }
+  .site-footer__dot { margin: 0 10px; }
   .site-footer__bar p { margin: 0; }
   .site-footer__where { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); }
   .site-footer__legal { display: flex; flex-wrap: wrap; gap: 8px 24px; list-style: none; margin: 0 0 0 auto; padding: 0; }

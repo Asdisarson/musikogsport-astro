@@ -1,12 +1,13 @@
 ---
 // Black footer: four link columns (shop sections from the main menu, the WordPress footer menu as "Hjálp",
-// "Um okkur", and the store's contact details with icons), then a full-width
-// orange bottom bar with the company line and legal links (the inner div keeps its content on the page grid while
-// the bar's background runs edge to edge).
+// "Um okkur", and the store's contact details with icons), then a full-width orange bottom bar with the company
+// line (companyParts), the legal links and the location (the inner div keeps its content on the page grid while the
+// bar's background runs edge to edge).
 // On phones each column is a <details> accordion: open by default (so it works without JS), closed by the
 // script below under 992px and kept open above it.
 import Icon from './Icon.astro';
 import type { SiteChrome } from '../lib/siteChrome';
+import { companyParts } from '../lib/companyLine';
 import { linkRel } from '../lib/safeUrl';
 
 interface Props {
@@ -22,6 +23,9 @@ const about = [
   { title: 'Um okkur', href: '/um-okkur/' },
   { title: 'Instagram', href: 'https://www.instagram.com/musikogsport/', external: true },
 ];
+// "© 2026 Músík og Sport ehf. · Kt. 710303-2310", or wp-admin's sentence as written when it doesn't read that way
+const company = companyParts(f.companyLine);
+const year = new Date().getFullYear();
 const legal = [
   { title: 'Skilmálar', href: '/skilmalar/' },
   { title: 'Persónuvernd', href: '/personuvernd/' },
@@ -78,11 +82,13 @@ const legal = [
 
   <div class="site-footer__bar">
     <div class="site-footer__bar-inner">
-      <p class="site-footer__where"><Icon name="pin" size={16} stroke-width={1.5} /> Ísland</p>
-      <p class="site-footer__company">{f.companyLine}</p>
+      <p class="site-footer__company">
+        {company ? (<>© {year} {company.name}<span class="site-footer__dot" aria-hidden="true">·</span>Kt. {company.kennitala}</>) : f.companyLine}
+      </p>
       <ul class="site-footer__legal">
         {legal.map((item) => (<li><a href={item.href}>{item.title}</a></li>))}
       </ul>
+      <p class="site-footer__where"><Icon name="pin" size={16} stroke-width={1.5} /> Ísland</p>
     </div>
   </div>
 </footer>
