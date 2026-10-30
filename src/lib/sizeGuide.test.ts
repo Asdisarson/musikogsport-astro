@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { headingKind, parseWant, pickSections, sizeChartFor, sizeIndex, transpose, wantAttr, type SizeWant } from './sizeGuide';
+import { headingKind, isShoe, parseWant, pickSections, sizeChartFor, sizeIndex, transpose, wantAttr, type SizeWant } from './sizeGuide';
 
 // The /staerdir/ WordPress page's headings, in page order (2026-10-30).
 const HEADINGS = [
@@ -196,5 +196,17 @@ describe('wantAttr / parseWant: the link attribute round trip', () => {
     expect(parseWant('karlar|nope')).toBeNull();
     expect(parseWant('hacker,karlar|efri')).toEqual({ audiences: ['karlar'], garment: 'efri' });
     expect(parseWant(undefined)).toBeNull();
+  });
+});
+
+describe('isShoe', () => {
+  it('is any product under Skór, even one also filed under clothing', () => {
+    expect(isShoe([['skor']])).toBe(true);
+    expect(isShoe([['fatnadur', 'hlaup'], ['skor', 'ithrottaskor', 'hlaupa-aefingarskor-ithrottaskor']])).toBe(true);
+  });
+  it('is not clothing, or a category that only starts with the same letters', () => {
+    expect(isShoe([['fatnadur', 'efri-likami']])).toBe(false);
+    expect(isShoe([['skorpa']])).toBe(false);
+    expect(isShoe([])).toBe(false);
   });
 });

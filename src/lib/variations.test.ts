@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { choiceHint, isSizeAttribute, optionImages, optionState, pricesVary, resolveVariation, type VariationLike } from './variations';
+import { choiceHint, isSizeAttribute, optionImages, optionState, pricesVary, resolveVariation, sortSizeOptions, type VariationLike } from './variations';
 
 const v = (id: number, attrs: Record<string, string>, stock = 'instock', price = '10000', regular = price): VariationLike => ({
   id,
@@ -217,5 +217,23 @@ describe('optionImages', () => {
   it('is null with fewer than two options', () => {
     expect(optionImages('Litur', ['Svartur'], [img(1, { Litur: 'Svartur' }, '/svartur.jpg')])).toBeNull();
     expect(optionImages('Litur', [], [])).toBeNull();
+  });
+});
+
+describe('sortSizeOptions', () => {
+  it('puts numeric sizes in ascending order', () => {
+    expect(sortSizeOptions(['46', '45', '41', '42', '42.5', '44', '44.5', '43.5'])).toEqual(['41', '42', '42.5', '43.5', '44', '44.5', '45', '46']);
+  });
+  it('reads decimal commas and thirds', () => {
+    expect(sortSizeOptions(['42 2/3', '42', '41,5', '42 1/3'])).toEqual(['41,5', '42', '42 1/3', '42 2/3']);
+  });
+  it('keeps the shop order when any size is not a number', () => {
+    expect(sortSizeOptions(['M', 'S', 'L'])).toEqual(['M', 'S', 'L']);
+    expect(sortSizeOptions(['40', 'One size'])).toEqual(['40', 'One size']);
+  });
+  it('does not change its input', () => {
+    const input = ['2', '1'];
+    sortSizeOptions(input);
+    expect(input).toEqual(['2', '1']);
   });
 });

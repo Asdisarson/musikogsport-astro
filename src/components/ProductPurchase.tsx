@@ -123,8 +123,11 @@ export default function ProductPurchase({
         main.onerror = null;
       }
     };
+    const swapped = main.src !== new URL(target.src, location.href).href;
     main.src = target.src;
     if (target.alt) main.alt = target.alt;
+    // a carousel (phones, the shoe viewer) brings a new photo into view; picking a size alone leaves it be
+    if (swapped) main.closest<HTMLElement>('[data-gallery-track]')?.scrollTo({ left: 0 });
     const tile = main.closest<HTMLElement>('[data-lightbox]');
     if (tile) {
       applyPhotoFit(tile, mainFits[target.src]);

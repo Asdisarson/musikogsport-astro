@@ -17,12 +17,12 @@ import { photoAspectOf, photoBg, photoFitOf, settlePhotos } from '../../lib/phot
 import { decodeEntities, stripShortcodes } from '../../lib/decode';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { formatSaleBadge, salePercent } from '../../lib/price';
-import { pricesVary } from '../../lib/variations';
+import { isSizeAttribute, pricesVary, sortSizeOptions } from '../../lib/variations';
 import { ld, productLd, breadcrumbList } from '../../lib/jsonld';
 import { loadCatalogTerms } from '../../lib/catalogTerms';
 import { cardCategories, categoryChain, productCrumbTrail } from '../../lib/categoryTree';
 import { categoryPath, movedCategoryTarget, productPath } from '../../lib/paths';
-import { sizeChartFor, wantAttr } from '../../lib/sizeGuide';
+import { isShoe, sizeChartFor, wantAttr } from '../../lib/sizeGuide';
 import { markUnavailable } from '../../lib/http';
 import type { PdpVariation } from '../../lib/types';
 
@@ -63,7 +63,9 @@ let variationsFailed = false;
 let variations: PdpVariation[] = [];
 
 if (product && product.type === 'variable') {
-  variationAttrs = (product.attributes ?? []).filter((a) => a.variation).map((a) => ({ name: a.name, options: a.options }));
+  variationAttrs = (product.attributes ?? [])
+    .filter((a) => a.variation)
+    .map((a) => ({ name: a.name, options: isSizeAttribute(a.name) ? sortSizeOptions(a.options) : a.options }));
   const raw = await getVariations(product.id).catch(() => {
     variationsFailed = true;
     return [];
@@ -141,7 +143,10 @@ const hasMeta = Boolean(product?.sku) || metaCats.length > 0 || metaTags.length 
 
 // "Stærðartafla" beside the size picker: the /staerdir/ charts for this product's Kyn and clothing type (lib/sizeGuide);
 // none for shoes, hats and gloves, or gear.
-const sizeWant = sizeChartFor((product?.categories ?? []).map((c) => categoryChain(terms.categories, c.id)));
+const chains = (product?.categories ?? []).map((c) => categoryChain(terms.categories, c.id));
+const sizeWant = sizeChartFor(chains);
+// shoes get nike.com's shoe gallery: one photo at a time beside the thumbnails (PdpGallery `viewer`)
+const shoe = isShoe(chains);
 
 // Under the title (SPEC § PDP, "Men's Shoes"): the card's category, then the brand ("Hlaupaskór · Hoka").
 const subtitle = product
@@ -186,7 +191,7 @@ const shareUrl = `https://www.facebook.com/sharer.php?u=${encodeURIComponent(can
 
       <div class="pdp">
         <Breadcrumbs items={crumbs} />
-        <PdpGallery images={product.images} name={name} />
+        <PdpGallery images={product.images} name={name} viewer={shoe} />
 
         <PdpRail>
           <div class="pdp-head">

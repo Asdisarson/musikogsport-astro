@@ -71,12 +71,17 @@ const BRANCHES: [RegExp, SizeWant['garment']][] = [
   [/^fatnadur$/, 'efri'],
 ];
 
+/** Whether a product is a shoe, from its categories' slug chains: any of them under Skór. A shoe is a shoe even when
+ *  it is also filed under a clothing branch (running shoes sit in Fatnaður › Hlaup too). */
+export function isShoe(chains: string[][]): boolean {
+  return chains.some((c) => c[0] === 'skor');
+}
+
 /** What size chart a product needs, from its categories' slug chains (lib/categoryTree categoryChain); null when it
  *  has none (shoes, gear, hats and gloves). /staerdir/ has no shoe chart yet. */
 export function sizeChartFor(chains: string[][]): SizeWant | null {
+  if (isShoe(chains)) return null;
   const paths = chains.map((c) => c.join('/'));
-  // a shoe is a shoe, even when it is also filed under a clothing branch (running shoes sit in Fatnaður › Hlaup)
-  if (paths.some((p) => p === 'skor' || p.startsWith('skor/'))) return null;
   const ranks = paths.filter((p) => !NO_CHART.test(p)).map((p) => BRANCHES.findIndex(([re]) => re.test(p))).filter((r) => r >= 0);
   if (!ranks.length) return null;
   const garment = BRANCHES[Math.min(...ranks)][1];

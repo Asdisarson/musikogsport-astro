@@ -75,6 +75,21 @@ export function isSizeAttribute(name: string): boolean {
   return /stærð|size/i.test(name.trim());
 }
 
+/** A size as a number ("42", "42,5", "42 2/3"), or null when it isn't one ("M", "One size"). */
+function sizeNumber(option: string): number | null {
+  const m = /^(\d+(?:[.,]\d+)?)(?:\s+(\d)\/(\d))?$/.exec(option.trim());
+  if (!m) return null;
+  return Number(m[1].replace(',', '.')) + (m[2] ? Number(m[2]) / Number(m[3]) : 0);
+}
+
+/** A size attribute's options smallest first when every one is a number (shoe sizes come in whatever order they were
+ *  added in); any other list (S/M/L, "One size") keeps the shop's own order. */
+export function sortSizeOptions(options: string[]): string[] {
+  const numbers = options.map(sizeNumber);
+  if (numbers.some((n) => n === null)) return options;
+  return options.map((o, i) => ({ o, n: numbers[i]! })).sort((a, b) => a.n - b.n).map((x) => x.o);
+}
+
 /** Colourway pictures for one attribute: each option's image from its first variation (menu order) that names the
  *  option exactly and has an image. Null unless there are two or more options and every one has its own, distinct
  *  picture — variations without a photo of their own repeat the parent's, which is no colourway. */

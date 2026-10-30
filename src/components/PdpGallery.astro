@@ -2,8 +2,10 @@
 // The product gallery (nike-look, SPEC § PDP). From 992px: a sticky column of 60×60 thumbnails beside every image
 // stacked as white tiles of the photo's own shape (lib/photoBg tileAspect; 4:5 until it's known) that scroll with the page; a thumbnail scrolls its image into view and the one in
 // view is marked. Below 992px the same track is a full-bleed swipe carousel of 4:5 slides with a "1 / N" counter. Every image
-// opens the lightbox. The first image is #pdp-main so the purchase island can swap in a variation's photo; it gets
+// opens the lightbox. `viewer` (shoes, as on nike.com) keeps the carousel on a desktop too: one 4:5 photo at a time beside
+// the thumbnails, which pick it (click or hover), with ‹ › in its corner. The first image is #pdp-main so the purchase island can swap in a variation's photo; it gets
 // no srcset, because the island swaps it by setting `src`, which a srcset would override.
+import Icon from './Icon.astro';
 import ProductImage from './ProductImage.astro';
 import { mediaSrcset, mediaUrl, PLACEHOLDER } from '../lib/img';
 import { subSizeAspect, TILE_ASPECT } from '../lib/photoBg';
@@ -13,8 +15,10 @@ import type { WooImage } from '../lib/types';
 interface Props {
   images: WooImage[];
   name: string;
+  /** One photo at a time on a desktop too (shoes). */
+  viewer?: boolean;
 }
-const { images, name } = Astro.props;
+const { images, name, viewer = false } = Astro.props;
 const SIZES = '(min-width: 1200px) 532px, (min-width: 992px) 45vw, 100vw';
 const slides = images.length
   ? images.map((im) => ({
@@ -32,14 +36,14 @@ const slides = images.length
 await settlePhotos(slides, 800);
 const bgs = slides.map((im) => {
   const attrs = photoFitFor(im.src, im.srcset, TILE_ASPECT.gallery);
-  const aspect = photoAspectOf(im.src, im.srcset);
+  const aspect = viewer ? null : photoAspectOf(im.src, im.srcset); // the viewer's tiles are all 4:5
   return aspect === null ? attrs : { ...attrs, style: [attrs.style, `--tile-aspect:${aspect}`].filter(Boolean).join(';') };
 });
 const thumbBgs = slides.map((im) => photoFitFor(im.src, im.srcset, TILE_ASPECT.thumb, subSizeAspect(im.thumb)));
 const many = slides.length > 1;
 ---
 
-<div class:list={['pdp-gallery', many && 'pdp-gallery--many']} data-gallery>
+<div class:list={['pdp-gallery', many && 'pdp-gallery--many', viewer && 'pdp-gallery--viewer']} data-gallery data-gallery-viewer={viewer ? '' : undefined}>
   {
     many && (
       <div class="pdp-thumbs" data-gallery-thumbs>
@@ -70,6 +74,18 @@ const many = slides.length > 1;
         ))
       }
     </div>
+    {
+      many && viewer && (
+        <div class="pdp-gallery__steps">
+          <button class="round-btn" type="button" data-gallery-step="-1" aria-label="Fyrri mynd">
+            <Icon name="chevron-left" size={24} stroke-width={1.5} />
+          </button>
+          <button class="round-btn" type="button" data-gallery-step="1" aria-label="Næsta mynd">
+            <Icon name="chevron-right" size={24} stroke-width={1.5} />
+          </button>
+        </div>
+      )
+    }
     {
       many && (
         <p class="pdp-gallery__count" aria-hidden="true">
@@ -113,6 +129,8 @@ const many = slides.length > 1;
     const big = root.querySelector<HTMLImageElement>('[data-lightbox-img]')!;
     const count = root.querySelector<HTMLElement>('[data-lightbox-count]')!;
     const imgs = () => [...track.querySelectorAll<HTMLImageElement>('img')];
+    const isViewer = root.hasAttribute('data-gallery-viewer');
+    const behavior = (): ScrollBehavior => (reduceMotion.matches ? 'auto' : 'smooth');
     let index = 0;
 
     const show = (i: number) => {
@@ -129,9 +147,12 @@ const many = slides.length > 1;
       const t = e.target as HTMLElement;
       const thumb = t.closest<HTMLElement>('[data-thumb]');
       if (thumb) {
-        items[Number(thumb.dataset.thumb)]?.scrollIntoView({ behavior: reduceMotion.matches ? 'auto' : 'smooth', block: 'start' });
+        if (isViewer) slideTo(Number(thumb.dataset.thumb));
+        else items[Number(thumb.dataset.thumb)]?.scrollIntoView({ behavior: behavior(), block: 'start' });
         return;
       }
+      const slide = t.closest<HTMLElement>('[data-gallery-step]');
+      if (slide) return slideTo((current + Number(slide.dataset.galleryStep) + items.length) % items.length);
       const open = t.closest<HTMLElement>('[data-lightbox]');
       if (open) {
         e.preventDefault();
@@ -148,17 +169,28 @@ const many = slides.length > 1;
       if (e.key === 'ArrowLeft') show(index - 1);
     });
 
+    // The viewer (and the phone carousel): show slide i by scrolling the track sideways, never the page.
+    // `heading`: the slide a scroll from here is still on its way to; the slides it passes aren't marked, so a second
+    // ‹ › steps on from the target, not from wherever the scroll is
+    let heading: number | null = null;
+    function slideTo(i: number, smooth = true, reveal = true) {
+      mark(i, reveal);
+      heading = i;
+      track.scrollTo({ left: i * track.clientWidth, behavior: smooth ? behavior() : 'auto' });
+    }
+
     if (items.length < 2) return;
 
     // Desktop: mark the thumbnail of the image most in view, and keep it visible inside its own (scrolling) column
     // by moving that column only — never the page.
     let current = 0;
-    const mark = (i: number) => {
+    // `reveal`: also scroll the thumbnail column to it (not on hover: the column would move under the pointer)
+    const mark = (i: number, reveal = true) => {
       if (i === current) return;
       current = i;
       thumbs.forEach((b, j) => (j === i ? b.setAttribute('aria-current', 'true') : b.removeAttribute('aria-current')));
       const b = thumbs[i];
-      if (thumbCol && b) {
+      if (thumbCol && b && reveal) {
         // the column's padding (room for the focus ring) stays in view with the thumb
         const pad = parseFloat(getComputedStyle(thumbCol).paddingTop) || 0;
         const top = b.offsetTop - pad;
@@ -169,7 +201,7 @@ const many = slides.length > 1;
     };
     let queued = false;
     const onPageScroll = () => {
-      if (queued || !desktop.matches) return;
+      if (queued || !desktop.matches || isViewer) return;
       queued = true;
       requestAnimationFrame(() => {
         queued = false;
@@ -188,13 +220,26 @@ const many = slides.length > 1;
     };
     window.addEventListener('scroll', onPageScroll, { passive: true });
 
-    // Phones: the carousel's "1 / N".
+    // The carousel's "1 / N" (phones), and in the viewer the thumbnail of the photo in view.
     track.addEventListener(
       'scroll',
       () => {
-        if (counter) counter.textContent = String(Math.round(track.scrollLeft / Math.max(1, track.clientWidth)) + 1);
+        const at = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+        if (counter) counter.textContent = String(at + 1);
+        if (!isViewer) return;
+        if (heading === null) mark(Math.min(at, items.length - 1));
+        else if (at === heading) heading = null;
       },
       { passive: true },
     );
+    // nike.com's shoe thumbnails show their photo on hover
+    if (isViewer) {
+      thumbs.forEach((b, i) => b.addEventListener('mouseenter', () => desktop.matches && slideTo(i, false, false)));
+      // a scroll that ends short of its target (the user swiped on) lets go of it
+      track.addEventListener('scrollend', () => {
+        heading = null;
+        mark(Math.min(Math.round(track.scrollLeft / Math.max(1, track.clientWidth)), items.length - 1));
+      });
+    }
   });
 </script>

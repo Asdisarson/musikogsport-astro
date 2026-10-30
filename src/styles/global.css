@@ -787,6 +787,16 @@
   .pdp-gallery__item img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   :is(.pdp-gallery__item, .pdp-thumb) img[src$='/placeholder.svg'] { object-fit: cover; mix-blend-mode: normal; }
   .pdp-gallery__count { display: none; }
+  /* The shoe viewer (PdpGallery `viewer`, as nike.com's shoes): one 4:5 photo at a time, ‹ › in its corner */
+  .pdp-gallery--viewer .pdp-gallery__track { display: flex; gap: 0; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .pdp-gallery--viewer .pdp-gallery__track::-webkit-scrollbar { display: none; }
+  .pdp-gallery--viewer .pdp-gallery__item { flex: 0 0 100%; scroll-snap-align: start; }
+  .pdp-gallery--viewer .pdp-gallery__item a { aspect-ratio: 4 / 5; }
+  .pdp-gallery--viewer .pdp-gallery__item a:focus-visible { outline-offset: -3px; }   /* the track clips an outside ring */
+  .pdp-gallery__steps { position: absolute; right: 24px; bottom: 24px; display: flex; gap: 8px; }
+  .pdp-gallery__steps .round-btn { width: 36px; height: 36px; background: #fff; box-shadow: 0 0 0 1px var(--line); }
+  .pdp-gallery__steps .round-btn:hover { background: var(--line); }
+  .pdp-gallery__steps .round-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
   .pdp-rail { position: sticky; top: var(--rail-top, calc(var(--header-h) + 24px)); min-width: 0; padding-bottom: 48px; }
   .pdp-head { margin-bottom: 32px; }
@@ -977,6 +987,7 @@
     .pdp-gallery__item { flex: 0 0 100%; scroll-snap-align: start; }
     .pdp-gallery__item a { aspect-ratio: 4 / 5; }   /* the swipe carousel keeps one height */
     .pdp-gallery__item a:focus-visible { outline-offset: -3px; }   /* the track clips an outside ring */
+    .pdp-gallery__steps { display: none; }   /* phones swipe */
     .pdp-gallery__count { display: block; position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); margin: 0; padding: 2px 12px; border-radius: 12px; background: var(--paper); color: var(--ink); font-size: 14px; line-height: 20px; font-variant-numeric: tabular-nums; pointer-events: none; }
     .pdp-rail { position: static; padding-bottom: 0; }
     .pdp-related { margin: 48px 0; }
