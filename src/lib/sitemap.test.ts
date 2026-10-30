@@ -10,7 +10,7 @@ describe('sitemap.xml', () => {
   it('lists the about and privacy pages with the other static pages, and no cart/checkout/account URL', async () => {
     const res = await GET({ site: new URL('https://musikogsport.is') } as never);
     const locs = [...(await (res as Response).text()).matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => new URL(m[1]).pathname);
-    for (const p of ['/', '/verslun/', '/um-okkur/', '/personuvernd/', '/hafa-samband/', '/skilmalar/']) expect(locs).toContain(p);
+    for (const p of ['/', '/verslun/', '/personuvernd/', '/hafa-samband/', '/skilmalar/']) expect(locs).toContain(p);
     for (const p of ['/karfa/', '/gera-upp/', '/min-sida/', '/oskalisti/']) expect(locs).not.toContain(p);
   });
 });

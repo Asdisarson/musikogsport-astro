@@ -301,7 +301,7 @@
   /* footer: black, four 14px text columns, then a full-width logo-orange 12px bottom bar; phones: <details> accordions.
      Columns and bar content sit on the same grid as .container (max-width + gutter inside). */
   .site-footer { margin-top: 80px; background: var(--footer-bg); color: var(--footer-text); font-size: 14px; line-height: 20px; }
-  .site-footer__cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 32px; max-width: calc(var(--maxw) + 2 * var(--gutter)); margin-inline: auto; padding: 64px var(--gutter) 72px; }
+  .site-footer__cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; max-width: calc(var(--maxw) + 2 * var(--gutter)); margin-inline: auto; padding: 64px var(--gutter) 72px; }
   .site-footer__contact li { display: flex; align-items: flex-start; gap: 10px; }
   .site-footer__contact svg { flex: none; margin-top: 1px; color: var(--footer-text); }
   .site-footer__cols :focus-visible { outline-color: var(--footer-text); }   /* the ink ring would vanish on black */
@@ -1476,39 +1476,6 @@
   .page-head { padding: 48px 0 24px; }
   .page-head--center { text-align: center; }
   .page-head > p:not(.eyebrow) { max-width: 60ch; margin: 16px auto 0; }
-  /* Um okkur (pages/um-okkur): two highlight cards, the story beside the brand links, a visit card with the hours */
-  .about { padding-bottom: 32px; }
-  .about__highlights { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 24px 0 0; padding: 0; list-style: none; }
-  .about-card { padding: 32px 28px; border-radius: 16px; background: var(--surface); }
-  .about-card__icon { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 20px; border-radius: 50%; background: var(--paper); color: var(--ink); }
-  .about-card__title { margin: 0 0 8px; font-size: 20px; font-weight: 500; line-height: 28px; }
-  .about-card__text { margin: 0; color: var(--meta); font-size: 16px; line-height: 24px; }
-  .about__story { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 64px; align-items: start; margin-top: 64px; }
-  .about__story .prose { max-width: none; margin: 0; }
-  .about__story .prose h2:first-child { margin-top: 0; font-family: var(--font-display); font-stretch: var(--display-stretch); font-size: 32px; font-weight: 600; line-height: 1; text-transform: uppercase; }
-  .about__brands { position: sticky; top: calc(var(--header-h) + 24px); padding: 28px; border: 1px solid var(--rule); border-radius: 16px; }
-  .about__brands-title { margin: 0 0 8px; font-size: 18px; font-weight: 500; line-height: 26px; }
-  .about__brands ul { margin: 0; padding: 0; list-style: none; }
-  .about__brands li + li { border-top: 1px solid var(--rule); }
-  .about__brands a { display: flex; align-items: center; justify-content: space-between; min-height: 52px; color: var(--ink); font-size: 16px; font-weight: 500; }
-  .about__brands a:hover { text-decoration: underline; text-underline-offset: 4px; }
-  .about__visit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px 64px; align-items: center; margin-top: 64px; padding: 40px; border-radius: 16px; background: var(--surface); }
-  .about__visit-title { margin: 0 0 16px; font-family: var(--font-display); font-stretch: var(--display-stretch); font-size: 32px; font-weight: 600; line-height: 1; text-transform: uppercase; }
-  .about__address { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 24px; font-size: 16px; line-height: 24px; white-space: pre-line; }
-  .about__address svg { flex: none; margin-top: 2px; }
-  .about__actions { display: flex; flex-wrap: wrap; gap: 12px; }
-  .about__hours .open-status { margin-bottom: 16px; background: var(--paper); }
-  .about__hours dl { margin: 0; font-size: 16px; line-height: 24px; }
-  .about__hours dl div { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
-  .about__hours dl div:last-child { border-bottom: 0; }
-  .about__hours dt { color: var(--meta); }
-  .about__hours dd { margin: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  @media (max-width: 991px) {
-    .about__highlights { grid-template-columns: minmax(0, 1fr); }
-    .about__story { grid-template-columns: minmax(0, 1fr); gap: 32px; margin-top: 48px; }
-    .about__brands { position: static; }
-    .about__visit { grid-template-columns: minmax(0, 1fr); margin-top: 48px; padding: 28px 24px; }
-  }
   .prose { max-width: 760px; margin-inline: auto; line-height: 1.75; }
   .prose a:not(.btn) { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
   .prose h2 { margin: 1.6em 0 0.5em; font-size: 20px; font-weight: 500; line-height: 28px; }

@@ -8,7 +8,7 @@ export const prerender = false;
 
 // Static, indexable routes in live's URL shape (cart/checkout/account/wishlist/api excluded;
 // search result pages are Disallowed in robots.txt, so they are not listed either).
-const STATIC_PATHS = ['/', '/verslun/', '/um-okkur/', '/hafa-samband/', '/skilmalar/', '/opnunartimi/', '/staerdir/', '/personuvernd/'];
+const STATIC_PATHS = ['/', '/verslun/', '/hafa-samband/', '/skilmalar/', '/opnunartimi/', '/staerdir/', '/personuvernd/'];
 
 function escapeXml(s: string): string {
   return s.replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' })[c]!);
