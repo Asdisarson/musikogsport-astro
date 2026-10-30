@@ -106,6 +106,12 @@ services:
         value: info
         scope: RUN_TIME
       # --- build time: astro:env public vars are inlined into the bundle; changing one needs a rebuild ---
+      # Secret, value set in the control panel (`npx astro create-key`), kept across builds: the key server-island
+      # props are encrypted with (the product page's related products). Unset, each build makes a new one and product
+      # pages opened before a deploy lose their related row.
+      - key: ASTRO_KEY
+        type: SECRET
+        scope: BUILD_TIME
       # The build itself calls WordPress (prerendered pages render the site menus), so it must be reachable.
       - key: WP_INTERNAL_URL
         value: https://wp.example.invalid # PLACEHOLDER: the WordPress origin (https), no trailing slash

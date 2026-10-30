@@ -37,6 +37,7 @@ proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
 | `MOS_TRUSTED_PROXY_HOPS` | build time | How many proxies in front of Node append to `X-Forwarded-For`. Default `1`, the TLS proxy above; add one per extra layer (e.g. a CDN in front of nginx). Never expose Node directly with `1`: a client could then pick its own rate-limit key. `0` is only for Node facing visitors directly: the socket address is the key, and any request carrying `X-Forwarded-For` goes into one shared bucket. Behind a proxy, `0` makes every visitor share one limit. |
 | `MOS_CLIENT_IP_HEADER` | build time | Optional. A header the hosting edge sets to the visitor's IP; when present it is the rate-limit key and `MOS_TRUSTED_PROXY_HOPS` is only the fallback. Leave unset behind nginx; App Platform: `do-connecting-ip`. |
 | `MOS_EXTRA_ALLOWED_HOSTS` | build time | Optional, comma-separated exact hostnames added to `security.allowedDomains` (`src/lib/allowedHosts.mjs`), e.g. a staging host. No wildcards. |
+| `ASTRO_KEY` | build time | Set it in production (a secret): the key Astro encrypts server-island props with (the product page's related products, `server:defer`). Unset, every build makes a new one, so a product page opened before a deploy loses its related row (the island request fails after it). Make one with `npx astro create-key` and keep it across builds. |
 | `HOST`, `PORT` | runtime | Own server: leave `HOST` unset (the build's default bind is `127.0.0.1`): Node must only be reachable through the proxy; with `MOS_TRUSTED_PROXY_HOPS=1` a directly reachable Node lets a client choose its own rate-limit key. `PORT` defaults to 4321. App Platform: `HOST=0.0.0.0`, `PORT=8080` (the container is reachable only through DO's ingress). |
 | `WOOCOMMERCE_CONSUMER_KEY`, `WOOCOMMERCE_CONSUMER_SECRET` | runtime only | Secrets: pass them to the Node process (`node --env-file=.env server.mjs`). `lib/woo` reads them when it makes a request, so `npm run build` needs neither (checked with a clean `npm ci && npm run build` without them). Without them every WooCommerce REST call fails (product pages, wishlist, receipts). |
 | `MOS_HSTS` | runtime | `1` sends `Strict-Transport-Security: max-age=31536000; includeSubDomains` (no preload). Off by default: turn it on only once DNS and TLS on the apex are settled. |
@@ -140,6 +141,7 @@ rebuild).
 | `WOOCOMMERCE_CONSUMER_SECRET` | RUN_TIME | yes | `cs_…` of the same key |
 | `MOS_HSTS` | RUN_TIME | no | `0`; `1` after cutover once DNS and TLS on `musikogsport.is` are settled |
 | `MOS_LOG_LEVEL` | RUN_TIME | no | `info` |
+| `ASTRO_KEY` | BUILD_TIME | yes | output of `npx astro create-key`, kept across builds (server-island props, see [Environment](#environment)) |
 | `WP_INTERNAL_URL` | BUILD_TIME | no | WordPress origin, e.g. `https://wp.example.is` (placeholder in the spec) |
 | `MOS_MEDIA_BASE_URL` | RUN_AND_BUILD_TIME | no | WordPress's public origin, where its media is served (placeholder in the spec; usually the same as `WP_INTERNAL_URL` when that is the public `https://wp.…` host). `photoBg` samples product photos from this host only. |
 | `MOS_CLIENT_IP_HEADER` | BUILD_TIME | no | `do-connecting-ip` |
@@ -239,7 +241,8 @@ without). One source: `src/lib/securityHeaders.mjs`.
 **The CSP is report-only: it blocks nothing.** Browsers log what it would block in the console (there is no
 `report-uri` endpoint, so nothing is collected server-side). Known reports, by design:
 
-- Every executable inline `<script>`: Astro's island bootstrap (3 per page), Astro's hoisted component scripts
+- Every executable inline `<script>`: Astro's island bootstrap (3 per page), the server-island loader on product
+  pages (it fetches `/_server-islands/RelatedProducts`) and the carousel script that comes back with it, Astro's hoisted component scripts
   (inlined when small: header, footer, login popup, hero, notices…), the theme script in `Base.astro`, and the
   thank-you page's `define:vars` poll (its content changes per order, so it can never be hashed as is).
 - The `onerror` attribute on product images (`ProductImage.astro`), once per image.

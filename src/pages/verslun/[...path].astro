@@ -10,7 +10,7 @@ import ProductPurchase from '../../components/ProductPurchase.tsx';
 import RelatedProducts from '../../components/RelatedProducts.astro';
 import Icon from '../../components/Icon.astro';
 import { productSubtitle } from '../../lib/productCard';
-import { getProductBySlug, getVariations, getProductsByIds } from '../../lib/woo';
+import { getProductBySlug, getVariations } from '../../lib/woo';
 import { productImage, mediaSrcset, mediaUrl } from '../../lib/img';
 import { TILE_ASPECT, type PhotoFit } from '../../lib/photoBg';
 import { photoBg, photoFitOf } from '../../lib/photoBgServer';
@@ -80,10 +80,9 @@ if (product && product.type === 'variable') {
   }));
 }
 
-// "Tengdar vörur": live shows five. Exclude self BEFORE the fetch caps the count, so a
-// self-referential related_id can't consume a slot.
+// "Tengdar vörur" (live shows five): fetched in its own server island (RelatedProducts), after the page is sent.
+// Exclude self here, before the island's fetch caps the count.
 const relatedIds = (product?.related_ids ?? []).filter((id) => id !== product?.id);
-const related = product && relatedIds.length ? await getProductsByIds(relatedIds, 5).catch(() => []) : [];
 
 const name = product ? decodeEntities(product.name) : '';
 const img = product ? productImage(product) : { src: '', alt: '' };
@@ -296,7 +295,7 @@ const shareUrl = `https://www.facebook.com/sharer.php?u=${encodeURIComponent(can
       </div>
 
       <SizeGuide />
-      <RelatedProducts products={related} />
+      {relatedIds.length > 0 && <RelatedProducts server:defer ids={relatedIds} />}
     </Base>
   ) : (
     <Base title={down ? 'Tímabundin bilun' : 'Vara fannst ekki'}>

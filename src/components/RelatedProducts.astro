@@ -2,13 +2,19 @@
 // The product page's related products (live: "Tengdar vörur", five of them) as the home tile carousel:
 // "Þér gæti líkað" in the uppercase display face, round arrows top-right, square #F5F5F5 tiles from the page gutter
 // bleeding off the right edge. The wrapper sets the --edge the home rows read (.home sets it on the home page).
-import type { WooProduct } from '../lib/types';
+// A server island (`server:defer` on the product page): the uncached product lookup runs after the page has been
+// sent, not before it. ProductRow's carousel script comes back with the island HTML, and Astro's island loader
+// inserts it with createContextualFragment, which runs it.
+import { getProductsByIds } from '../lib/woo';
 import ProductRow from './ProductRow.astro';
 
 interface Props {
-  products: WooProduct[];
+  /** related_ids without the product itself, so a self-referential one can't consume one of the five slots. */
+  ids: number[];
 }
-const { products } = Astro.props;
+const { ids } = Astro.props;
+// A failed lookup shows no row, as before the island.
+const products = await getProductsByIds(ids, 5).catch(() => []);
 ---
 
 {
