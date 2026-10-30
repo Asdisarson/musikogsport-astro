@@ -50,8 +50,8 @@
     --field-h: 48px;           /* text inputs */
     --radius-pill: 30px;
     --radius-size: 4px;        /* size buttons, text inputs */
-    --radius-photo: 8px;       /* product photos: gallery tiles, cards (nike.com's PDP photo) */
-    --radius-photo-sm: 4px;    /* small product photos: thumbnails, colour swatches, cart lines */
+    --radius-photo: 8px;       /* the product page's photos: gallery tiles, its related cards (nike.com's PDP) */
+    --radius-photo-sm: 4px;    /* the product page's small photos: thumbnails, colour swatches */
 
     --font: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
     --font-display: 'Archivo Variable', 'Archivo', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
@@ -402,7 +402,8 @@
      --photo-fill-a / -b, a flat colour or a gradient each, on a half-tile layer that the photo covers in the middle.
      A white side or a see-through photo gets no fill: the page shows (owner, 2026-10-27). A photo with no matchable
      side zooms to fill instead (data-photo-fill='zoom', owner 2026-10-28). */
-  .product-card__media { position: relative; display: block; aspect-ratio: 1; overflow: hidden; border-radius: var(--radius-photo); background: none; }
+  .product-card__media { position: relative; display: block; aspect-ratio: 1; overflow: hidden; background: none; }
+  .pdp-related .product-card__media { border-radius: var(--radius-photo); }   /* rounded on the product page only */
   .product-card__media[data-photo-fill='y'] { background: var(--photo-fill-a) left / 50% 100% no-repeat, var(--photo-fill-b) right / 50% 100% no-repeat; }
   .product-card__media[data-photo-fill='x'] { background: var(--photo-fill-a) top / 100% 50% no-repeat, var(--photo-fill-b) bottom / 100% 50% no-repeat; }
   .product-card__media img { width: 100%; height: 100%; object-fit: contain; object-position: 50% 50%; padding: 0; mix-blend-mode: normal; }
@@ -1051,7 +1052,7 @@
   .side-cart__items { list-style: none; margin: 0; padding: 0; }
   .side-cart__item { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; padding: 20px 0; border-bottom: 1px solid var(--rule); }
   .side-cart__item:first-child { padding-top: 4px; }
-  .side-cart__thumb { display: block; width: 96px; aspect-ratio: 1; overflow: hidden; border-radius: var(--radius-photo-sm); background: var(--surface); }
+  .side-cart__thumb { display: block; width: 96px; aspect-ratio: 1; background: var(--surface); }
   .side-cart__thumb img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   .side-cart__details { position: relative; min-width: 0; padding-right: 40px; }
   .side-cart__name { display: block; font-size: 16px; font-weight: 500; line-height: 24px; color: var(--ink); }
@@ -1084,7 +1085,7 @@
      pill and the trash button */
   .cart-line { display: grid; grid-template-columns: 150px max-content minmax(0, 1fr) max-content; grid-template-rows: auto 1fr; grid-template-areas: 'thumb name name total' 'thumb qty remove .'; column-gap: 16px; padding: 24px 0; border-bottom: 1px solid var(--rule); }
   .cart-line:first-child { padding-top: 0; }
-  .cart-line__thumb { grid-area: thumb; display: block; width: 150px; aspect-ratio: 1; overflow: hidden; border-radius: var(--radius-photo); background: var(--surface); }
+  .cart-line__thumb { grid-area: thumb; display: block; width: 150px; aspect-ratio: 1; background: var(--surface); }
   .cart-line__thumb img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   .cart-line__name { grid-area: name; display: flex; flex-direction: column; min-width: 0; font-size: 16px; font-weight: 500; line-height: 24px; color: var(--ink); }
   .cart-line__name a { color: var(--ink); }
@@ -1200,7 +1201,7 @@
   .review-table tbody td:last-child, .review-table tfoot td { text-align: right; white-space: nowrap; }
   .review-table__item td:first-child { width: 100%; }   /* the product name takes the room, not the price */
   .review-table__product { display: flex; align-items: flex-start; gap: 16px; }
-  .review-table__thumb { flex: none; width: 80px; aspect-ratio: 1; overflow: hidden; border-radius: var(--radius-photo-sm); background: var(--surface); }
+  .review-table__thumb { flex: none; width: 80px; aspect-ratio: 1; background: var(--surface); }
   .review-table__thumb img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   .review-table__name { min-width: 0; font-weight: 500; }
   .review-table__meta { display: block; font-weight: 400; color: var(--meta); }
