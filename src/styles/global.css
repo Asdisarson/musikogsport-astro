@@ -290,7 +290,6 @@
   .site-footer__brand { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; padding-right: 24px; }
   .site-footer__logo { display: block; padding: 10px 14px; border-radius: 12px; background: #fff; }
   .site-footer__logo img { display: block; width: 112px; height: auto; }
-  .site-footer__about { margin: 4px 0 0; max-width: 28ch; color: var(--footer-text); font-size: 16px; line-height: 24px; }
   .site-footer__hours { display: inline-flex; align-items: flex-start; gap: 10px; color: var(--footer-meta); font-weight: 500; }
   .site-footer__hours svg { flex: none; margin-top: 1px; }
   .site-footer__hours:hover { color: var(--footer-text); }
@@ -301,7 +300,6 @@
   @media (min-width: 992px) and (max-width: 1199px) {
     .site-footer__cols { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .site-footer__brand { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 16px 32px; padding: 0 0 32px; border-bottom: 1px solid var(--footer-line); }
-    .site-footer__about { margin: 0; }
   }
   .site-footer__cols :focus-visible { outline-color: var(--footer-text); }   /* the ink ring would vanish on black */
   .site-footer__title { display: flex; align-items: center; justify-content: space-between; margin: 0 0 24px; list-style: none; color: var(--footer-text); font-size: 14px; font-weight: 500; line-height: 20px; cursor: default; }
