@@ -796,6 +796,10 @@
   .pdp-gallery--viewer .pdp-gallery__item { flex: 0 0 100%; scroll-snap-align: start; }
   .pdp-gallery--viewer .pdp-gallery__item a { aspect-ratio: 4 / 5; }
   .pdp-gallery--viewer .pdp-gallery__item a:focus-visible { outline-offset: -3px; }   /* the track clips an outside ring */
+  /* the viewer stays in view while the product info scrolls past (as nike.com's), when the window fits it whole */
+  @media (min-width: 992px) and (min-height: 780px) {
+    .pdp-gallery--viewer { position: sticky; top: calc(var(--header-h) + 24px); }
+  }
   .pdp-gallery__steps { position: absolute; right: 24px; bottom: 24px; display: flex; gap: 8px; }
   .pdp-gallery__steps .round-btn { width: 36px; height: 36px; background: #fff; box-shadow: 0 0 0 1px var(--line); }
   .pdp-gallery__steps .round-btn:hover { background: var(--line); }
