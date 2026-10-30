@@ -1476,9 +1476,9 @@
   .page-head { padding: 48px 0 24px; }
   .page-head--center { text-align: center; }
   .page-head > p:not(.eyebrow) { max-width: 60ch; margin: 16px auto 0; }
-  /* Um okkur (pages/um-okkur): three highlight cards, the story beside the brand links, a visit card with the hours */
+  /* Um okkur (pages/um-okkur): two highlight cards, the story beside the brand links, a visit card with the hours */
   .about { padding-bottom: 32px; }
-  .about__highlights { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 24px 0 0; padding: 0; list-style: none; }
+  .about__highlights { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 24px 0 0; padding: 0; list-style: none; }
   .about-card { padding: 32px 28px; border-radius: 16px; background: var(--surface); }
   .about-card__icon { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 20px; border-radius: 50%; background: var(--paper); color: var(--ink); }
   .about-card__title { margin: 0 0 8px; font-size: 20px; font-weight: 500; line-height: 28px; }

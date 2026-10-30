@@ -1,5 +1,5 @@
 ---
-// Um okkur: the shop's story (written here, not in wp-admin) under a heading, three highlights drawn from it, the
+// Um okkur: the shop's story (written here, not in wp-admin) under a heading, two highlights drawn from it, the
 // brands it names as links, then a visit card — the footer's address and directions (wp-admin) and the Opnunartími
 // page's hours (lib/openingHours) with the live open/closed pill. Rendered per request so those follow wp-admin; a
 // missing hours page just leaves the hours out.
@@ -19,7 +19,6 @@ const contact = chrome.footer;
 const highlights = [
   { icon: 'spark', title: 'Yfir 30 ár', text: 'Íslensk íþróttaverslun með yfir 30 ára reynslu af vönduðum íþrótta- og útivistarvörum.' },
   { icon: 'user', title: 'Fagleg ráðgjöf', text: 'Reynt íþróttafólk sem þekkir vörurnar af eigin raun og finnur réttu lausnina fyrir þig.' },
-  { icon: 'bag', title: 'Vefverslun allan sólarhringinn', text: 'Komdu í verslunina að Dalshraun 10 í Hafnarfirði eða verslaðu á netinu hvenær sem er.' },
 ] as const;
 const brands = [
   { name: 'ASICS', href: '/brand/asics/' },
@@ -71,7 +70,7 @@ const brands = [
           að þú farir heim með rétta búnaðinn og góða ráðgjöf í farteskinu.
         </p>
         <p>
-          Þú finnur okkur að Dalshraun 10 í Hafnarfirði og í vefverslun allan sólarhringinn. Velkomin/n í Músík og Sport.
+          Þú finnur okkur að Dalshraun 10 í Hafnarfirði. Velkomin/n í Músík og Sport.
         </p>
         <p>
           <a class="btn btn--accent" href="/verslun/">Skoða vörur <Icon name="arrow-right" size={16} /></a>
