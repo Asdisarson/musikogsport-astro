@@ -280,7 +280,13 @@ const websiteLd = {
                 el.style.setProperty('--reveal-i', String(Math.min(i, 5)));
                 el.classList.add('is-in');
                 io.unobserve(el);
-                el.addEventListener('transitionend', () => el.classList.remove('reveal', 'is-in'), { once: true });
+                // only the card's own rise ends it; a child's hover transition bubbles here too
+                const done = (ev: TransitionEvent) => {
+                  if (ev.target !== el) return;
+                  el.removeEventListener('transitionend', done);
+                  el.classList.remove('reveal', 'is-in');
+                };
+                el.addEventListener('transitionend', done);
               });
           },
           { rootMargin: '0px 0px -40px 0px' },
@@ -296,7 +302,10 @@ const websiteLd = {
           });
         scan(document);
         new MutationObserver((records) => {
-          for (const r of records) r.addedNodes.forEach((n) => n instanceof HTMLElement && scan(n.parentNode ?? n));
+          // one scan per parent, however many nodes a batch added under it
+          const roots = new Set<ParentNode>();
+          for (const r of records) r.addedNodes.forEach((n) => n instanceof HTMLElement && roots.add(n.parentNode ?? n));
+          roots.forEach(scan);
         }).observe(document.body, { childList: true, subtree: true });
       }
 
