@@ -1347,6 +1347,35 @@
      32px on phones), a 760px reading column, 20/500 section headings; WPBakery rows keep their 12-column grid inside
      the page gutter */
   .page-header { padding: 48px var(--gutter) 0; text-align: center; }
+  /* Opnunartími (pages/opnunartimi): today's status as a pill, the week as ruled rows (today in bold), then where we are */
+  .hours { max-width: calc(640px + 2 * var(--gutter)); margin: 0 auto; padding: 48px var(--gutter) 96px; }
+  .hours__head { display: flex; flex-direction: column; align-items: center; gap: 20px; text-align: center; }
+  .hours__status { display: inline-flex; align-items: center; gap: 10px; min-height: 40px; margin: 0; padding: 0 18px; border-radius: var(--radius-pill); background: var(--surface); color: var(--ink); font-size: 16px; font-weight: 500; line-height: 24px; }
+  .hours__status[hidden] { display: none; }
+  .hours__dot { width: 10px; height: 10px; border-radius: 50%; background: var(--meta); }
+  .hours__status.is-open .hours__dot { background: var(--good); box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 20%, transparent); }
+  .hours__week { margin: 40px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
+  .hours__day { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 0 4px; border-bottom: 1px solid var(--rule); font-size: 18px; line-height: 28px; color: var(--ink); }
+  .hours__name { display: inline-flex; align-items: center; gap: 12px; }
+  .hours__time { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .hours__day--closed .hours__time { color: var(--meta); }
+  .hours__day.is-today { font-weight: 600; }
+  .hours__today { padding: 2px 10px; border-radius: var(--radius-pill); background: var(--ink); color: var(--paper); font-size: 12px; font-weight: 500; line-height: 20px; }
+  .hours__today[hidden] { display: none; }
+  .hours .wp-page { text-align: center; }
+  .hours__visit { margin-top: 64px; padding: 32px; border-radius: 16px; background: var(--surface); }
+  .hours__visit-title { margin: 0 0 20px; font-size: 20px; font-weight: 500; line-height: 28px; }
+  .hours__contact { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; font-size: 16px; line-height: 24px; }
+  .hours__contact li { display: flex; align-items: flex-start; gap: 12px; }
+  .hours__contact svg { flex: none; margin-top: 2px; }
+  .hours__contact a { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+  .hours__address { white-space: pre-line; }
+  .hours__directions { margin-top: 24px; }
+  @media (max-width: 599px) {
+    .hours { padding-top: 32px; }
+    .hours__day { min-height: 56px; font-size: 16px; }
+    .hours__visit { padding: 24px; }
+  }
   :is(.page-title, .page-head h1) { margin: 0; font-family: var(--font-display); font-stretch: var(--display-stretch); font-weight: 600; font-size: 40px; line-height: 1; text-transform: uppercase; overflow-wrap: anywhere; hyphens: auto; text-wrap: balance; }
   .wp-page { padding-top: 48px; }
   .vc-row { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: 24px; }

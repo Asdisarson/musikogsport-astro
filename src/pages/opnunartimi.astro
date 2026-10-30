@@ -1,0 +1,119 @@
+---
+// Opnunartími: the WordPress page's hours (still edited in wp-admin) as a week, Monday first, with today marked and
+// "Opið núna · lokar kl. 18:00" on top (worked out in the browser, so a cached page is never stale), then where the
+// shop is (the footer's address, directions, phone and email from wp-admin). When the page text can't be read as
+// hours (lib/openingHours parseHours), it is shown as written instead. Takes precedence over [slug].astro.
+import Base from '../layouts/Base.astro';
+import Icon from '../components/Icon.astro';
+import NotFound from '../components/NotFound.astro';
+import WpContent from '../components/WpContent.astro';
+import { markUnavailable } from '../lib/http';
+import { DAY_NAMES, hoursLines, parseHours } from '../lib/openingHours';
+import { loadSiteChrome } from '../lib/siteChrome';
+import { getWpPage, WpUnavailable } from '../lib/wp';
+
+export const prerender = false;
+
+let down = false;
+const [page, chrome] = await Promise.all([
+  getWpPage('opnunartimi').catch((err) => {
+    if (!(err instanceof WpUnavailable)) throw err;
+    down = true;
+    return null;
+  }),
+  loadSiteChrome(),
+]);
+if (down) markUnavailable(Astro.response);
+else if (!page) Astro.response.status = 404;
+const week = page ? parseHours(hoursLines(page.rows)) : null;
+const contact = chrome.footer;
+const tel = contact.phone.replace(/[^\d+]/g, '');
+---
+
+{
+  page ? (
+    <Base title={page.title} description="Opnunartími Músík og Sport, Dalshraun 10, Hafnarfirði.">
+      <div class="hours">
+        <header class="hours__head">
+          <h1 class="page-title">{page.title}</h1>
+          {week && (
+            <p class="hours__status" data-hours-status hidden>
+              <span class="hours__dot" aria-hidden="true" />
+              <span data-hours-status-text />
+            </p>
+          )}
+        </header>
+
+        {week ? (
+          <ol class="hours__week" data-hours-week={JSON.stringify(week)}>
+            {week.map((day, i) => (
+              <li class:list={['hours__day', !day && 'hours__day--closed']} data-hours-day={i}>
+                <span class="hours__name">
+                  {DAY_NAMES[i]}
+                  <span class="hours__today" hidden>Í dag</span>
+                </span>
+                <span class="hours__time">{day ? `${day.open} – ${day.close}` : 'Lokað'}</span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div class="wp-page">
+            <WpContent rows={page.rows} />
+          </div>
+        )}
+
+        <section class="hours__visit" aria-labelledby="hours-visit">
+          <h2 id="hours-visit" class="hours__visit-title">Hvar erum við</h2>
+          <ul class="hours__contact">
+            <li>
+              <Icon name="pin" size={20} />
+              <span class="hours__address">{contact.address}</span>
+            </li>
+            <li>
+              <Icon name="phone" size={20} />
+              <a href={`tel:${tel}`}>{contact.phone}</a>
+            </li>
+            <li>
+              <Icon name="mail" size={20} />
+              <a href={`mailto:${contact.email}`}>{contact.email}</a>
+            </li>
+          </ul>
+          {contact.directionsHref && (
+            <a class="btn btn--accent hours__directions" href={contact.directionsHref} target="_blank" rel="noopener">
+              {contact.directionsLabel} <Icon name="arrow-up-right" size={16} />
+            </a>
+          )}
+        </section>
+      </div>
+    </Base>
+  ) : (
+    <Base title={down ? 'Tímabundin bilun' : 'Síða fannst ekki'}>
+      <NotFound unavailable={down} title="Síða fannst ekki" message="Þessi síða er ekki til." />
+    </Base>
+  )
+}
+
+<script>
+  import { hoursStatus, type Week } from '../lib/openingHours';
+
+  const list = document.querySelector<HTMLElement>('[data-hours-week]');
+  const status = document.querySelector<HTMLElement>('[data-hours-status]');
+  if (list && status) {
+    const week = JSON.parse(list.dataset.hoursWeek ?? '[]') as Week;
+    const paint = () => {
+      const now = hoursStatus(week, new Date());
+      status.hidden = false;
+      status.classList.toggle('is-open', now.open);
+      status.querySelector('[data-hours-status-text]')!.textContent = now.text;
+      list.querySelectorAll<HTMLElement>('[data-hours-day]').forEach((row) => {
+        const isToday = Number(row.dataset.hoursDay) === now.today;
+        row.classList.toggle('is-today', isToday);
+        row.querySelector<HTMLElement>('.hours__today')!.hidden = !isToday;
+        if (isToday) row.setAttribute('aria-current', 'date');
+        else row.removeAttribute('aria-current');
+      });
+    };
+    paint();
+    setInterval(paint, 60_000); // a page left open turns "Opið" to "Lokað" on time
+  }
+</script>
