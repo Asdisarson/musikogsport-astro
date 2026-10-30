@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { activeFilterList, colourSwatch, countWord, coversEnough, filterTitle, HIDDEN_SHOP_CATEGORY_SLUGS, isPlainColour, keepOption, matchCountFromStock, pseudoCategoryIds, sizeBlocks, SIZE_GROUP_HEADINGS } from './facets';
-import type { CategoryTerm, FilterKey, TermRef } from './liveFilters';
+import { colourTermIds, type CategoryTerm, type FilterKey, type TermRef } from './liveFilters';
 
 describe('keepOption (the dead-end fix)', () => {
   it('hides a zero-count option when the counts came back (even when they came back empty)', () => {
@@ -210,13 +210,34 @@ describe('coversEnough (near-empty Íþrótt / Félag/Lið / Litur groups are le
 describe('isPlainColour', () => {
   it('keeps one-colour terms', () => {
     expect(isPlainColour({ slug: 'svartur', name: 'Svartur' })).toBe(true);
-    expect(isPlainColour({ slug: 'mahagony-red', name: 'Mahagony Red' })).toBe(true);
     expect(isPlainColour({ slug: 'dusty-pink', name: 'Ljósbleikur' })).toBe(true);
+  });
+  it('drops a colour merged into another (Mahagony Red is Rauður)', () => {
+    expect(isPlainColour({ slug: 'mahagony-red', name: 'Mahagony Red' })).toBe(false);
   });
   it('drops two-colour terms and ISLAND', () => {
     expect(isPlainColour({ slug: 'blar-hvitur', name: 'Blár/hvítur' })).toBe(false);
     expect(isPlainColour({ slug: 'hvitt-svart', name: 'Hvítt/svart' })).toBe(false);
     expect(isPlainColour({ slug: 'island', name: 'ISLAND' })).toBe(false);
+  });
+});
+
+describe('colourTermIds', () => {
+  const colours = [
+    { id: 1, slug: 'raudur', name: 'Rauður' },
+    { id: 2, slug: 'mahagony-red', name: 'Mahagony Red' },
+    { id: 3, slug: 'blar', name: 'Blár' },
+  ];
+  it('adds the terms merged into a chosen colour', () => {
+    expect(colourTermIds(['raudur'], [1], colours)).toEqual([1, 2]);
+    expect(colourTermIds(['blar', 'raudur'], [3, 1], colours)).toEqual([3, 1, 2]);
+  });
+  it('leaves other colours alone and adds nothing missing from the term list', () => {
+    expect(colourTermIds(['blar'], [3], colours)).toEqual([3]);
+    expect(colourTermIds(['raudur'], [1], [colours[0]])).toEqual([1]);
+  });
+  it('never repeats an id', () => {
+    expect(colourTermIds(['raudur', 'mahagony-red'], [1, 2], colours)).toEqual([1, 2]);
   });
 });
 

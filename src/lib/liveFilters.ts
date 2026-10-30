@@ -189,6 +189,17 @@ function resolve(slugs: string[], pool: TermRef[]): { ids: number[]; slugs: stri
   return out;
 }
 
+/** Colour terms that are another colour under a different name (the owner, 2026-10-30: "Mahagony Red is just red"):
+ *  choosing the colour also matches them, and the Litur filter doesn't list them (facets isPlainColour). */
+export const MERGED_COLOURS: Readonly<Record<string, readonly string[]>> = { raudur: ['mahagony-red'] };
+
+/** The pa_litur term ids a colour filter matches: the chosen ones (`ids`, in `slugs` order) and the terms merged into
+ *  them (MERGED_COLOURS) that the term list has, each once. */
+export function colourTermIds(slugs: string[], ids: number[], colours: TermRef[]): number[] {
+  const merged = slugs.flatMap((s) => (Object.hasOwn(MERGED_COLOURS, s) ? MERGED_COLOURS[s] : [])).flatMap((m) => colours.filter((c) => c.slug === m).map((c) => c.id));
+  return [...new Set([...ids, ...merged])];
+}
+
 /** `minorUnit`: the Store API's currency_minor_unit, which the price bounds are given in (see presetBounds). */
 export function toStoreFilter(
   state: LiveFilterState,
@@ -219,7 +230,7 @@ export function toStoreFilter(
   const attributes: AttributeFilter[] = [];
   if (team.ids.length) attributes.push({ taxonomy: TEAM_TAXONOMY, termIds: team.ids });
   if (sport.ids.length) attributes.push({ taxonomy: SPORT_TAXONOMY, termIds: sport.ids });
-  if (colour.ids.length) attributes.push({ taxonomy: COLOUR_TAXONOMY, termIds: colour.ids });
+  if (colour.ids.length) attributes.push({ taxonomy: COLOUR_TAXONOMY, termIds: colourTermIds(colour.slugs, colour.ids, terms.colours) });
   if (attributes.length) filter.attributes = attributes;
   if (sizes.length) filter.sizeSlugs = sizes;
   if (bounds?.min !== undefined) filter.minPrice = bounds.min;

@@ -1,6 +1,6 @@
 // Facet rules for the archive's filter rail — pure, no server imports (archive.ts wires them to the Store API).
 import { CARD_SALE_ROOT_SLUG, childrenOf } from './categoryTree';
-import type { CategoryTerm, FilterKey, TermRef } from './liveFilters';
+import { MERGED_COLOURS, type CategoryTerm, type FilterKey, type TermRef } from './liveFilters';
 import { countWord as pluralWord } from './plural';
 
 /** Whether a filter option is listed. With counts in hand (even an empty result: nothing matches) an option without
@@ -168,10 +168,13 @@ const COLOUR_HEX: Record<string, string> = {
   appelsinugulur: '#f08a1d',
 };
 
-/** Whether a colour term is listed in the Litur filter: the owner took the two-colour terms ("Blár/hvítur") and
- *  ISLAND (a team kit, no colour) off it (2026-10-30). */
+const MERGED_AWAY: ReadonlySet<string> = new Set(Object.values(MERGED_COLOURS).flat());
+
+/** Whether a colour term is listed in the Litur filter: the owner took the two-colour terms ("Blár/hvítur"), ISLAND
+ *  (a team kit, no colour) and the colours merged into another (Mahagony Red is Rauður, MERGED_COLOURS) off it
+ *  (2026-10-30). */
 export function isPlainColour(term: { slug: string; name: string }): boolean {
-  return !term.name.includes('/') && term.slug !== 'island';
+  return !term.name.includes('/') && term.slug !== 'island' && !MERGED_AWAY.has(term.slug);
 }
 
 /** One or two swatch colours for a colour term, or undefined when the slug isn't a known colour (no swatch). */

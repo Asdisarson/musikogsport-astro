@@ -5,6 +5,7 @@ import { categoryChain, childrenOf, STRUCTURAL_ROOT_SLUGS } from './categoryTree
 import { activeFilterList, colourSwatch, COVERAGE_GROUPS, coversEnough, isPlainColour, keepOption, pseudoCategoryIds, sizeBlocks, type ActiveFilter, type SizeBlock } from './facets';
 import {
   KYN_PARENT_SLUG,
+  MERGED_COLOURS,
   PRICE_PRESETS,
   parseLiveFilters,
   presetBounds,
@@ -247,7 +248,16 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
 
   // Litur: checkbox rows with a swatch; commonest colours first (the term list is alphabetical). Only plain colours
   // (isPlainColour); a link that still selects a two-colour term or ISLAND keeps that row, so it can be removed.
-  const colourGroup = listGroup('litur', 'Litur', terms.colours, main?.attribute ?? null);
+  // A merged colour's products count towards the colour it's part of (MERGED_COLOURS: Mahagony Red is Rauður).
+  const colourCounts = main?.attribute ? new Map(main.attribute) : null;
+  if (colourCounts) {
+    for (const [slug, merged] of Object.entries(MERGED_COLOURS)) {
+      const into = terms.colours.find((c) => c.slug === slug);
+      const extra = terms.colours.filter((c) => merged.includes(c.slug)).reduce((n, c) => n + (colourCounts.get(c.id) ?? 0), 0);
+      if (into && extra) colourCounts.set(into.id, (colourCounts.get(into.id) ?? 0) + extra);
+    }
+  }
+  const colourGroup = listGroup('litur', 'Litur', terms.colours, colourCounts);
   colourGroup.options = colourGroup.options
     .filter((o) => o.active || isPlainColour(o))
     .map((o) => ({ ...o, swatch: colourSwatch(o.slug) }))
