@@ -598,8 +598,6 @@
   .archive-cats ul { list-style: none; margin: 0; padding: 0; }
   .archive-cats a { display: block; padding: 4px 0; color: var(--ink); font-size: 16px; font-weight: 500; line-height: 24px; }
   .archive-cats a:hover { color: var(--meta); }
-  .archive-filters__reset { display: inline-flex; align-items: center; min-height: 44px; font-size: 16px; font-weight: 500; color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
-  .archive-filters__reset:hover { text-decoration-thickness: 2px; color: var(--ink); }
   /* a group: its <details> in a section that also holds the group's "Hreinsa" (a link beside the heading, never
      inside <summary>, so it neither toggles the group nor nests in its button) */
   .filter-section { position: relative; }
@@ -641,7 +639,7 @@
   .filter-option[data-open='true'] > .filter-option__row .filter-option__toggle span { background-size: 10px 1px, 0 0; }
   .filter-option__children { display: none; padding-left: 16px; }
   .filter-option[data-open='true'] > .filter-option__children { display: block; }
-  /* the Útsala / Á lager rows on top of the rail, ruled off from the groups */
+  /* the Útsala / Á lager rows on top of the rail (only while one is on), ruled off from the groups */
   .filter-toggles { padding: 4px 0 12px; border-bottom: 1px solid var(--line); }
   .filter-toggles .filter-group__list { padding-bottom: 0; }
   .filter-toggles:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
@@ -722,7 +720,6 @@
     .archive .pagination { gap: 4px; padding: 40px var(--gutter) 0; }
     .archive-active { padding: 0 var(--gutter) 16px; }
     .archive-active__list { margin: 0; }
-    .archive-filters__reset { display: none; }   /* the sheet's own "Hreinsa" and the chips' "Hreinsa allt" */
     /* the rail as a white full-screen sheet: "Sía" and a close button on a sticky top bar; "Hreinsa" (outline) and
        "Sýna vörur (N)" (black) on a sticky bottom bar */
     .archive-filters { position: fixed; inset: 0; z-index: 120; overflow-y: auto; overscroll-behavior: contain; background: var(--paper); visibility: hidden; transform: translateX(-100%); transition: transform 0.4s var(--ease-nav), visibility 0s linear 0.4s; }
@@ -786,7 +783,7 @@
      still lands its image at header + 24 (8px of padding + 16px of margin) */
   html:has(.pdp) { scroll-padding-top: calc(var(--header-h) + 8px); scroll-padding-bottom: 52px; }
   .pdp-gallery__item { margin: 0; scroll-margin-top: 16px; }
-  .pdp-gallery__item a { display: block; aspect-ratio: 4 / 5; overflow: hidden; background: #fff; cursor: zoom-in; }
+  .pdp-gallery__item a { display: block; aspect-ratio: var(--tile-aspect, 4 / 5); overflow: hidden; background: #fff; cursor: zoom-in; }   /* the photo's own shape (PdpGallery) */
   .pdp-gallery__item img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   :is(.pdp-gallery__item, .pdp-thumb) img[src$='/placeholder.svg'] { object-fit: cover; mix-blend-mode: normal; }
   .pdp-gallery__count { display: none; }
@@ -978,6 +975,7 @@
     .pdp-gallery__track { display: flex; gap: 0; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
     .pdp-gallery__track::-webkit-scrollbar { display: none; }
     .pdp-gallery__item { flex: 0 0 100%; scroll-snap-align: start; }
+    .pdp-gallery__item a { aspect-ratio: 4 / 5; }   /* the swipe carousel keeps one height */
     .pdp-gallery__item a:focus-visible { outline-offset: -3px; }   /* the track clips an outside ring */
     .pdp-gallery__count { display: block; position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); margin: 0; padding: 2px 12px; border-radius: 12px; background: var(--paper); color: var(--ink); font-size: 14px; line-height: 20px; font-variant-numeric: tabular-nums; pointer-events: none; }
     .pdp-rail { position: static; padding-bottom: 0; }

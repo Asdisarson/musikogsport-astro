@@ -13,7 +13,7 @@ import { productSubtitle } from '../../lib/productCard';
 import { getProductBySlug, getVariations } from '../../lib/woo';
 import { productImage, mediaSrcset, mediaUrl } from '../../lib/img';
 import { TILE_ASPECT, type PhotoFit } from '../../lib/photoBg';
-import { photoBg, photoFitOf } from '../../lib/photoBgServer';
+import { photoAspectOf, photoBg, photoFitOf, settlePhotos } from '../../lib/photoBgServer';
 import { decodeEntities, stripShortcodes } from '../../lib/decode';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { formatSaleBadge, salePercent } from '../../lib/price';
@@ -88,17 +88,23 @@ const relatedIds = (product?.related_ids ?? []).filter((id) => id !== product?.i
 const name = product ? decodeEntities(product.name) : '';
 const img = product ? productImage(product) : { src: '', alt: '' };
 // Tile colours (lib/photoBg) for the purchase island: the colourway swatches (the flat-edge colour only), and how the
-// first gallery tile draws each variation photo it swaps in (photoFit for that 4:5 tile). A variation photo is
-// usually a gallery photo too, so it's sampled from that one's srcset.
+// first gallery tile draws each variation photo it swaps in (photoFit for that 4:5 tile, and its desktop shape,
+// tileAspect). A variation photo is usually a gallery photo too, so it's sampled from that one's srcset. A short wait
+// first (the gallery waits for the same photos), so the first photo's shape agrees here and in PdpGallery.
 const photoBgs: Record<string, string> = {};
 const mainFits: Record<string, PhotoFit> = {};
+const mainAspects: Record<string, number> = {};
 if (product) {
   const srcsetOf = new Map(product.images.map((im) => [mediaUrl(im.src), mediaSrcset(im.srcset)]));
-  for (const src of new Set([img.src, ...variations.flatMap((v) => (v.image?.src ? [v.image.src] : []))])) {
+  const srcs = [...new Set([img.src, ...variations.flatMap((v) => (v.image?.src ? [v.image.src] : []))])];
+  await settlePhotos(srcs.map((src) => ({ src, srcset: srcsetOf.get(src) })), 800);
+  for (const src of srcs) {
     const colour = photoBg(src, srcsetOf.get(src));
     if (colour) photoBgs[src] = colour;
     const fit = photoFitOf(src, srcsetOf.get(src), TILE_ASPECT.gallery);
     if (fit) mainFits[src] = fit;
+    const aspect = photoAspectOf(src, srcsetOf.get(src));
+    if (aspect) mainAspects[src] = aspect;
   }
 }
 const inStock = product?.stock_status === 'instock';
@@ -205,6 +211,7 @@ const shareUrl = `https://www.facebook.com/sharer.php?u=${encodeURIComponent(can
             priceVaries={pricesVary(variations)}
             photoBgs={photoBgs}
             mainFits={mainFits}
+            mainAspects={mainAspects}
           >
             {sizeWant && (
               <a slot="size-guide" class="pdp-sizeguide" href="/staerdir/" data-sizeguide data-sizeguide-want={wantAttr(sizeWant)}>

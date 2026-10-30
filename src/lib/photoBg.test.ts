@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('astro:env/client', () => ({ MOS_MEDIA_BASE_URL: 'https://musikogsport.is' }));
-import { applyPhotoFit, cardFill, cardFillAttrs, cardFillProps, createPhotoBgCache, edgeColour, isMediaFile, photoBgAttrs, photoBgProps, photoBgStyle, photoFit, photoFitAttrs, readEdges, sampleCandidate, subSizeAspect, type CardFill, type PhotoEdges, type PhotoFit, type RawPixels } from './photoBg';
+import { applyPhotoFit, cardFill, cardFillAttrs, cardFillProps, createPhotoBgCache, edgeColour, isMediaFile, photoBgAttrs, photoBgProps, photoBgStyle, photoFit, photoFitAttrs, readEdges, sampleCandidate, subSizeAspect, tileAspect, type CardFill, type PhotoEdges, type PhotoFit, type RawPixels } from './photoBg';
 
 /** A w×h RGBA image filled with `bg`, then `paint(x, y)` may return a different pixel. */
 function image(w: number, h: number, bg: number[], paint?: (x: number, y: number) => number[] | undefined): RawPixels {
@@ -591,5 +591,26 @@ describe('cardFill attributes', () => {
       const asCss = style ? Object.entries(style as Record<string, string>).map(([k, v]) => `${k}:${v}`).join(';') : undefined;
       expect(asCss).toBe(css);
     }
+  });
+});
+
+describe('tileAspect: the product page tile takes its photo\'s own shape', () => {
+  const edges = (w: number, h: number) => ({ w, h }) as PhotoEdges;
+
+  it('is the photo\'s width over height', () => {
+    expect(tileAspect(edges(1000, 1000))).toBe(1);
+    expect(tileAspect(edges(800, 1000))).toBe(0.8);
+    expect(tileAspect(edges(1200, 900))).toBeCloseTo(1.3333, 4);
+  });
+
+  it('keeps a very tall or very wide photo within 2:3 to 3:2', () => {
+    expect(tileAspect(edges(500, 2000))).toBeCloseTo(2 / 3, 4);
+    expect(tileAspect(edges(3000, 1000))).toBe(1.5);
+  });
+
+  it('is null while the photo is unread, or for a reading with no size', () => {
+    expect(tileAspect(undefined)).toBeNull();
+    expect(tileAspect(null)).toBeNull();
+    expect(tileAspect(edges(0, 100))).toBeNull();
   });
 });

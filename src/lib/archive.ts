@@ -126,19 +126,16 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
 
   // One request for the grid and one for most counts (categories incl. Aldur/Kyn, brands, Félag/Lið, Íþrótt and Litur as
   // OR attribute counts that leave their own selection out, sizes without the size filter, stock, and — from the
-  // size plugin's `mos_extra_counts` — each inactive price preset and Útsala, every one within the other filters).
+  // size plugin's `mos_extra_counts` — each inactive price preset, every one within the other filters).
   // An active OR-within taxonomy group self-applies to its own counts, so it gets a companion request without its
-  // selection. An active price preset or Útsala is simply the grid's total. The grid request goes first, so it is
+  // selection. An active price preset (or Útsala) is simply the grid's total. The grid request goes first, so it is
   // first to get a PHP worker.
   const presets = PRICE_PRESETS.filter((p) => p.key !== activePrice);
   const ranges = presets.map((p) => presetBounds(p, minorUnit));
-  // One count request per preset and for Útsala: the old path, for a site without the size plugin (in parallel)
+  // One count request per preset: the old path, for a site without the size plugin (in parallel)
   // or with a version of it that doesn't answer `mos_extra_counts` (after the main request, which asked).
   const separateCounts = () =>
-    Promise.all([
-      Promise.all(ranges.map((r) => matchCount({ ...q, minPrice: r.min, maxPrice: r.max }))),
-      active.utsala ? undefined : matchCount({ ...q, on_sale: true }),
-    ]);
+    Promise.all(ranges.map((r) => matchCount({ ...q, minPrice: r.min, maxPrice: r.max })));
   const pluginAbsent = sizeIndex.status === 'absent';
   const [result, main, withoutPc, withoutKyn, withoutBrand, separate] = await Promise.all([
     storeProducts(q).catch((): null => null),
@@ -147,7 +144,7 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
       attributes: [team, sport, colour],
       sizes: sizes !== undefined,
       stock: Boolean(active.lager), // only the lager row reads it, and it shows only while that filter is on
-      extra: pluginAbsent ? undefined : { priceRanges: ranges, onSale: !active.utsala },
+      extra: pluginAbsent ? undefined : { priceRanges: ranges, onSale: false },
     }),
     active['product-category']
       ? collectionCounts({ ...q, categoryIds: scope.categoryId ? [scope.categoryId] : undefined }, { taxonomies: [category] })
@@ -156,7 +153,7 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
     active.brand ? collectionCounts({ ...q, brandIds: scopeBrand }, { taxonomies: [brand] }) : undefined,
     pluginAbsent ? separateCounts() : undefined,
   ]);
-  const [presetCounts, saleCount] = main?.extra ? [main.extra.price, main.extra.onSale] : (separate ?? (await separateCounts()));
+  const presetCounts = main?.extra ? main.extra.price : (separate ?? (await separateCounts()));
   const priceCounts = PRICE_PRESETS.map((p) => (p.key === activePrice ? undefined : presetCounts[presets.indexOf(p)]));
   const total = result?.total;
   // A companion request when there is one (null if it failed), else the main counts.
@@ -179,10 +176,10 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
     ({ id, slug, name, count, active: isActive, depth: 0, children: [], open: false, key });
   const known = (o: FacetOption) => keepOption(o, o.count === undefined ? null : NO_COUNTS);
 
-  // Útsala: a toggle row on top of the rail. The owner took "Aðeins vörur á lager" off the rail (2026-10-30); a link
-  // that still carries lager=1 keeps the row, so the filter it applies can be seen and removed.
+  // Toggle rows on top of the rail. The owner took "Útsala" and "Aðeins vörur á lager" off the rail (2026-10-30); a
+  // link that still carries utsala=1 / lager=1 keeps its row, so the filter it applies can be seen and removed.
   const toggles = [
-    plainOption(-1, '1', 'Útsala', active.utsala ? total : saleCount, Boolean(active.utsala), 'utsala'),
+    ...(active.utsala ? [plainOption(-1, '1', 'Útsala', total, true, 'utsala')] : []),
     ...(active.lager ? [plainOption(-2, '1', 'Aðeins vörur á lager', main?.stock.get('instock'), true, 'lager')] : []),
   ].filter(known);
 

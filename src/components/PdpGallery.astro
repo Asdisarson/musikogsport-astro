@@ -1,13 +1,13 @@
 ---
 // The product gallery (nike-look, SPEC § PDP). From 992px: a sticky column of 60×60 thumbnails beside every image
-// stacked as 4:5 #f5f5f5 tiles that scroll with the page; a thumbnail scrolls its image into view and the one in
-// view is marked. Below 992px the same track is a full-bleed swipe carousel with a "1 / N" counter. Every image
+// stacked as white tiles of the photo's own shape (lib/photoBg tileAspect; 4:5 until it's known) that scroll with the page; a thumbnail scrolls its image into view and the one in
+// view is marked. Below 992px the same track is a full-bleed swipe carousel of 4:5 slides with a "1 / N" counter. Every image
 // opens the lightbox. The first image is #pdp-main so the purchase island can swap in a variation's photo; it gets
 // no srcset, because the island swaps it by setting `src`, which a srcset would override.
 import ProductImage from './ProductImage.astro';
 import { mediaSrcset, mediaUrl, PLACEHOLDER } from '../lib/img';
 import { subSizeAspect, TILE_ASPECT } from '../lib/photoBg';
-import { photoFitFor } from '../lib/photoBgServer';
+import { photoAspectOf, photoFitFor, settlePhotos } from '../lib/photoBgServer';
 import type { WooImage } from '../lib/types';
 
 interface Props {
@@ -28,7 +28,13 @@ const slides = images.length
 // (lib/photoBg photoFit). The first tile's follows a variation's photo when the purchase island swaps #pdp-main
 // (ProductPurchase). A thumbnail shows WordPress' own (usually square-cropped) rendition, so it's judged by that
 // rendition's shape, read from its file name.
-const bgs = slides.map((im) => photoFitFor(im.src, im.srcset, TILE_ASPECT.gallery));
+// The shapes need each photo read first: a short wait, bounded, so even a first view gets them (lib/photoBgServer).
+await settlePhotos(slides, 800);
+const bgs = slides.map((im) => {
+  const attrs = photoFitFor(im.src, im.srcset, TILE_ASPECT.gallery);
+  const aspect = photoAspectOf(im.src, im.srcset);
+  return aspect === null ? attrs : { ...attrs, style: [attrs.style, `--tile-aspect:${aspect}`].filter(Boolean).join(';') };
+});
 const thumbBgs = slides.map((im) => photoFitFor(im.src, im.srcset, TILE_ASPECT.thumb, subSizeAspect(im.thumb)));
 const many = slides.length > 1;
 ---

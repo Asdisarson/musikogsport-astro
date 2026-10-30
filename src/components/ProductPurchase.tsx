@@ -37,6 +37,8 @@ interface Props {
   photoBgs?: Record<string, string>;
   /** How #pdp-main's tile draws each photo it may swap in (lib/photoBg photoFit), by src; missing: the default tile. */
   mainFits?: Record<string, PhotoFit>;
+  /** #pdp-main's tile shape on a desktop for each of those photos (lib/photoBg tileAspect), by src; missing: 4:5. */
+  mainAspects?: Record<string, number>;
   /** The "Stærðartafla" link (Astro's named slot `size-guide`), shown beside the first size attribute's label. */
   sizeGuide?: ReactNode;
 }
@@ -74,6 +76,7 @@ export default function ProductPurchase({
   priceVaries = false,
   photoBgs = {},
   mainFits = {},
+  mainAspects = {},
   sizeGuide,
 }: Props) {
   const isVariable = type === 'variable';
@@ -123,7 +126,12 @@ export default function ProductPurchase({
     main.src = target.src;
     if (target.alt) main.alt = target.alt;
     const tile = main.closest<HTMLElement>('[data-lightbox]');
-    if (tile) applyPhotoFit(tile, mainFits[target.src]);
+    if (tile) {
+      applyPhotoFit(tile, mainFits[target.src]);
+      const aspect = mainAspects[target.src];
+      if (aspect) tile.style.setProperty('--tile-aspect', String(aspect));
+      else tile.style.removeProperty('--tile-aspect');
+    }
   }, [resolved?.id]);
 
   const canAdd = (isVariable ? resolved?.stock_status === 'instock' : inStock) && !adding;

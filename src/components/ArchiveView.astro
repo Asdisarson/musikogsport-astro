@@ -5,7 +5,7 @@
 // away; a 3-column card grid (4 with the rail hidden) and numbered pages (/page/N/) under it. Phones: a
 // row of category chips and a row of filter pills that open the rail as a full-screen sheet ("Sía" + close on top,
 // "Hreinsa" and "Sýna vörur" at the bottom). Rail order (lib/archive): category links, the Útsala / Á lager
-// toggle rows, then Stærð (a button grid), Aldur/Kyn, Verð, Vörumerki, Íþrótt, Félag/Lið and Vöruflokkar.
+// toggle rows (only while one is on), then Stærð (a button grid), Aldur/Kyn, Verð, Vörumerki, Íþrótt, Félag/Lið and Vöruflokkar.
 //
 // Every filter control is a plain GET link (works without JS, crawlable). With JS the script below updates the page
 // in place: it fetches the same URL and swaps the [data-swap] regions (lib/archiveNav holds the pure parts).
@@ -166,7 +166,6 @@ const chipName = (key: string, label: string) => (key === 'staerd' ? `stærð ${
           </nav>
         )
       }
-      {activeCount > 0 && <a class="archive-filters__reset" href={clearAllHref} rel="nofollow" data-op="clear-all" data-fkey="rail-clear-all">Endursetja</a>}
       {
         groups.map((g) => {
           const selected = activeIn(g.options);
@@ -707,7 +706,7 @@ const chipName = (key: string, label: string) => (key === 'staerd' ? `stærð ${
         return;
       }
 
-      // Filter options, chips, "Hreinsa" (group / sheet), "Hreinsa allt", "Endursetja": in place.
+      // Filter options, chips, "Hreinsa" (group / sheet), "Hreinsa allt": in place.
       const link = t.closest<HTMLAnchorElement>('a[data-op]');
       if (link) {
         if (!isPlainClick(e)) return; // new tab / window: the browser's

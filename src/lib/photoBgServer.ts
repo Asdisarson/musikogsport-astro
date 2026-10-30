@@ -1,7 +1,7 @@
 // Server side of photoBg: fetches a product photo from the media host, decodes it with sharp and reads its edges
 // (readEdges). One process-wide cache; components call photoBg() / photoFitFor() while rendering, which never wait
 // on the network (see createPhotoBgCache). Server-only: sharp is a native module.
-import { cardFill, cardFillAttrs, createPhotoBgCache, photoBgAttrs, photoFit, photoFitAttrs, readEdges, type CardFill, type PhotoEdges, type PhotoFit } from './photoBg';
+import { cardFill, cardFillAttrs, createPhotoBgCache, photoBgAttrs, photoFit, photoFitAttrs, readEdges, tileAspect, type CardFill, type PhotoEdges, type PhotoFit } from './photoBg';
 
 const TIMEOUT_MS = 4000;
 /** Sub-size candidates are a few KB to ~100 KB; only a photo without a srcset falls back to its original. */
@@ -80,6 +80,11 @@ export async function settlePhotos(images: { src: string; srcset?: string }[], m
   const known = () => images.every((im) => cache.lookup(im.src, im.srcset) !== undefined);
   const end = Date.now() + ms;
   while (!known() && Date.now() < end) await new Promise((resolve) => setTimeout(resolve, 25));
+}
+
+/** The product page gallery tile's shape for this photo (tileAspect), once known; null: the default 4:5 tile. */
+export function photoAspectOf(src: string | null | undefined, srcset?: string): number | null {
+  return src ? tileAspect(cache.lookup(src, srcset)) : null;
 }
 
 /** How a product card's tile fills the gap around this photo (cardFill), once known; null: no fill (the page). */

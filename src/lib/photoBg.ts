@@ -280,9 +280,17 @@ export function readEdges(px: RawPixels, rules = EDGE_RULES): PhotoEdges | null 
 }
 
 /** The tiles' shapes (width / height) as global.css draws them: .product-card__media (aspect-ratio 1, cardFill),
- *  .pdp-gallery__item a (4 / 5) and .pdp-thumb (60×60) (photoFit). The answers depend on the tile, so keep these in
+ *  .pdp-gallery__item a (4 / 5; on a desktop the photo's own shape, tileAspect) and .pdp-thumb (60×60) (photoFit). The answers depend on the tile, so keep these in
  *  step with the CSS. */
 export const TILE_ASPECT = { card: 1, gallery: 4 / 5, thumb: 1 } as const;
+
+/** The product page's stacked gallery tile on a desktop (PdpGallery, --tile-aspect): the photo's own shape, so a
+ *  square or wide photo leaves no white band above and below it; kept within 2:3 to 3:2 so an odd file can't make a
+ *  sliver or a tower of the column. null while the photo is unread: the tile keeps TILE_ASPECT.gallery. */
+export function tileAspect(edges: Pick<PhotoEdges, 'w' | 'h'> | null | undefined): number | null {
+  if (!edges || !(edges.w > 0) || !(edges.h > 0)) return null;
+  return Math.round(Math.min(3 / 2, Math.max(2 / 3, edges.w / edges.h)) * 10_000) / 10_000;
+}
 
 export type PhotoPos = 'top' | 'right' | 'bottom' | 'left';
 /** How a tile shows its photo. 'pad': the photo's whole edge is one colour, so the tile takes it and keeps its
