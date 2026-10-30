@@ -39,6 +39,8 @@ interface Props {
   mainFits?: Record<string, PhotoFit>;
   /** #pdp-main's tile shape on a desktop for each of those photos (lib/photoBg tileAspect), by src; missing: 4:5. */
   mainAspects?: Record<string, number>;
+  /** The product's name, for the phone's bottom bar. */
+  name?: string;
   /** The "Stærðartafla" link (Astro's named slot `size-guide`), shown beside the first size attribute's label. */
   sizeGuide?: ReactNode;
 }
@@ -77,6 +79,7 @@ export default function ProductPurchase({
   photoBgs = {},
   mainFits = {},
   mainAspects = {},
+  name = '',
   sizeGuide,
 }: Props) {
   const isVariable = type === 'variable';
@@ -146,10 +149,13 @@ export default function ProductPurchase({
   // Only when the missing attribute has an option left to pick: a hint over all-crossed-out swatches can't be acted on.
   const hint = isVariable && !variationsFailed ? choiceHint(attrNames, selected, { attrs: variationAttrs, variations }) : null;
   const hintId = `pdp-hint-${productId}`;
+  // Phones: a bottom bar with "Setja í körfu" once there is something to add (a simple product in stock, or every
+  // option picked and that variation in stock)
+  const barReady = isVariable ? resolved?.stock_status === 'instock' && attrNames.every((n) => selected[n]) : inStock;
   const missing = hint ? attrNames.find((n) => !selected[n]) : undefined;
 
-  function choose(name: string, option: string) {
-    setSelected((s) => ({ ...s, [name]: s[name] === option ? '' : option }));
+  function choose(attr: string, option: string) {
+    setSelected((s) => ({ ...s, [attr]: s[attr] === option ? '' : option }));
     setJustAdded(false);
     setNudged(false);
   }
@@ -297,6 +303,18 @@ export default function ProductPurchase({
         <p className={`pdp-hint${nudged ? ' is-error' : ''}`} id={hintId} role={nudged ? 'alert' : undefined}>
           {hint}
         </p>
+      )}
+
+      {barReady && (
+        <div className="pdp-bar">
+          <div className="pdp-bar__text">
+            <span className="pdp-bar__name">{name}</span>
+            {isVariable && resolved && <span className="pdp-bar__choice">{attrNames.map((n) => (isSizeAttribute(n) ? `Stærð ${selected[n]}` : selected[n])).join(' · ')}</span>}
+          </div>
+          <button type="button" className="pdp-atc pdp-bar__atc" disabled={!canAdd} aria-busy={adding} onClick={handleAdd}>
+            Setja í körfu
+          </button>
+        </div>
       )}
 
       <p className="visually-hidden" role="status" aria-live="polite">
