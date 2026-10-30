@@ -197,16 +197,18 @@
   .nav-item__link { position: relative; display: block; padding: 0 var(--nav-pad, 12px); color: var(--ink); font-size: 16px; font-weight: 500; line-height: 24px; white-space: nowrap; }
   .nav-item__link::after { content: ''; position: absolute; left: var(--nav-pad, 12px); right: var(--nav-pad, 12px); bottom: -6px; height: 2px; background: var(--ink); opacity: 0; transition: opacity var(--dur) var(--ease); }
   .nav-item--top:hover > .nav-item__link::after,
-  .nav-item--top:focus-within > .nav-item__link::after,
+  .nav-item--top:has(:focus-visible) > .nav-item__link::after,
   .nav-item__link[aria-current='page']::after { opacity: 1; }
 
   /* mega-menu: a full-width white panel under the bar, columns of 210px at a 226px pitch; the page below is
      dimmed by the panel's own clipped shadow, which never takes the pointer */
   .mega { position: absolute; z-index: 1; top: 100%; left: 0; right: 0; max-height: calc(100vh - var(--header-h) - 24px); overflow-y: auto; overscroll-behavior: contain; padding: 32px var(--gutter) 48px; background: var(--paper); box-shadow: 0 0 0 100vmax rgb(17 17 17 / 0.3); clip-path: inset(0 -100vmax -100vmax -100vmax); visibility: hidden; opacity: 0; transform: translateY(-8px); pointer-events: none; transition: opacity 0.4s var(--ease-nav), transform 0.4s var(--ease-nav), visibility 0s linear 0.4s; }
   /* pointer-events switches at once: a panel still fading out can't catch the pointer and steal the hover */
-  .nav-item--parent:not([data-suppress]):hover > .mega,
-  .nav-item--parent:not([data-suppress]):focus-within > .mega { z-index: 2; visibility: visible; opacity: 1; transform: none; pointer-events: auto; transition-delay: 0.1s, 0.1s, 0.1s; }
-  .nav-item--parent:not([data-suppress]):focus-within > .mega { transition-delay: 0s; }   /* keyboard: no hover intent */
+  /* hover opens after 0.2s (passing over the bar opens nothing), once the pointer has moved on this page (Base.astro
+     data-nav-armed: a pointer resting where a click left it opens nothing); keyboard focus at once; a click's never */
+  [data-nav-armed] .nav-item--parent:not([data-suppress]):hover > .mega,
+  .nav-item--parent:not([data-suppress]):has(:focus-visible) > .mega { z-index: 2; visibility: visible; opacity: 1; transform: none; pointer-events: auto; transition-delay: 0.2s, 0.2s, 0.2s; }
+  .nav-item--parent:not([data-suppress]):has(:focus-visible) > .mega { transition-delay: 0s; }   /* keyboard: no hover intent */
   /* Escape (data-suppress) hides the panel at once: no 0.4s visibility tail in which Tab could land inside it */
   .nav-item--parent[data-suppress] > .mega { visibility: hidden; transition: none; }
   .mega__grid { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); gap: 32px 16px; width: 100%; max-width: calc(var(--cols, 4) * 226px - 16px); margin-inline: auto; }
@@ -886,6 +888,13 @@
   .pdp-atc:disabled:not([aria-busy='true']) { background: var(--surface); color: var(--disabled-text); }
   .pdp-atc[aria-busy='true'] { opacity: 0.6; }
   .pdp-hint { margin: 8px 0 0; font-size: 16px; line-height: 24px; color: var(--text); text-align: center; }
+  /* "Setja í körfu" pressed without a size: the hint in red, the size group's label red and its boxes ringed */
+  .pdp-hint.is-error, .pdp-var.is-missing .pdp-var__label { color: var(--invalid-text); }
+  .pdp-var.is-missing .pdp-swatch[data-state='instock']:not([aria-checked='true']) { box-shadow: inset 0 0 0 1px var(--invalid); }
+  @media (prefers-reduced-motion: no-preference) {
+    .pdp-var.is-missing .pdp-swatches { animation: pdp-nudge 0.32s ease-in-out; }
+  }
+  @keyframes pdp-nudge { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
   .pdp-buy .form-error { margin: 12px 0 0; }
   .pdp-wish { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: var(--control-h); margin-top: 12px; padding: 0 24px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--paper); color: var(--ink); font-size: 16px; font-weight: 500; line-height: 24px; transition: border-color var(--dur) var(--ease); }
   .pdp-wish:hover { border-color: var(--ink); }
@@ -1501,6 +1510,18 @@
    UTILITIES
    -------------------------------------------------------------------------- */
 @layer utilities {
+  /* Effects, only for those who don't ask for less motion: cards, banners and product rows below the fold rise in as
+     they scroll into view (Base.astro marks them .reveal, a few at a time in a short stagger), a card's photo eases
+     in a little on hover, and buttons give under a press. */
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.6s var(--ease), transform 0.6s var(--ease); transition-delay: calc(var(--reveal-i, 0) * 70ms); }
+    .reveal.is-in { opacity: 1; transform: none; }
+    .product-card__media img, .story__img { transition: transform 0.6s var(--ease); }
+    @media (hover: hover) {
+      .product-card:hover .product-card__media img, .story:hover .story__img { transform: scale(1.04); }
+    }
+    .btn:active, .pdp-atc:active:not(:disabled) { transform: scale(0.98); }
+  }
   .nowrap { white-space: nowrap; }
   /* the condensed uppercase display face (hero and section titles) */
   .display { font-family: var(--font-display); font-stretch: var(--display-stretch); font-weight: 600; line-height: 0.9; text-transform: uppercase; }

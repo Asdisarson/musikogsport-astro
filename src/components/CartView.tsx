@@ -3,7 +3,7 @@ import { useStore } from '@nanostores/react';
 import { cart, cartError, ensureLoaded } from '../lib/cartStore';
 import { formatISK, formatStoreMoney } from '../lib/format';
 import { decodeEntities } from '../lib/decode';
-import { cartSubtotal, cartViewState, lineHref, lineSubtotal } from '../lib/cartView';
+import { cartSubtotal, cartViewState, lineHref, lineSubtotal, variationText } from '../lib/cartView';
 import type { ShippingBar } from '../lib/shippingBar';
 import { CartLoadError, LineImage, QtyStepper, RemoveButton } from './CartParts';
 import CouponField, { CouponRows } from './CouponField';
@@ -53,7 +53,7 @@ export default function CartView({ shippingBar = null }: { shippingBar?: Shippin
                   <div className="cart-line__name">
                     {href ? <a href={href}>{name}</a> : name}
                     {it.variation?.length > 0 && (
-                      <span className="cart-line__meta">{it.variation.map((v) => `${v.attribute}: ${v.value}`).join(', ')}</span>
+                      <span className="cart-line__meta">{variationText(it.variation)}</span>
                     )}
                     {/* the unit price only adds information when it differs from the line total */}
                     {it.quantity > 1 && <span className="cart-line__price">{formatStoreMoney(it.prices.price, minor)} / stk.</span>}

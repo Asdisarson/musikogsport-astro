@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { addToCart, openCart } from '../lib/cartStore';
 import { formatISK } from '../lib/format';
 import { PLACEHOLDER } from '../lib/img';
@@ -88,6 +88,9 @@ export default function ProductPurchase({
   const [justAdded, setJustAdded] = useState(false);
   // Only this button's own failure shows here; a card's add elsewhere on the page reports in the side cart.
   const [err, setErr] = useState<string | null>(null);
+  // "Setja í körfu" pressed before a size was picked: the hint turns into an error and the group is marked
+  const [nudged, setNudged] = useState(false);
+  const varsRef = useRef<HTMLDivElement>(null);
 
   const attrNames = useMemo(() => variationAttrs.map((a) => a.name), [variationAttrs]);
   const resolved = useMemo(
@@ -138,17 +141,27 @@ export default function ProductPurchase({
   }, [resolved?.id]);
 
   const canAdd = (isVariable ? resolved?.stock_status === 'instock' : inStock) && !adding;
-  // Render-only guidance beside the disabled button until every attribute is chosen ("Veldu stærð").
+  // Guidance under the button until every attribute is chosen ("Veldu stærð"); the button stays pressable then and
+  // points at the missing choice instead of doing nothing.
   // Only when the missing attribute has an option left to pick: a hint over all-crossed-out swatches can't be acted on.
   const hint = isVariable && !variationsFailed ? choiceHint(attrNames, selected, { attrs: variationAttrs, variations }) : null;
   const hintId = `pdp-hint-${productId}`;
+  const missing = hint ? attrNames.find((n) => !selected[n]) : undefined;
 
   function choose(name: string, option: string) {
     setSelected((s) => ({ ...s, [name]: s[name] === option ? '' : option }));
     setJustAdded(false);
+    setNudged(false);
   }
 
   async function handleAdd() {
+    if (missing !== undefined) {
+      setNudged(true);
+      const group = varsRef.current?.querySelector<HTMLElement>(`[data-var="${attrNames.indexOf(missing)}"]`);
+      group?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      group?.querySelector<HTMLButtonElement>('[data-state="instock"]')?.focus({ preventScroll: true });
+      return;
+    }
     if (!canAdd) return;
     setAdding(true);
     setJustAdded(false);
@@ -182,12 +195,12 @@ export default function ProductPurchase({
       {isVariable && variationsFailed && <p className="form-error">Gat ekki sótt afbrigði vörunnar. Reyndu aftur síðar.</p>}
 
       {isVariable && !variationsFailed && (
-        <div className="pdp-vars">
+        <div className="pdp-vars" ref={varsRef}>
           {shown.map(({ a, i: ai }) => {
             const size = isSizeAttribute(a.name);
             const images = pictures.get(a.name) ?? null;
             return (
-              <div className="pdp-var" key={a.name}>
+              <div className={`pdp-var${nudged && a.name === missing ? ' is-missing' : ''}`} key={a.name} data-var={attrNames.indexOf(a.name)}>
                 <div className="pdp-var__head">
                   <div className="pdp-var__label" id={`pdp-var-${ai}`}>
                     {size ? (
@@ -272,7 +285,7 @@ export default function ProductPurchase({
         <button
           type="button"
           className="pdp-atc"
-          disabled={!canAdd}
+          disabled={!canAdd && missing === undefined}
           aria-busy={adding}
           aria-describedby={hint ? hintId : undefined}
           onClick={handleAdd}
@@ -281,7 +294,7 @@ export default function ProductPurchase({
         </button>
       </div>
       {hint && (
-        <p className="pdp-hint" id={hintId}>
+        <p className={`pdp-hint${nudged ? ' is-error' : ''}`} id={hintId} role={nudged ? 'alert' : undefined}>
           {hint}
         </p>
       )}

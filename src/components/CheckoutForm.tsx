@@ -4,7 +4,7 @@ import { cart, cartLoading, ensureLoaded, resetCart, selectShipping, setCustomer
 import { droppoint, postboxReady, rateNeedsPostbox, verifiedDroppoint } from '../lib/droppointStore';
 import { formatISK, formatStoreMoney } from '../lib/format';
 import { decodeEntities } from '../lib/decode';
-import { cartSubtotal, cartViewState, lineSubtotal } from '../lib/cartView';
+import { cartSubtotal, cartViewState, lineSubtotal, variationText } from '../lib/cartView';
 import { CHECKING_MESSAGE, addressFor, checkoutBody, pollCheckoutStatus, submitCheckout, type FormAddress } from '../lib/checkoutFlow';
 import { newAttemptId } from '../lib/attemptId';
 import { CHECKOUT_CLIENT_TIMEOUT_MS } from '../lib/timeouts';
@@ -413,7 +413,7 @@ export default function CheckoutForm({ status = '', initialBilling }: { status?:
                     </span>
                     <span className="review-table__name">
                       {decodeEntities(it.name)} <strong className="review-table__qty">× {it.quantity}</strong>
-                      {it.variation?.length > 0 && <span className="review-table__meta">{it.variation.map((v) => `${v.attribute}: ${v.value}`).join(', ')}</span>}
+                      {it.variation?.length > 0 && <span className="review-table__meta">{variationText(it.variation)}</span>}
                     </span>
                   </div>
                 </td>

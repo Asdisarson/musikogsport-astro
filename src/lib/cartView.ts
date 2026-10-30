@@ -1,5 +1,6 @@
 // Shared helpers for the cart islands (side cart, /karfa/, checkout review). Client-safe.
 import { productPath } from './paths';
+import { isSizeAttribute } from './variations';
 import type { Cart, CartItem } from './types';
 
 /** Cart subtotal in whole krónur as live shows it (items incl. tax, before shipping/discounts). */
@@ -26,4 +27,10 @@ export function lineHref(permalink?: string): string | null {
 export function cartViewState(cart: Cart | null, error: string | null): 'loading' | 'error' | 'empty' | 'ready' {
   if (!cart) return error ? 'error' : 'loading';
   return cart.items.length === 0 ? 'empty' : 'ready';
+}
+
+/** A line's chosen options as text ("Litur: Rauður, Stærð: 42.5"); any size attribute (Stærðir, Skóstærð …) reads
+ *  "Stærð", as the product page asks "Veldu stærð". */
+export function variationText(variation: { attribute: string; value: string }[]): string {
+  return variation.map((v) => `${isSizeAttribute(v.attribute) ? 'Stærð' : v.attribute}: ${v.value}`).join(', ');
 }

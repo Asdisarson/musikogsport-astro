@@ -248,6 +248,57 @@ const websiteLd = {
           if (!item.contains(e.relatedTarget as Node | null)) clear();
         });
       });
+      // Clicking a top link (Börn) goes to its page, so its panel stays shut; on the new page the pointer is still over
+      // the link, so no panel opens on hover until the pointer first moves, and the item it is on then stays shut until
+      // the pointer leaves it.
+      mainNav?.addEventListener('click', (e) => {
+        const link = (e.target as HTMLElement).closest('.nav-item--parent > .nav-item__link');
+        if (link) (link.parentElement as HTMLElement).dataset.suppress = '';
+      });
+      document.addEventListener(
+        'pointermove',
+        (e) => {
+          const item = (e.target as HTMLElement).closest<HTMLElement>('.main-nav .nav-item--parent');
+          if (item) item.dataset.suppress = '';
+          document.documentElement.dataset.navArmed = ''; // hover opens panels from now on (global.css)
+        },
+        { once: true },
+      );
+
+      // ── effects: cards, banners and product rows below the fold rise in as they scroll into view (global.css .reveal) ──
+      // Only what starts out of sight is hidden, so the first screen never flickers; cards a server island or the
+      // filters bring in later are picked up as they arrive.
+      if (matchMedia('(prefers-reduced-motion: no-preference)').matches && 'IntersectionObserver' in window) {
+        const REVEAL = '.product-card, .story, [data-carousel]';
+        const seen = new WeakSet<Element>();
+        const io = new IntersectionObserver(
+          (entries) => {
+            entries
+              .filter((e) => e.isIntersecting)
+              .forEach((e, i) => {
+                const el = e.target as HTMLElement;
+                el.style.setProperty('--reveal-i', String(Math.min(i, 5)));
+                el.classList.add('is-in');
+                io.unobserve(el);
+                el.addEventListener('transitionend', () => el.classList.remove('reveal', 'is-in'), { once: true });
+              });
+          },
+          { rootMargin: '0px 0px -40px 0px' },
+        );
+        const scan = (root: ParentNode) =>
+          root.querySelectorAll<HTMLElement>(REVEAL).forEach((el) => {
+            // a carousel rises in as one; its cards would otherwise fade in on every swipe
+            if (seen.has(el) || (el.matches('.product-card') && el.closest('[data-carousel]'))) return;
+            seen.add(el);
+            if (el.getBoundingClientRect().top < innerHeight) return;
+            el.classList.add('reveal');
+            io.observe(el);
+          });
+        scan(document);
+        new MutationObserver((records) => {
+          for (const r of records) r.addedNodes.forEach((n) => n instanceof HTMLElement && scan(n.parentNode ?? n));
+        }).observe(document.body, { childList: true, subtree: true });
+      }
 
       // ── wishlist (localStorage, event-delegated so grids need no per-card island) ──
       const WKEY = 'mos-wishlist';

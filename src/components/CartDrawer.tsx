@@ -3,7 +3,7 @@ import { useStore } from '@nanostores/react';
 import { cart, cartError, closeCart, ensureLoaded, isCartOpen } from '../lib/cartStore';
 import { formatISK, formatStoreMoney } from '../lib/format';
 import { decodeEntities } from '../lib/decode';
-import { cartSubtotal, cartViewState, lineHref, lineSubtotal } from '../lib/cartView';
+import { cartSubtotal, cartViewState, lineHref, lineSubtotal, variationText } from '../lib/cartView';
 import type { ShippingBar } from '../lib/shippingBar';
 import { CartLoadError, LineImage, QtyStepper, RemoveButton } from './CartParts';
 import ShippingBarView from './ShippingBarView';
@@ -95,7 +95,7 @@ export default function CartDrawer({ shippingBar = null }: { shippingBar?: Shipp
                     <div className="side-cart__details">
                       <span className="side-cart__name">{href ? <a href={href}>{name}</a> : name}</span>
                       {it.variation?.length > 0 && (
-                        <span className="side-cart__meta">{it.variation.map((v) => `${v.attribute}: ${v.value}`).join(', ')}</span>
+                        <span className="side-cart__meta">{variationText(it.variation)}</span>
                       )}
                       <div className="side-cart__qty-row">
                         <QtyStepper item={it} />
