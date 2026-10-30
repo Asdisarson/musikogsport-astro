@@ -716,8 +716,10 @@
 
   @media (max-width: 991px) {
     .archive { display: block; padding: 0; }
-    .archive__head { padding: 16px 0 0; }
-    .archive__head .breadcrumbs { padding: 0 var(--gutter) 8px; }
+    /* the head's rows sit straight in the page (display: contents), so the filter pills can stick under the bar
+       for the whole wall rather than only within the head */
+    .archive__head { display: contents; }
+    .archive__head .breadcrumbs { padding: 16px var(--gutter) 8px; }
     .archive__bar { padding: 0 var(--gutter); }
     .archive__title { font-size: 20px; line-height: 26px; }
     .archive__rail-toggle { display: none; }
@@ -728,8 +730,8 @@
     .archive__chips li { flex: none; }
     .archive__chips li:last-child { padding-right: var(--gutter); }
     .archive__chips a { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 48px; color: var(--ink); font-size: 16px; font-weight: 500; line-height: 24px; white-space: nowrap; }
-    /* filter pills: all open the sheet; a group pill opens it at that group */
-    .archive__pills { display: flex; gap: 8px; padding: 16px var(--gutter); overflow-x: auto; scrollbar-width: none; }
+    /* filter pills: all open the sheet; a group pill opens it at that group. They stay under the bar on scroll. */
+    .archive__pills { position: sticky; top: var(--header-h); z-index: 10; display: flex; gap: 8px; padding: 16px var(--gutter); overflow-x: auto; scrollbar-width: none; background: var(--paper); }
     .archive__pills::-webkit-scrollbar { display: none; }
     .archive__pills[hidden] { display: none; }
     .wall-pill { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 24px; background: var(--paper); color: var(--ink); font-size: 16px; font-weight: 500; line-height: 24px; white-space: nowrap; }
