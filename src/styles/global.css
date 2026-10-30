@@ -577,10 +577,10 @@
   }
 
   /* the wall (nike-look, SPEC § Wall). Header row: title 24/500 with the count, "Fela síur" and the sort. Then a
-     252px rail column (192px of links and filters; the 60px gap lives inside the column, so "Fela síur" folds it
-     to 0) beside the grid, whose cells carry 8px each side: 3 × 364px cells and 348px images at 1440, 16px
+     292px rail column (232px of links and filters; the 60px gap lives inside the column, so "Fela síur" folds it
+     to 0) beside the grid, whose cells carry 8px each side: 3 × 351px cells and 335px images at 1440, 16px
      between images. Phones: category chips, filter pills, 2 edge-to-edge columns 6px apart. */
-  .archive { --rail: 252px; display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); grid-template-areas: 'head head' 'rail main'; align-items: start; max-width: var(--maxw); margin-inline: auto; padding: 0 var(--gutter); transition: grid-template-columns 0.4s var(--ease-nav); }
+  .archive { --rail: 292px; display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); grid-template-areas: 'head head' 'rail main'; align-items: start; max-width: var(--maxw); margin-inline: auto; padding: 0 var(--gutter); transition: grid-template-columns 0.4s var(--ease-nav); }
   .archive__head { grid-area: head; min-width: 0; padding: 16px 0 24px; }
   .archive__head .breadcrumbs { padding: 0 0 8px; }
   .archive__bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; padding-right: 8px; }
@@ -627,7 +627,7 @@
   .filter-group__clear { position: absolute; z-index: 1; top: 4px; right: 26px; display: inline-flex; align-items: center; min-height: 44px; padding: 0 2px; font-size: 14px; line-height: 20px; color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
   .filter-group__clear:hover { text-decoration-thickness: 2px; color: var(--ink); }
   .filter-section--active .filter-group__label { padding-right: 56px; }
-  /* the 192px rail has no room for "Vöruflokkar (1)" beside "Hreinsa": there the count is for screen readers only
+  /* the 232px rail has no room for "Vöruflokkar (1)" beside "Hreinsa": there the count is for screen readers only
      (the chips and the ticked options show the selection; the wider phone sheet keeps it) */
   @media (min-width: 992px) {
     .filter-section--active .filter-group__n { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -655,7 +655,7 @@
   .filter-search__empty[hidden] { display: none; }
   /* Litur swatch: a 14px dot with a #949494 ring, so white and pale colours keep an edge on white (3:1) */
   .filter-option__link:has(.filter-option__swatch) { gap: 8px; }   /* the dot takes room: keep "Svartur (315)" on one line */
-  .filter-option__swatch { flex: none; width: 14px; height: 14px; border-radius: 50%; background: linear-gradient(135deg, var(--swatch-a) 50%, var(--swatch-b) 50%); box-shadow: inset 0 0 0 1px var(--field-border); }
+  .filter-option__swatch { flex: none; width: 16px; height: 16px; border-radius: 50%; background: linear-gradient(135deg, var(--swatch-a) 50%, var(--swatch-b) 50%); box-shadow: inset 0 0 0 1px var(--field-border); }
   .filter-option__toggle { position: absolute; right: 0; top: 0; width: 32px; height: 32px; border: 0; padding: 0; background: none; color: var(--ink); }
   .filter-option__toggle span { position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; background: linear-gradient(currentColor, currentColor) center / 10px 1px no-repeat, linear-gradient(currentColor, currentColor) center / 1px 10px no-repeat; }
   .filter-option[data-open='true'] > .filter-option__row .filter-option__toggle span { background-size: 10px 1px, 0 0; }
@@ -673,12 +673,13 @@
   .filter-sizes { padding-bottom: 16px; }
   .filter-sizes__heading { margin: 12px 0 8px; font-size: 14px; line-height: 20px; color: var(--meta); }
   .filter-sizes__block:first-child .filter-sizes__heading { margin-top: 0; }
-  .filter-sizes__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; list-style: none; margin: 0; padding: 0; }
+  .filter-sizes__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; list-style: none; margin: 0; padding: 0; }
   .filter-size { min-width: 0; }
   .filter-size[data-wide] { grid-column: span 2; }
-  .filter-size__btn { display: flex; align-items: center; justify-content: center; min-height: 48px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--ink); font-size: 13px; line-height: 20px; text-align: center; white-space: nowrap; }
+  .filter-size__btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 44px; padding: 0 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 14px; line-height: 20px; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease); }
   .filter-size__btn:hover { border-color: var(--ink); color: var(--ink); }
-  .filter-size__btn[aria-checked='true'] { border-color: var(--ink); box-shadow: inset 0 0 0 0.5px var(--ink); font-weight: 500; }
+  .filter-size__btn[aria-checked='true'] { border-color: var(--ink); background: var(--ink); color: #fff; font-weight: 500; }
+  .filter-size__btn[aria-checked='true']:hover { color: #fff; }
   .filter-size__btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   .filter-sizes:not(:has(> .filter-sizes__more[open])) [data-minor] { display: none; }
   .filter-sizes__more { margin-top: 12px; }
@@ -692,9 +693,10 @@
   .archive .product-grid > li { min-width: 0; padding-inline: 8px; }
 
   @media (min-width: 992px) {
-    /* sticky under the 60px bar, scrolling on its own with a thin bar beside the 192px content (the 4px inset
-       keeps focus rings whole inside the scroller) */
-    .archive-filters { position: sticky; top: var(--header-h); width: 208px; max-height: calc(100vh - var(--header-h)); margin-left: -4px; padding: 4px 12px 24px 4px; overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: thin; transition: opacity 0.4s var(--ease-nav), visibility 0s; }
+    /* sticky under the 60px bar, scrolling on its own beside the 232px content, its thin bar showing only while the
+       pointer is on the rail (the 4px inset keeps focus rings whole inside the scroller) */
+    .archive-filters { position: sticky; top: var(--header-h); width: 248px; max-height: calc(100vh - var(--header-h)); margin-left: -4px; padding: 4px 12px 24px 4px; overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: transparent transparent; transition: opacity 0.4s var(--ease-nav), visibility 0s; }
+    .archive-filters:hover { scrollbar-color: var(--line) transparent; }
     /* the fixed store notice (45px) never covers the rail's last rows */
     html:not([data-notice-off]) body:has(> .store-notice) .archive-filters { max-height: calc(100vh - var(--header-h) - 45px); }
     /* "Fela síur": the column folds to 0 as the rail fades, then the rail leaves the tab order */
