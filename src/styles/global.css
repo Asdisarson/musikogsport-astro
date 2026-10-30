@@ -781,7 +781,7 @@
   .pdp-thumbs::-webkit-scrollbar { display: none; }
   /* the fixed store notice (45px) never covers the last thumbnails (as the wall's rail) */
   html:not([data-notice-off]) body:has(> .store-notice) .pdp-thumbs { max-height: calc(100vh - var(--header-h) - 48px - 45px); }
-  .pdp-thumb { flex: none; width: 60px; height: 60px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-size); background: var(--surface); overflow: hidden; transition: border-color var(--dur) var(--ease); }
+  .pdp-thumb { flex: none; width: 60px; height: 60px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-size); background: #fff; overflow: hidden; transition: border-color var(--dur) var(--ease); }
   .pdp-thumb:hover, .pdp-thumb[aria-current='true'] { border-color: var(--ink); }
   .pdp-thumb img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   .pdp-gallery__main { position: relative; min-width: 0; }
@@ -790,7 +790,7 @@
      still lands its image at header + 24 (8px of padding + 16px of margin) */
   html:has(.pdp) { scroll-padding-top: calc(var(--header-h) + 8px); scroll-padding-bottom: 52px; }
   .pdp-gallery__item { margin: 0; scroll-margin-top: 16px; }
-  .pdp-gallery__item a { display: block; aspect-ratio: 4 / 5; overflow: hidden; background: var(--surface); cursor: zoom-in; }
+  .pdp-gallery__item a { display: block; aspect-ratio: 4 / 5; overflow: hidden; background: #fff; cursor: zoom-in; }
   .pdp-gallery__item img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   :is(.pdp-gallery__item, .pdp-thumb) img[src$='/placeholder.svg'] { object-fit: cover; mix-blend-mode: normal; }
   .pdp-gallery__count { display: none; }
@@ -821,22 +821,16 @@
   .pdp-swatch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   .pdp-swatch:disabled { cursor: not-allowed; background: var(--surface); color: var(--disabled-text); text-decoration: line-through; }
   .pdp-swatches--images { display: flex; flex-wrap: wrap; }
-  .pdp-swatch--image { width: 70px; height: 70px; min-height: 0; padding: 0; overflow: hidden; background: var(--surface); }
+  .pdp-swatch--image { width: 70px; height: 70px; min-height: 0; padding: 0; overflow: hidden; background: #fff; }
   .pdp-swatch--image img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   .pdp-swatch--image[aria-checked='true'] { box-shadow: inset 0 0 0 1px var(--ink); }
   .pdp-swatch--image:disabled { opacity: 0.45; }
-  /* a photo whose backdrop is one flat colour (lib/photoBg: read on the server from the photo's edge) gets a tile of
-     that colour and no multiply, so the photo meets its padding without a box; white, see-through and busy-edged
-     photos keep the #f5f5f5 tile and multiply. Gallery, thumbnail and swatch tiles carry it (cards: [data-photo-fill]). */
-  :is(.pdp-gallery__item a, .pdp-thumb, .pdp-swatch--image)[data-photo-bg] { background: var(--photo-bg); }
-  :is(.pdp-gallery__item a, .pdp-thumb, .pdp-swatch--image)[data-photo-bg] img { mix-blend-mode: normal; }
-  /* a photo whose subject is cut by its own frame (lib/photoBg photoFit) is drawn edge to edge, so the cut sits on the
+  /* The product page's photo tiles (gallery, thumbnail, colour swatch) are white, never grey: no #f5f5f5 tile and no
+     photo-edge tint ([data-photo-bg] / --photo-grad are left unused here; cards still use [data-photo-fill]).
+     A photo whose subject is cut by its own frame (lib/photoBg photoFit) is drawn edge to edge, so the cut sits on the
      tile's edge (as on nike.com) instead of floating inside the padding: 'contain' with no padding fills the tile
      along the photo's longer axis (relative to the tile's), anchored to the side the subject also runs into when there is one; 'cover' only
-     for a photo within ~2% of the tile's own shape (it trims at most ~1% per side). The tile takes the colour of
-     the photo's sides left showing — as a gradient along them (--photo-grad) when their shade drifts (a studio
-     vignette), so neither end leaves a seam. Gallery and thumbnail only. */
-  :is(.pdp-gallery__item a, .pdp-thumb)[data-photo-fit] { background-image: var(--photo-grad, none); }
+     for a photo within ~2% of the tile's own shape (it trims at most ~1% per side). Gallery and thumbnail only. */
   :is(.pdp-gallery__item a, .pdp-thumb)[data-photo-fit] img { padding: 0; }
   :is(.pdp-gallery__item a, .pdp-thumb)[data-photo-fit='cover'] img { object-fit: cover; }
   :is(.pdp-gallery__item a, .pdp-thumb)[data-photo-pos='top'] img { object-position: 50% 0; }
