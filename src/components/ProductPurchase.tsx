@@ -94,6 +94,18 @@ export default function ProductPurchase({
   // "Setja í körfu" pressed before a size was picked: the hint turns into an error and the group is marked
   const [nudged, setNudged] = useState(false);
   const varsRef = useRef<HTMLDivElement>(null);
+  // the phone bar's ×: hidden for the variation it was closed on; picking another brings it back
+  const [barClosedFor, setBarClosedFor] = useState<number | null>(null);
+  // ...and it only shows while the form's own "Setja í körfu" is out of sight
+  const cartRef = useRef<HTMLDivElement>(null);
+  const [cartInView, setCartInView] = useState(true);
+  useEffect(() => {
+    const el = cartRef.current;
+    if (!el || !('IntersectionObserver' in window)) return;
+    const io = new IntersectionObserver(([e]) => setCartInView(e.isIntersecting));
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   const attrNames = useMemo(() => variationAttrs.map((a) => a.name), [variationAttrs]);
   const resolved = useMemo(
@@ -150,8 +162,8 @@ export default function ProductPurchase({
   const hint = isVariable && !variationsFailed ? choiceHint(attrNames, selected, { attrs: variationAttrs, variations }) : null;
   const hintId = `pdp-hint-${productId}`;
   // Phones: a bottom bar with "Setja í körfu" once every option is picked and that variation is in stock (never on a
-  // simple product)
-  const barReady = isVariable && resolved?.stock_status === 'instock' && attrNames.every((n) => selected[n]);
+  // simple product), sliding in while the form's own button is out of sight
+  const barReady = isVariable && resolved?.stock_status === 'instock' && attrNames.every((n) => selected[n]) && barClosedFor !== resolved.id;
   const missing = hint ? attrNames.find((n) => !selected[n]) : undefined;
 
   function choose(attr: string, option: string) {
@@ -270,7 +282,7 @@ export default function ProductPurchase({
         </div>
       )}
 
-      <div className="pdp-cart">
+      <div className="pdp-cart" ref={cartRef}>
         <div className="pdp-qty" role="group" aria-label="Fjöldi">
           <button type="button" onClick={() => setQtyText(String(Math.max(1, qty - 1)))} aria-label="Fækka">
             <Minus />
@@ -306,13 +318,16 @@ export default function ProductPurchase({
       )}
 
       {barReady && (
-        <div className="pdp-bar">
+        <div className="pdp-bar" data-show={cartInView ? undefined : ''} inert={cartInView}>
           <div className="pdp-bar__text">
             <span className="pdp-bar__name">{name}</span>
             {resolved && <span className="pdp-bar__choice">{attrNames.map((n) => (isSizeAttribute(n) ? `Stærð ${selected[n]}` : selected[n])).join(' · ')}</span>}
           </div>
           <button type="button" className="pdp-atc pdp-bar__atc" disabled={!canAdd} aria-busy={adding} onClick={handleAdd}>
             Setja í körfu
+          </button>
+          <button type="button" className="pdp-bar__close" aria-label="Fela" onClick={() => setBarClosedFor(resolved?.id ?? null)}>
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
           </button>
         </div>
       )}

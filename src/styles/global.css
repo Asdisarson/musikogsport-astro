@@ -893,19 +893,20 @@
   .pdp-atc[aria-busy='true'] { opacity: 0.6; }
   .pdp-hint { margin: 8px 0 0; font-size: 16px; line-height: 24px; color: var(--text); text-align: center; }
   /* phones: a bottom bar with the name, the choice and "Setja í körfu", sliding up once a variation is picked
-     (ProductPurchase); above the store notice when that shows; the back-to-top button moves over it */
+     while the form's own button is out of sight, closable with × until another is picked (ProductPurchase); above the store notice when that shows; the back-to-top button moves over it */
   .pdp-bar { display: none; }
   @media (max-width: 991px) {
-    .pdp-bar { position: fixed; inset: auto 0 0; z-index: 55; display: flex; align-items: center; gap: 12px; padding: 12px var(--gutter) calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--paper); animation: pdp-bar-up 0.3s var(--ease); }
-    @keyframes pdp-bar-up { from { transform: translateY(100%); } }
+    .pdp-bar { position: fixed; inset: auto 0 0; z-index: 55; display: flex; align-items: center; gap: 12px; padding: 12px var(--gutter) calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--paper); transform: translateY(100%); visibility: hidden; transition: transform 0.3s var(--ease), visibility 0s linear 0.3s; }
+    .pdp-bar[data-show] { transform: none; visibility: visible; transition: transform 0.3s var(--ease), visibility 0s; }
     html:not([data-notice-off]) body:has(> .store-notice) .pdp-bar { bottom: 45px; }
     .pdp-bar__text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
     .pdp-bar__name { overflow: hidden; color: var(--ink); font-size: 14px; font-weight: 500; line-height: 20px; white-space: nowrap; text-overflow: ellipsis; }
     .pdp-bar__choice { color: var(--meta); font-size: 14px; line-height: 20px; }
     .pdp-bar__atc { flex: none; width: auto; height: 48px; }
+    .pdp-bar__close { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin-right: -12px; padding: 0; border: 0; background: none; color: var(--ink); }
     body:has(.pdp-bar) .site-footer { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }   /* the bar never hides the footer's last row */
-    body:has(.pdp-bar) .to-top { bottom: calc(96px + env(safe-area-inset-bottom)); }
-    html:not([data-notice-off]) body:has(> .store-notice):has(.pdp-bar) .to-top { bottom: calc(141px + env(safe-area-inset-bottom)); }
+    body:has(.pdp-bar[data-show]) .to-top { bottom: calc(96px + env(safe-area-inset-bottom)); }
+    html:not([data-notice-off]) body:has(> .store-notice):has(.pdp-bar[data-show]) .to-top { bottom: calc(141px + env(safe-area-inset-bottom)); }
   }
   /* "Setja í körfu" pressed without a size: the hint in red, the size group's label red and its boxes ringed */
   .pdp-hint.is-error, .pdp-var.is-missing .pdp-var__label { color: var(--invalid-text); }
