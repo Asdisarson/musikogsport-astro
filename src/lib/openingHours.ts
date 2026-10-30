@@ -64,6 +64,24 @@ export function parseHours(lines: string[]): Week | null {
   return week;
 }
 
+/** The week in a few lines for a card: days in a row with the same hours together ("Virka daga", "Laugardagur og
+ *  sunnudagur", "Mánudagur – miðvikudagur"). */
+export function weekSummary(week: Week): { days: string; hours: string }[] {
+  const text = (d: Day) => (d ? `${d.open} – ${d.close}` : 'Lokað');
+  const groups: { from: number; to: number; hours: string }[] = [];
+  week.forEach((d, i) => {
+    const last = groups[groups.length - 1];
+    if (last && last.hours === text(d)) last.to = i;
+    else groups.push({ from: i, to: i, hours: text(d) });
+  });
+  if (groups.length === 1 && week.length === 7) return [{ days: 'Alla daga', hours: groups[0].hours }];
+  const lower = (i: number) => DAY_NAMES[i].toLowerCase();
+  return groups.map(({ from, to, hours }) => ({
+    days: from === 0 && to === 4 ? 'Virka daga' : from === to ? DAY_NAMES[from] : to === from + 1 ? `${DAY_NAMES[from]} og ${lower(to)}` : `${DAY_NAMES[from]} – ${lower(to)}`,
+    hours,
+  }));
+}
+
 /** Whether the shop is open at `now`, which weekday that is (Monday = 0), and a line saying so. */
 export function hoursStatus(week: Week, now: Date): { open: boolean; today: number; text: string } {
   const today = (now.getUTCDay() + 6) % 7;

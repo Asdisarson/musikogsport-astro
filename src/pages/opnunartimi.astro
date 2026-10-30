@@ -5,6 +5,7 @@
 // hours (lib/openingHours parseHours), it is shown as written instead. Takes precedence over [slug].astro.
 import Base from '../layouts/Base.astro';
 import Icon from '../components/Icon.astro';
+import OpenStatus from '../components/OpenStatus.astro';
 import NotFound from '../components/NotFound.astro';
 import WpContent from '../components/WpContent.astro';
 import { markUnavailable } from '../lib/http';
@@ -36,12 +37,7 @@ const tel = contact.phone.replace(/[^\d+]/g, '');
       <div class="hours">
         <header class="hours__head">
           <h1 class="page-title">{page.title}</h1>
-          {week && (
-            <p class="hours__status" data-hours-status hidden>
-              <span class="hours__dot" aria-hidden="true" />
-              <span data-hours-status-text />
-            </p>
-          )}
+          {week && <OpenStatus week={week} />}
         </header>
 
         {week ? (
@@ -96,15 +92,12 @@ const tel = contact.phone.replace(/[^\d+]/g, '');
 <script>
   import { hoursStatus, type Week } from '../lib/openingHours';
 
+  // today's row in bold with "Í dag" (the status pill paints itself, OpenStatus)
   const list = document.querySelector<HTMLElement>('[data-hours-week]');
-  const status = document.querySelector<HTMLElement>('[data-hours-status]');
-  if (list && status) {
+  if (list) {
     const week = JSON.parse(list.dataset.hoursWeek ?? '[]') as Week;
     const paint = () => {
       const now = hoursStatus(week, new Date());
-      status.hidden = false;
-      status.classList.toggle('is-open', now.open);
-      status.querySelector('[data-hours-status-text]')!.textContent = now.text;
       list.querySelectorAll<HTMLElement>('[data-hours-day]').forEach((row) => {
         const isToday = Number(row.dataset.hoursDay) === now.today;
         row.classList.toggle('is-today', isToday);
@@ -114,6 +107,6 @@ const tel = contact.phone.replace(/[^\d+]/g, '');
       });
     };
     paint();
-    setInterval(paint, 60_000); // a page left open turns "Opið" to "Lokað" on time
+    setInterval(paint, 60_000); // a page left open past midnight moves on to the next day
   }
 </script>

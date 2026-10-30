@@ -1,0 +1,94 @@
+---
+// Hafa samband ("Verslunin" in the utility bar): the WordPress page's parts laid out as a store page (lib/storePage
+// storeLayout) — its info columns as cards with an opening-hours card (the Opnunartími page's hours, lib/openingHours)
+// beside the map, then the contact form in a card. Everything is still edited in wp-admin; a page with other parts
+// is shown as written. Takes precedence over [slug].astro.
+import Base from '../layouts/Base.astro';
+import Icon from '../components/Icon.astro';
+import NotFound from '../components/NotFound.astro';
+import OpenStatus from '../components/OpenStatus.astro';
+import WpContent from '../components/WpContent.astro';
+import { markUnavailable } from '../lib/http';
+import { hoursLines, parseHours, weekSummary } from '../lib/openingHours';
+import { storeLayout } from '../lib/storePage';
+import { getWpPage, WpUnavailable } from '../lib/wp';
+import type { Column } from '../lib/wpbakery';
+
+export const prerender = false;
+
+let down = false;
+const [page, hoursPage] = await Promise.all([
+  getWpPage('hafa-samband').catch((err) => {
+    if (!(err instanceof WpUnavailable)) throw err;
+    down = true;
+    return null;
+  }),
+  // the hours card is extra: without it the page still stands
+  getWpPage('opnunartimi').catch(() => null),
+]);
+if (down) markUnavailable(Astro.response);
+else if (!page) Astro.response.status = 404;
+const layout = page ? storeLayout(page.rows) : null;
+const week = hoursPage ? parseHours(hoursLines(hoursPage.rows)) : null;
+// one WordPress column on its own, through the same renderer as the rest of the page
+const asRows = (col: Column) => [{ fullWidth: false, cols: [{ ...col, span: 12 }] }];
+---
+
+{
+  page ? (
+    <Base title={page.title} description="Músík og Sport, Dalshraun 10, Hafnarfirði: sími, netfang, opnunartími, kort og fyrirspurnir.">
+      <header class="page-header">
+        <h1 class="page-title">{page.title}</h1>
+      </header>
+      {layout ? (
+        <div class="store wp-page container">
+          <div class:list={['store__top', !layout.map && 'store__top--no-map']}>
+            <div class="store__cards">
+              {week && (
+                <section class="store-card store-card--hours" aria-labelledby="store-hours">
+                  <span class="vc-icon" aria-hidden="true">
+                    <Icon name="clock" size={24} stroke-width={1.5} />
+                  </span>
+                  <h2 id="store-hours" class="store-card__title">Opnunartími</h2>
+                  <OpenStatus week={week} />
+                  <dl class="store-card__hours">
+                    {weekSummary(week).map((g) => (
+                      <div>
+                        <dt>{g.days}</dt>
+                        <dd>{g.hours}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <a class="store-card__more" href="/opnunartimi/">Sjá alla vikuna</a>
+                </section>
+              )}
+              {layout.cards.map((col) => (
+                <div class="store-card">
+                  <WpContent rows={asRows(col)} />
+                </div>
+              ))}
+            </div>
+            {layout.map && (
+              <div class="store__map">
+                <WpContent rows={asRows(layout.map)} />
+              </div>
+            )}
+          </div>
+          {layout.form && (
+            <div class="store__form">
+              <WpContent rows={asRows(layout.form)} />
+            </div>
+          )}
+        </div>
+      ) : (
+        <div class="wp-page container">
+          <WpContent rows={page.rows} />
+        </div>
+      )}
+    </Base>
+  ) : (
+    <Base title={down ? 'Tímabundin bilun' : 'Síða fannst ekki'}>
+      <NotFound unavailable={down} title="Síða fannst ekki" message="Þessi síða er ekki til." />
+    </Base>
+  )
+}

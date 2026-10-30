@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hoursLines, hoursStatus, parseHours, type Week } from './openingHours';
+import { hoursLines, hoursStatus, parseHours, weekSummary, type Week } from './openingHours';
 
 // The /opnunartimi/ WordPress page's text (2026-10-30).
 const LIVE = ['Virkir dagar frá kl 10:00 - 18:00', 'Laugardagar frá kl 10:00 - 16:00'];
@@ -43,6 +43,24 @@ describe('parseHours', () => {
     expect(parseHours([...LIVE, 'Lokað um jólin'])).toBeNull();
     expect(parseHours([])).toBeNull();
     expect(parseHours(['Virkir dagar frá kl 25:00 - 18:00'])).toBeNull();
+  });
+});
+
+describe('weekSummary', () => {
+  it('groups days in a row with the same hours', () => {
+    expect(weekSummary(week)).toEqual([
+      { days: 'Virka daga', hours: '10:00 – 18:00' },
+      { days: 'Laugardagur', hours: '10:00 – 16:00' },
+      { days: 'Sunnudagur', hours: 'Lokað' },
+    ]);
+  });
+  it('names Monday–Friday "Virka daga", a two-day group with "og", other runs with a dash, the whole week "Alla daga"', () => {
+    expect(weekSummary([weekday, weekday, weekday, saturday, saturday, saturday, null])[0]).toEqual({ days: 'Mánudagur – miðvikudagur', hours: '10:00 – 18:00' });
+    expect(weekSummary([weekday, weekday, weekday, weekday, weekday, null, null])).toEqual([
+      { days: 'Virka daga', hours: '10:00 – 18:00' },
+      { days: 'Laugardagur og sunnudagur', hours: 'Lokað' },
+    ]);
+    expect(weekSummary(Array(7).fill(weekday))).toEqual([{ days: 'Alla daga', hours: '10:00 – 18:00' }]);
   });
 });
 

@@ -1,0 +1,33 @@
+---
+// "Opið núna · lokar kl. 18:00" / "Lokað · opnar á morgun kl. 10:00" as a pill (lib/openingHours hoursStatus). Worked
+// out in the browser, never on the server, so a cached page is never stale; hidden until then, and repainted every
+// minute so a page left open turns over on time.
+import type { Week } from '../lib/openingHours';
+
+interface Props {
+  week: Week;
+}
+const { week } = Astro.props;
+---
+
+<p class="open-status" data-open-status={JSON.stringify(week)} hidden>
+  <span class="open-status__dot" aria-hidden="true"></span>
+  <span data-open-status-text></span>
+</p>
+
+<script>
+  import { hoursStatus, type Week } from '../lib/openingHours';
+
+  const pills = [...document.querySelectorAll<HTMLElement>('[data-open-status]')];
+  const paint = () =>
+    pills.forEach((pill) => {
+      const now = hoursStatus(JSON.parse(pill.dataset.openStatus ?? '[]') as Week, new Date());
+      pill.hidden = false;
+      pill.classList.toggle('is-open', now.open);
+      pill.querySelector('[data-open-status-text]')!.textContent = now.text;
+    });
+  if (pills.length) {
+    paint();
+    setInterval(paint, 60_000);
+  }
+</script>
