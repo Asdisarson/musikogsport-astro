@@ -50,6 +50,8 @@
     --field-h: 48px;           /* text inputs */
     --radius-pill: 30px;
     --radius-size: 4px;        /* size buttons, text inputs */
+    --radius-photo: 8px;       /* product photos: gallery tiles, cards (nike.com's PDP photo) */
+    --radius-photo-sm: 4px;    /* small product photos: thumbnails, colour swatches, cart lines */
 
     --font: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
     --font-display: 'Archivo Variable', 'Archivo', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
@@ -400,7 +402,7 @@
      --photo-fill-a / -b, a flat colour or a gradient each, on a half-tile layer that the photo covers in the middle.
      A white side or a see-through photo gets no fill: the page shows (owner, 2026-10-27). A photo with no matchable
      side zooms to fill instead (data-photo-fill='zoom', owner 2026-10-28). */
-  .product-card__media { position: relative; display: block; aspect-ratio: 1; overflow: hidden; background: none; }
+  .product-card__media { position: relative; display: block; aspect-ratio: 1; overflow: hidden; border-radius: var(--radius-photo); background: none; }
   .product-card__media[data-photo-fill='y'] { background: var(--photo-fill-a) left / 50% 100% no-repeat, var(--photo-fill-b) right / 50% 100% no-repeat; }
   .product-card__media[data-photo-fill='x'] { background: var(--photo-fill-a) top / 100% 50% no-repeat, var(--photo-fill-b) bottom / 100% 50% no-repeat; }
   .product-card__media img { width: 100%; height: 100%; object-fit: contain; object-position: 50% 50%; padding: 0; mix-blend-mode: normal; }
@@ -774,7 +776,7 @@
   .pdp-thumbs::-webkit-scrollbar { display: none; }
   /* the fixed store notice (45px) never covers the last thumbnails (as the wall's rail) */
   html:not([data-notice-off]) body:has(> .store-notice) .pdp-thumbs { max-height: calc(100vh - var(--header-h) - 48px - 45px); }
-  .pdp-thumb { flex: none; width: 60px; height: 60px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-size); background: #fff; overflow: hidden; transition: border-color var(--dur) var(--ease); }
+  .pdp-thumb { flex: none; width: 60px; height: 60px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-photo-sm); background: #fff; overflow: hidden; transition: border-color var(--dur) var(--ease); }
   .pdp-thumb:hover, .pdp-thumb[aria-current='true'] { border-color: var(--ink); }
   .pdp-thumb img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   .pdp-gallery__main { position: relative; min-width: 0; }
@@ -783,7 +785,7 @@
      still lands its image at header + 24 (8px of padding + 16px of margin) */
   html:has(.pdp) { scroll-padding-top: calc(var(--header-h) + 8px); scroll-padding-bottom: 52px; }
   .pdp-gallery__item { margin: 0; scroll-margin-top: 16px; }
-  .pdp-gallery__item a { display: block; aspect-ratio: var(--tile-aspect, 4 / 5); overflow: hidden; background: #fff; cursor: zoom-in; }   /* the photo's own shape (PdpGallery) */
+  .pdp-gallery__item a { display: block; aspect-ratio: var(--tile-aspect, 4 / 5); overflow: hidden; border-radius: var(--radius-photo); background: #fff; cursor: zoom-in; }   /* the photo's own shape (PdpGallery) */
   .pdp-gallery__item img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   :is(.pdp-gallery__item, .pdp-thumb) img[src$='/placeholder.svg'] { object-fit: cover; mix-blend-mode: normal; }
   .pdp-gallery__count { display: none; }
@@ -824,7 +826,7 @@
   .pdp-swatch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   .pdp-swatch:disabled { cursor: not-allowed; background: var(--surface); color: var(--disabled-text); text-decoration: line-through; }
   .pdp-swatches--images { display: flex; flex-wrap: wrap; }
-  .pdp-swatch--image { width: 70px; height: 70px; min-height: 0; padding: 0; overflow: hidden; background: #fff; }
+  .pdp-swatch--image { width: 70px; height: 70px; min-height: 0; padding: 0; overflow: hidden; border-radius: var(--radius-photo-sm); background: #fff; }
   .pdp-swatch--image img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   .pdp-swatch--image[aria-checked='true'] { box-shadow: inset 0 0 0 1px var(--ink); }
   .pdp-swatch--image:disabled { opacity: 0.45; }
@@ -985,7 +987,7 @@
     .pdp-gallery__track { display: flex; gap: 0; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
     .pdp-gallery__track::-webkit-scrollbar { display: none; }
     .pdp-gallery__item { flex: 0 0 100%; scroll-snap-align: start; }
-    .pdp-gallery__item a { aspect-ratio: 4 / 5; }   /* the swipe carousel keeps one height */
+    .pdp-gallery__item a { aspect-ratio: 4 / 5; border-radius: 0; }   /* the swipe carousel keeps one height, edge to edge */
     .pdp-gallery__item a:focus-visible { outline-offset: -3px; }   /* the track clips an outside ring */
     .pdp-gallery__steps { display: none; }   /* phones swipe */
     .pdp-gallery__count { display: block; position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); margin: 0; padding: 2px 12px; border-radius: 12px; background: var(--paper); color: var(--ink); font-size: 14px; line-height: 20px; font-variant-numeric: tabular-nums; pointer-events: none; }
@@ -1049,7 +1051,7 @@
   .side-cart__items { list-style: none; margin: 0; padding: 0; }
   .side-cart__item { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; padding: 20px 0; border-bottom: 1px solid var(--rule); }
   .side-cart__item:first-child { padding-top: 4px; }
-  .side-cart__thumb { display: block; width: 96px; aspect-ratio: 1; background: var(--surface); }
+  .side-cart__thumb { display: block; width: 96px; aspect-ratio: 1; overflow: hidden; border-radius: var(--radius-photo-sm); background: var(--surface); }
   .side-cart__thumb img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   .side-cart__details { position: relative; min-width: 0; padding-right: 40px; }
   .side-cart__name { display: block; font-size: 16px; font-weight: 500; line-height: 24px; color: var(--ink); }
@@ -1082,7 +1084,7 @@
      pill and the trash button */
   .cart-line { display: grid; grid-template-columns: 150px max-content minmax(0, 1fr) max-content; grid-template-rows: auto 1fr; grid-template-areas: 'thumb name name total' 'thumb qty remove .'; column-gap: 16px; padding: 24px 0; border-bottom: 1px solid var(--rule); }
   .cart-line:first-child { padding-top: 0; }
-  .cart-line__thumb { grid-area: thumb; display: block; width: 150px; aspect-ratio: 1; background: var(--surface); }
+  .cart-line__thumb { grid-area: thumb; display: block; width: 150px; aspect-ratio: 1; overflow: hidden; border-radius: var(--radius-photo); background: var(--surface); }
   .cart-line__thumb img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   .cart-line__name { grid-area: name; display: flex; flex-direction: column; min-width: 0; font-size: 16px; font-weight: 500; line-height: 24px; color: var(--ink); }
   .cart-line__name a { color: var(--ink); }
@@ -1198,7 +1200,7 @@
   .review-table tbody td:last-child, .review-table tfoot td { text-align: right; white-space: nowrap; }
   .review-table__item td:first-child { width: 100%; }   /* the product name takes the room, not the price */
   .review-table__product { display: flex; align-items: flex-start; gap: 16px; }
-  .review-table__thumb { flex: none; width: 80px; aspect-ratio: 1; background: var(--surface); }
+  .review-table__thumb { flex: none; width: 80px; aspect-ratio: 1; overflow: hidden; border-radius: var(--radius-photo-sm); background: var(--surface); }
   .review-table__thumb img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   .review-table__name { min-width: 0; font-weight: 500; }
   .review-table__meta { display: block; font-weight: 400; color: var(--meta); }
