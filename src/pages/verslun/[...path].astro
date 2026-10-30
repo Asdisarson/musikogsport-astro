@@ -20,7 +20,7 @@ import { formatSaleBadge, salePercent } from '../../lib/price';
 import { isSizeAttribute, pricesVary, sortSizeOptions } from '../../lib/variations';
 import { ld, productLd, breadcrumbList } from '../../lib/jsonld';
 import { loadCatalogTerms } from '../../lib/catalogTerms';
-import { cardCategories, categoryChain, productCrumbTrail } from '../../lib/categoryTree';
+import { cardCategories, categoryChain, productCrumbTrail, relatedScope } from '../../lib/categoryTree';
 import { categoryPath, movedCategoryTarget, productPath } from '../../lib/paths';
 import { isShoe, sizeChartFor, wantAttr } from '../../lib/sizeGuide';
 import { markUnavailable } from '../../lib/http';
@@ -83,9 +83,11 @@ if (product && product.type === 'variable') {
   }));
 }
 
-// "Tengdar vörur" (live shows five): fetched in its own server island (RelatedProducts), after the page is sent.
-// Exclude self here, before the island's fetch caps the count.
+// "Þér gæti líkað": fetched in its own server island (RelatedProducts), after the page is sent — the product's own
+// category for the same audience (relatedScope), topped up from related_ids. Self is excluded here, before the
+// island's fetch caps the count.
 const relatedIds = (product?.related_ids ?? []).filter((id) => id !== product?.id);
+const related = relatedScope((product?.categories ?? []).map((c) => c.id), terms.categories);
 
 const name = product ? decodeEntities(product.name) : '';
 const img = product ? productImage(product) : { src: '', alt: '' };
@@ -316,7 +318,9 @@ const shareUrl = `https://www.facebook.com/sharer.php?u=${encodeURIComponent(can
       </div>
 
       <SizeGuide />
-      {relatedIds.length > 0 && <RelatedProducts server:defer ids={relatedIds} />}
+      {(related.categoryId !== undefined || relatedIds.length > 0) && (
+        <RelatedProducts server:defer productId={product.id} categoryId={related.categoryId} audienceIds={related.audienceIds} ids={relatedIds} />
+      )}
     </Base>
   ) : (
     <Base title={down ? 'Tímabundin bilun' : 'Vara fannst ekki'}>

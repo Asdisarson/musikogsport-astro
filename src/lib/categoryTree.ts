@@ -24,6 +24,17 @@ export const STRUCTURAL_ROOT_SLUGS: ReadonlySet<string> = new Set([KYN_PARENT_SL
  *  little (the sale badge already says "sale"), so it never takes a slot from a gender facet either. */
 export const CARD_SALE_ROOT_SLUG = 'sale';
 
+/** Where the product page's related products come from: the product's most specific product-type category (never
+ *  Kyn, an unsorted bucket or the sale bucket; of two as deep the lower id) and its Kyn audiences (Karlar, Konur…),
+ *  so a men's running shoe is shown men's running shoes. Categories missing from the tree are skipped. */
+export function relatedScope(productCategoryIds: number[], categories: CategoryTerm[]): { categoryId: number | undefined; audienceIds: number[] } {
+  const found = productCategoryIds.map((id) => ({ id, chain: categoryChain(categories, id) })).filter((c) => c.chain.length > 0);
+  const types = found.filter((c) => !STRUCTURAL_ROOT_SLUGS.has(c.chain[0]) && c.chain[0] !== CARD_SALE_ROOT_SLUG);
+  types.sort((a, b) => b.chain.length - a.chain.length || a.id - b.id);
+  const audienceIds = found.filter((c) => c.chain[0] === KYN_PARENT_SLUG && c.chain.length > 1).map((c) => c.id);
+  return { categoryId: types[0]?.id, audienceIds };
+}
+
 type FoundCategory = { id: number; name: string; chain: string[] };
 
 /** Card rank of a category's root: 0 real product type, 1 structural facet (gender, unisex, unsorted), 2 sale. */

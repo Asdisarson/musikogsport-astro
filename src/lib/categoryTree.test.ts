@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardCategories, categoryChain, resolveCategoryPath, childrenOf, productCrumbTrail, railCategoryLinks } from './categoryTree';
+import { cardCategories, categoryChain, resolveCategoryPath, childrenOf, productCrumbTrail, railCategoryLinks, relatedScope } from './categoryTree';
 import type { CategoryTerm } from './liveFilters';
 
 const cats: CategoryTerm[] = [
@@ -228,5 +228,27 @@ describe('railCategoryLinks', () => {
     expect(railCategoryLinks(tree, counts, 0, new Set([653]))).toEqual([{ name: 'NET-LAGERSALA', path: '/voruflokkur/sale/' }]);
     expect(railCategoryLinks(tree, counts, 653, new Set([702]))).toEqual([{ name: 'Íþróttaskór', path: '/voruflokkur/skor/ithrottaskor/' }]);
     expect(railCategoryLinks(tree, counts, 0, new Set())).toEqual(railCategoryLinks(tree, counts));
+  });
+});
+
+describe('relatedScope', () => {
+  const tree: CategoryTerm[] = [
+    ...cats,
+    { id: 800, slug: 'kyn', parent: 0, name: 'Kyn' },
+    { id: 801, slug: 'karlar', parent: 800, name: 'Karlar' },
+    { id: 802, slug: 'konur', parent: 800, name: 'Konur' },
+    { id: 900, slug: 'fatnadur', parent: 0, name: 'Fatnaður' },
+    { id: 901, slug: 'hlaup', parent: 900, name: 'Hlaup' },
+    { id: 950, slug: 'uncategorized', parent: 0, name: 'Óflokkað' },
+  ];
+
+  it('picks the deepest product-type category and the Kyn audiences', () => {
+    expect(relatedScope([801, 718, 901, 701, 653], tree)).toEqual({ categoryId: 701, audienceIds: [801] });
+  });
+  it('never scopes to Kyn, an unsorted bucket or the sale bucket', () => {
+    expect(relatedScope([801, 802, 950, 718], tree)).toEqual({ categoryId: undefined, audienceIds: [801, 802] });
+  });
+  it('breaks a depth tie by the lower id, and skips categories missing from the tree', () => {
+    expect(relatedScope([901, 700, 12345], tree)).toEqual({ categoryId: 700, audienceIds: [] });
   });
 });
