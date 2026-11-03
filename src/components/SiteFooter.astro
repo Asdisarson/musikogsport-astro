@@ -9,6 +9,7 @@ import Icon from './Icon.astro';
 import type { SiteChrome } from '../lib/siteChrome';
 import { companyParts } from '../lib/companyLine';
 import { linkRel } from '../lib/safeUrl';
+import { INSTAGRAM_URL } from '../lib/site';
 
 interface Props {
   chrome: SiteChrome;
@@ -65,7 +66,7 @@ const legal = [
         </li>
         <li><Icon name="mail" size={18} stroke-width={1.5} /><a href={`mailto:${f.email}`}>{f.email}</a></li>
         <li><Icon name="phone" size={18} stroke-width={1.5} /><a href={`tel:${tel}`}>{f.phone}</a></li>
-        <li><Icon name="instagram" size={18} stroke-width={1.5} /><a href="https://www.instagram.com/musikogsport/" target="_blank" rel="noopener">Instagram</a></li>
+        <li><Icon name="instagram" size={18} stroke-width={1.5} /><a href={INSTAGRAM_URL} target="_blank" rel="noopener">Instagram</a></li>
       </ul>
     </details>
   </div>

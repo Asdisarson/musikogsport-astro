@@ -1,0 +1,79 @@
+---
+// "Músík og Sport á Instagram" (home page, last before the footer; as on hverslun.is): the latest posts as a row of
+// square tiles — picture, two lines of caption, "Skoða á Instagram" — on the same round-arrow carousel as the
+// product rows (scripts/carousel). Each tile opens the post on Instagram in a new tab. With no posts (not connected
+// in Stillingar, or nothing fetched yet) the row is a "Fylgdu okkur" banner to the profile instead, so the home page
+// never shows an empty or broken section.
+import Icon from './Icon.astro';
+import type { InstagramPost } from '../lib/instagram';
+import { INSTAGRAM_HANDLE, INSTAGRAM_URL } from '../lib/site';
+
+interface Props {
+  posts: InstagramPost[];
+}
+const { posts } = Astro.props;
+const title = 'Músík og Sport á Instagram';
+const prevIcon = '<path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.8" />';
+const nextIcon = '<path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.8" />';
+---
+
+{
+  posts.length > 0 ? (
+    <section class="product-row product-row--home insta-row" aria-labelledby="insta-row-title" data-carousel>
+      <div class="product-row__head">
+        <div class="insta-row__heading">
+          <h2 class="product-row__title" id="insta-row-title">{title}</h2>
+          <a class="insta-row__handle" href={INSTAGRAM_URL} target="_blank" rel="noopener">
+            <Icon name="instagram" size={18} stroke-width={1.5} />@{INSTAGRAM_HANDLE}
+          </a>
+        </div>
+        <div class="product-row__nav">
+          <button class="round-btn" type="button" data-carousel-step="-1" aria-label="Fyrri færslur" aria-disabled="true">
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" set:html={prevIcon} />
+          </button>
+          <button class="round-btn" type="button" data-carousel-step="1" aria-label="Næstu færslur">
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" set:html={nextIcon} />
+          </button>
+        </div>
+      </div>
+      <div class="product-row__viewport">
+        <ul class="product-row__track" data-carousel-track>
+          {posts.map((p) => (
+            <li class="product-row__item">
+              <a class="insta-tile" href={p.href} target="_blank" rel="noopener">
+                <span class="insta-tile__media">
+                  <img
+                    src={p.image.url}
+                    alt={p.image.alt}
+                    width={p.image.width || 640}
+                    height={p.image.height || 640}
+                    loading="lazy"
+                    decoding="async"
+                    data-fallback
+                  />
+                </span>
+                {p.caption && <span class="insta-tile__caption">{p.caption}</span>}
+                <span class="insta-tile__more">Skoða á Instagram</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  ) : (
+    <section class="insta-follow" aria-labelledby="insta-follow-title">
+      <span class="insta-follow__icon" aria-hidden="true">
+        <Icon name="instagram" size={32} stroke-width={1.5} />
+      </span>
+      <div class="insta-follow__text">
+        <h2 class="insta-follow__title" id="insta-follow-title">Fylgdu okkur á Instagram</h2>
+        <p class="insta-follow__lead">Nýjar vörur, tilboð og fréttir úr búðinni á @{INSTAGRAM_HANDLE}.</p>
+      </div>
+      <a class="pill pill--ink insta-follow__cta" href={INSTAGRAM_URL} target="_blank" rel="noopener">Fylgja @{INSTAGRAM_HANDLE}</a>
+    </section>
+  )
+}
+
+<script>
+  import '../scripts/carousel';
+</script>

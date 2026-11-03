@@ -362,9 +362,9 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    `jwt-authentication-for-wp-rest-api`.
 2. **Upload** to `wp-content/mu-plugins/`: `mos-posturinn-droppoints.php`, `headless-bridge.php`,
    `mos-headless-api.php`, `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`,
-   `mos-size-index.php`, `mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`. **Never
+   `mos-size-index.php`, `mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`, `mos-instagram.php`. **Never
    `headless-bridge-local.php`** (the local-dev shim rewrites redirects to localhost).
-   Check: `wp plugin list --status=must-use` shows exactly those ten, and `ls wp-content/mu-plugins` has no
+   Check: `wp plugin list --status=must-use` shows exactly those eleven, and `ls wp-content/mu-plugins` has no
    `-local` file. `mos-headless-mode.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), so uploading
    it before cutover is safe; the others act at once but only add routes, fields and the wp-admin "Stillingar" page.
 3. **Size index backfill**: `wp mos-size reindex` (seconds; rerunnable). Until it runs, size filters match nothing.
@@ -389,6 +389,18 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    `wp mos-nav apply`: writes the menu "Aðalvalmynd 2026" and puts it in the primary location; the old menu stays.
    Rollback: Útlit → Valmyndir → Stjórna staðsetningum → Aðalvalmynd. Rerun `apply` when the catalog changes a lot
    (it rebuilds the menu, dropping hand edits made to it). Check: every menu link opens a page with products.
+3d. **Instagram row** (the owner; any time, also after cutover; free). Until it is done the home page ends with a
+   "Fylgdu okkur á Instagram" banner instead of the latest posts.
+   1. In the Instagram app, make @musikogsport a professional account (Business or Creator).
+   2. On developers.facebook.com: create an app (type "Business"), add the product "Instagram" → "API setup with
+      Instagram login", and under "Generate access tokens" add @musikogsport, sign in with it and copy the token.
+      Your own account needs no App Review.
+   3. wp-admin → Stillingar → Instagram (administrators only): paste the token → Tengja. It is checked with Instagram
+      before it is saved, then renewed automatically every 30 days (it would expire after 60 unused days). If the
+      site is ever down for longer than that, paste a new one.
+   Check: `wp mos-instagram status` says "Connected as @musikogsport", and within a few minutes
+   `curl -s 'https://<wp-host>/wp-json/mos/v1/instagram' | jq '.posts | length'` is above 0. The pictures are copied
+   to `wp-content/uploads/mos-instagram/`, which must be publicly served like the rest of `uploads/` (no deny rule).
 4. **`wp-config.php` constants** (at cutover, not before): `MOS_STOREFRONT_URL` = `https://musikogsport.is`,
    `MOS_HEADLESS_REDIRECT_STATUS` = `301`.
    Check: `wp eval 'echo MOS_STOREFRONT_URL, " ", MOS_HEADLESS_REDIRECT_STATUS;'`, and
@@ -404,7 +416,8 @@ On the WordPress host, in this order. Each step has its check; stop at the first
 6. **Public endpoints answer.** Check:
    `curl -s 'https://<wp-host>/wp-json/mos/v1/front-page' | jq 'keys'`,
    `curl -s 'https://<wp-host>/wp-json/mos/v1/menu/location/primary' | jq 'length'`, and
-   `curl -s 'https://<wp-host>/wp-json/mos/v1/droppoints?postcode=101&type=postbox' | jq '.ok'` (`true`).
+   `curl -s 'https://<wp-host>/wp-json/mos/v1/droppoints?postcode=101&type=postbox' | jq '.ok'` (`true`), and
+   `curl -s 'https://<wp-host>/wp-json/mos/v1/instagram' | jq '.handle'` (`"musikogsport"`; `posts` is empty until 3d).
 7. **WP-Cron runs** (it clears the sign-out denylist transients). Check: `wp cron event list` shows events due in
    the future, not hours overdue; with `DISABLE_WP_CRON`, a system cron runs `wp cron event run --due-now`.
 8. **IP or WAF limits on public write routes** (`jwt-auth/v1/token`, `mos/v1/contact`,
