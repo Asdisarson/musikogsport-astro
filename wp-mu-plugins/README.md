@@ -150,21 +150,22 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
   posts of @musikogsport (`Cache-Control: public, max-age=60`, as the other public reads). The GET itself never waits
   on Instagram: when the feed is an hour old (15 minutes after a failure) it queues a refresh for `shutdown`, after the
   answer is sent (`fastcgi_finish_request`), one at a time (an atomic `mos_instagram_lock` option, expiring after 5
-  minutes). The refresh fetches the Instagram API with Instagram Login (`graph.instagram.com/v26.0/me/media`) and
+  minutes). The refresh reads the Instagram Graph API (`graph.facebook.com/v26.0/<instagram-account-id>/media`) and
   mirrors each picture — only from Instagram's CDNs (`*.cdninstagram.com`, `*.fbcdn.net`), at most 15 MB — into
   `uploads/mos-instagram/<id>.jpg` (a centred square, ≤ 640 px, re-encoded by the image editor; Instagram's own picture
   URLs expire), deleting the ones that left the feed. The browser never calls Instagram. On any failure (an error, an
   answer without a post list, no picture copied) the last good feed and its pictures stay; with no token, or nothing
   fetched yet, `posts` is empty and the storefront shows a "Fylgdu okkur" banner. Connecting fetches at once, so the
-  row is there before the storefront asks. The token is pasted in an "Instagram" box on the Stillingar page
-  (administrators only: `manage_options` + nonce; checked against Instagram before it is saved, and refused when it
-  belongs to another account than @musikogsport), stored in the
-  `mos_instagram_token` option (not autoloaded), renewed after 30 of its 60 days, and never sent anywhere but
-  Instagram (not in the REST answer, the page or the logs). A `MOS_INSTAGRAM_TOKEN` constant in `wp-config.php` wins
-  over the option but is never renewed. WP-CLI: `wp mos-instagram status`, `wp mos-instagram refresh` (fails loudly
-  when the refresh did). Logs as `[mos-instagram] …`: problems, plus connect/disconnect (with the user id), token
-  renewals and each refresh's post count. Tests: `php tests/mos_instagram_rules_test.php` (normaliser, excerpt, renewal age, payload) and
-  `wp eval-file tests/mos_instagram_wp_test.php` (Instagram stubbed: mirror, fallbacks, renewal, prune, the token form).
+  row is there before the storefront asks. A Meta system-user access token (it never expires) and the Instagram
+  account ID (digits) are pasted in an "Instagram" box on the Stillingar page (administrators only: `manage_options` +
+  nonce; checked with `GET /<account-id>?fields=username` before they are saved, and refused when the account is not
+  @musikogsport), stored in the `mos_instagram_token` option (`token`, `account_id`, `username`; not autoloaded), and
+  the token is never sent anywhere but Meta (not in the REST answer, the page or the logs). A `MOS_INSTAGRAM_TOKEN` +
+  `MOS_INSTAGRAM_ACCOUNT_ID` pair in `wp-config.php` wins over the option. WP-CLI: `wp mos-instagram status`,
+  `wp mos-instagram refresh` (fails loudly when the refresh did). Logs as `[mos-instagram] …`: problems, plus
+  connect/disconnect (with the user id) and each refresh's post count. Tests: `php tests/mos_instagram_rules_test.php`
+  (normaliser, excerpt, account ID and token shape, redaction, payload) and `wp eval-file
+  tests/mos_instagram_wp_test.php` (Meta stubbed: mirror, fallbacks, prune, the token form).
 
 Other tests (all read-only; the `wp eval-file` ones run against the local site's installed copies, so copy first):
 - `php tests/mos_headless_api_test.php`: link guard, Reply-To header, `mos_and_cat` parser, user-enumeration helpers.

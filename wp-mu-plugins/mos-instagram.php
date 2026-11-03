@@ -2,12 +2,12 @@
 /**
  * Plugin Name: MOS Instagram feed (headless bridge)
  * Description: The storefront's "Músík og Sport á Instagram" row: `GET /wp-json/mos/v1/instagram` lists the latest
- *  posts of @musikogsport (link, caption excerpt, a square picture). WordPress fetches them from the Instagram API
- *  (Instagram Login) at most once an hour and mirrors each picture into uploads/mos-instagram/ (Instagram's own
- *  picture URLs expire within days), so the browser never talks to Instagram. The access token is pasted on the
- *  wp-admin "Stillingar" page (administrators only), renewed here before its 60 days run out, and never leaves
- *  WordPress. Without a token, or while Instagram is down with nothing fetched yet, the list is empty and the
- *  storefront shows a "Fylgdu okkur" banner instead.
+ *  posts of @musikogsport (link, caption excerpt, a square picture). WordPress fetches them from the Instagram Graph
+ *  API (Meta's "API setup with Unified login": a system-user access token that never expires) at most once an hour
+ *  and mirrors each picture into uploads/mos-instagram/ (Instagram's own picture URLs expire within days), so the
+ *  browser never talks to Instagram. The token and the Instagram account ID are pasted on the wp-admin "Stillingar"
+ *  page (administrators only) and the token never leaves WordPress. Without a token, or while Instagram is down with
+ *  nothing fetched yet, the list is empty and the storefront shows a "Fylgdu okkur" banner instead.
  * Author: Músík og Sport
  * Version: 1.0.0
  */
@@ -17,9 +17,8 @@ declare(strict_types=1);
 if (!defined('ABSPATH')) { exit; }
 
 const MOS_INSTAGRAM_HANDLE = 'musikogsport';
-const MOS_INSTAGRAM_API = 'https://graph.instagram.com/v26.0/';
-const MOS_INSTAGRAM_REFRESH_URL = 'https://graph.instagram.com/refresh_access_token';
-const MOS_INSTAGRAM_TOKEN_OPTION = 'mos_instagram_token';   // ['token' => …, 'issued' => unix, 'username' => …]
+const MOS_INSTAGRAM_API = 'https://graph.facebook.com/v26.0/';
+const MOS_INSTAGRAM_TOKEN_OPTION = 'mos_instagram_token';   // ['token' => …, 'account_id' => digits, 'username' => …]
 const MOS_INSTAGRAM_FEED_OPTION = 'mos_instagram_feed';     // ['fetched' => unix, 'posts' => [...]] (last good)
 const MOS_INSTAGRAM_FRESH = 'mos_instagram_fresh';          // transient: set while the feed needs no refresh
 const MOS_INSTAGRAM_LOCK = 'mos_instagram_lock';            // option (add_option is atomic): one refresh at a time
@@ -27,7 +26,6 @@ const MOS_INSTAGRAM_LOCK_TTL = 5 * 60;                      // > a worst-case re
 const MOS_INSTAGRAM_DIR = 'mos-instagram';                  // under uploads/
 const MOS_INSTAGRAM_POSTS = 12;
 const MOS_INSTAGRAM_SIZE = 640;                             // mirrored pictures: square, at most this many px
-const MOS_INSTAGRAM_TOKEN_RENEW_DAYS = 30;                  // tokens live 60 days; renew halfway
 const MOS_INSTAGRAM_MAX_BYTES = 15 * 1024 * 1024;           // a picture larger than this is not decoded
 // Instagram serves its pictures from these CDNs only; anything else in an answer is not fetched.
 const MOS_INSTAGRAM_PICTURE_URL = '#^https://(?:[a-z0-9-]+\.)*(?:cdninstagram\.com|fbcdn\.net)/\S+\z#i';
@@ -37,7 +35,7 @@ const MOS_INSTAGRAM_PICTURE_URL = '#^https://(?:[a-z0-9-]+\.)*(?:cdninstagram\.c
 // ---------------------------------------------------------------------------------------------------------------
 
 /**
- * The posts worth showing from a `/me/media` answer, in its order (newest first): a numeric id, a permalink on
+ * The posts worth showing from a `/{account-id}/media` answer, in its order (newest first): a numeric id, a permalink on
  * www.instagram.com, and an https picture on Instagram's CDN: a video's cover (`thumbnail_url`), otherwise `media_url` (a carousel
  * album's is its first item), falling back to `thumbnail_url` (Instagram omits `media_url` for videos with
  * licensed audio). Anything else is dropped, never guessed.
@@ -78,12 +76,12 @@ function mos_instagram_excerpt(string $caption, int $limit = 140): string {
     return preg_replace('/[\s,.;:\x{2013}-]+\z/u', '', $cut) . '…';
 }
 
-/** Whether a token issued (or last renewed) at `$issued` should be renewed now. */
-function mos_instagram_token_due(int $issued, int $now): bool {
-    return $issued <= 0 || $now - $issued > MOS_INSTAGRAM_TOKEN_RENEW_DAYS * DAY_IN_SECONDS;
+/** An Instagram account ID (Business settings → Instagram accounts → "ID") is digits only; it goes into the URL path. */
+function mos_instagram_account_id_ok(string $id): bool {
+    return (bool) preg_match('/^\d{5,30}\z/', $id);
 }
 
-/** Instagram tokens are long runs of letters, digits and a few separators; anything else is a paste mistake. */
+/** Meta tokens are long runs of letters, digits and a few separators; anything else is a paste mistake. */
 function mos_instagram_token_shape_ok(string $token): bool {
     return (bool) preg_match('/^[A-Za-z0-9_\-.|]{40,1024}\z/', $token);
 }
@@ -93,7 +91,7 @@ function mos_instagram_redact(string $message): string {
     return (string) preg_replace('/(access(?:_|%5F)token=)[^&\s"\']+?(?=[&\s"\']|\.?\z)/i', '$1[redacted]', $message);
 }
 
-/** Whether a `/me/media` answer is a real list (possibly empty): anything else must not replace the stored feed. */
+/** Whether a `/{account-id}/media` answer is a real list (possibly empty): anything else must not replace the stored feed. */
 function mos_instagram_answer_usable(array $api): bool {
     return is_array($api['data'] ?? null);
 }
@@ -139,19 +137,46 @@ function mos_instagram_payload(array $feed, string $uploads_url): array {
 // Token and API
 // ---------------------------------------------------------------------------------------------------------------
 
-/** The saved connection, or null when not connected. A `MOS_INSTAGRAM_TOKEN` constant (wp-config) wins; it is
- *  never renewed here, so whoever sets it rotates it. */
+/** The saved connection, or null when not connected. A `MOS_INSTAGRAM_TOKEN` + `MOS_INSTAGRAM_ACCOUNT_ID` pair
+ *  (wp-config) wins over the saved one. A system-user token never expires; it stops working only when revoked. */
 function mos_instagram_connection(): ?array {
-    if (defined('MOS_INSTAGRAM_TOKEN') && is_string(MOS_INSTAGRAM_TOKEN) && MOS_INSTAGRAM_TOKEN !== '') {
-        return ['token' => MOS_INSTAGRAM_TOKEN, 'issued' => PHP_INT_MAX, 'username' => '', 'constant' => true];
+    if (defined('MOS_INSTAGRAM_TOKEN') && defined('MOS_INSTAGRAM_ACCOUNT_ID') && is_string(MOS_INSTAGRAM_TOKEN)
+        && MOS_INSTAGRAM_TOKEN !== '' && is_scalar(MOS_INSTAGRAM_ACCOUNT_ID)
+        && mos_instagram_account_id_ok((string) MOS_INSTAGRAM_ACCOUNT_ID)) {
+        return ['token' => MOS_INSTAGRAM_TOKEN, 'account_id' => (string) MOS_INSTAGRAM_ACCOUNT_ID, 'username' => '',
+            'constant' => true];
     }
     $saved = get_option(MOS_INSTAGRAM_TOKEN_OPTION);
     if (!is_array($saved) || !is_string($saved['token'] ?? null) || $saved['token'] === '') { return null; }
-    return ['token' => $saved['token'], 'issued' => (int) ($saved['issued'] ?? 0),
+    $account_id = (string) ($saved['account_id'] ?? '');
+    if (!mos_instagram_account_id_ok($account_id)) { return null; }
+    return ['token' => $saved['token'], 'account_id' => $account_id,
         'username' => (string) ($saved['username'] ?? ''), 'constant' => false];
 }
 
-/** Log a problem (or, with `$problem` false, an event worth a trace: connect, renew, refresh). Never the token. */
+/**
+ * Why a half-made connection is ignored, or null: `mos_instagram_connection()` runs on every request, so instead of
+ * logging there this is shown in the Stillingar box and `wp mos-instagram status`.
+ */
+function mos_instagram_config_problem(): ?string {
+    $token = defined('MOS_INSTAGRAM_TOKEN');
+    $id = defined('MOS_INSTAGRAM_ACCOUNT_ID');
+    if ($token !== $id) {
+        return 'Í wp-config.php vantar ' . ($token ? 'MOS_INSTAGRAM_ACCOUNT_ID' : 'MOS_INSTAGRAM_TOKEN')
+            . '; báðir fastarnir þurfa að vera til, annars er vistaði lykillinn notaður.';
+    }
+    if ($id && !mos_instagram_account_id_ok(is_scalar(MOS_INSTAGRAM_ACCOUNT_ID) ? (string) MOS_INSTAGRAM_ACCOUNT_ID : '')) {
+        return 'MOS_INSTAGRAM_ACCOUNT_ID í wp-config.php er ekki eingöngu tölustafir og er hunsað.';
+    }
+    $saved = get_option(MOS_INSTAGRAM_TOKEN_OPTION);
+    if (is_array($saved) && ($saved['token'] ?? '') !== ''
+        && !mos_instagram_account_id_ok((string) ($saved['account_id'] ?? ''))) {
+        return 'Vistaði lykillinn hefur ekkert auðkenni Instagram-aðgangs (eldri tenging): tengdu aftur með lykli og auðkenni.';
+    }
+    return null;
+}
+
+/** Log a problem (or, with `$problem` false, an event worth a trace: connect, refresh). Never the token. */
 function mos_instagram_log(string $message, bool $problem = true): void {
     $message = mos_instagram_redact($message);
     if (defined('WP_CLI') && WP_CLI) {
@@ -178,27 +203,12 @@ function mos_instagram_get(string $url, array $query, string $label): ?array {
     return $body;
 }
 
-/** The account a token belongs to, or null when Instagram refuses it. */
-function mos_instagram_whoami(string $token): ?string {
-    $me = mos_instagram_get(MOS_INSTAGRAM_API . 'me', ['fields' => 'user_id,username', 'access_token' => $token], 'me');
+/** The username of the Instagram account `$account_id` as seen with `$token`, or null when Meta refuses either. */
+function mos_instagram_account_username(string $token, string $account_id): ?string {
+    $me = mos_instagram_get(MOS_INSTAGRAM_API . $account_id, ['fields' => 'username', 'access_token' => $token],
+        'account');
     $name = is_array($me) ? (string) ($me['username'] ?? '') : '';
     return $name !== '' ? $name : null;
-}
-
-/** Renew a saved (not constant) token past MOS_INSTAGRAM_TOKEN_RENEW_DAYS; returns the token to use now. */
-function mos_instagram_renew_if_due(array $conn): string {
-    if ($conn['constant'] || !mos_instagram_token_due($conn['issued'], time())) { return $conn['token']; }
-    $new = mos_instagram_get(MOS_INSTAGRAM_REFRESH_URL,
-        ['grant_type' => 'ig_refresh_token', 'access_token' => $conn['token']], 'refresh_access_token');
-    $token = is_array($new) && is_string($new['access_token'] ?? null) ? $new['access_token'] : '';
-    if ($token === '') {
-        mos_instagram_log('token renewal failed; the old one stays valid until day 60 and is tried again next refresh');
-        return $conn['token'];
-    }
-    update_option(MOS_INSTAGRAM_TOKEN_OPTION,
-        ['token' => $token, 'issued' => time(), 'username' => $conn['username']], false);
-    mos_instagram_log('token renewed', false);
-    return $token;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -254,15 +264,14 @@ function mos_instagram_mirror(string $id, string $remote, string $dir): ?array {
 function mos_instagram_refresh(): bool {
     $conn = mos_instagram_connection();
     if ($conn === null) { return false; }
-    $token = mos_instagram_renew_if_due($conn);
-    $api = mos_instagram_get(MOS_INSTAGRAM_API . 'me/media', [
+    $api = mos_instagram_get(MOS_INSTAGRAM_API . $conn['account_id'] . '/media', [
         'fields' => 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp',
         'limit' => (string) MOS_INSTAGRAM_POSTS,
-        'access_token' => $token,
-    ], 'me/media');
+        'access_token' => $conn['token'],
+    ], 'media');
     if ($api === null) { return false; }
     if (!mos_instagram_answer_usable($api)) {
-        mos_instagram_log('me/media answered without a post list; the last feed stays');
+        mos_instagram_log('media answered without a post list; the last feed stays');
         return false;
     }
     $dir = mos_instagram_dir();
@@ -373,8 +382,10 @@ function mos_instagram_rest(): WP_REST_Response {
 
 const MOS_INSTAGRAM_NOTICES = [
     'connected'    => ['success', 'Instagram tengt. Færslurnar birtast á forsíðunni innan fárra mínútna.'],
-    'invalid'      => ['error', 'Instagram hafnaði lyklinum. Afritaðu hann aftur úr Meta (Generate access tokens).'],
-    'shape'        => ['error', 'Þetta lítur ekki út eins og Instagram-lykill.'],
+    'invalid'      => ['error', 'Meta hafnaði lyklinum eða auðkenninu. Athugaðu að kerfisnotandinn hafi aðgang að '
+        . '@' . MOS_INSTAGRAM_HANDLE . ' og að heimildin instagram_basic hafi verið valin.'],
+    'shape'        => ['error', 'Þetta lítur ekki út eins og aðgangslykill frá Meta.'],
+    'account_id'   => ['error', 'Auðkenni Instagram-aðgangs er eingöngu tölustafir (Business settings → Instagram accounts → ID).'],
     'account'      => ['error', 'Lykillinn er fyrir annan Instagram-aðgang en @' . MOS_INSTAGRAM_HANDLE . '.'],
     'disconnected' => ['success', 'Instagram aftengt. Forsíðan sýnir „Fylgdu okkur“ í staðinn.'],
 ];
@@ -394,6 +405,10 @@ function mos_instagram_admin_box(): void {
         [$kind, $text] = MOS_INSTAGRAM_NOTICES[$notice];
         echo '<div class="notice notice-' . esc_attr($kind) . ' inline"><p>' . esc_html($text) . '</p></div>';
     }
+    $problem = mos_instagram_config_problem();
+    if ($problem !== null) {
+        echo '<div class="notice notice-warning inline"><p>' . esc_html($problem) . '</p></div>';
+    }
     $conn = mos_instagram_connection();
     $feed = get_option(MOS_INSTAGRAM_FEED_OPTION);
     $count = is_array($feed) && is_array($feed['posts'] ?? null) ? count($feed['posts']) : 0;
@@ -401,23 +416,27 @@ function mos_instagram_admin_box(): void {
     $post_url = admin_url('admin-post.php');
     if ($conn === null) {
         echo '<p>Ekki tengt: forsíðan sýnir „Fylgdu okkur á Instagram“. Til að sýna nýjustu færslurnar: búðu til '
-            . 'aðgangslykil í Meta (Instagram API with Instagram Login → Generate access tokens) og límdu hann hér.</p>';
+            . 'aðgangslykil kerfisnotanda í Meta Business settings (System users → Generate token, „Never“ expires, '
+            . 'instagram_basic) og límdu hann hér ásamt auðkenni Instagram-aðgangsins.</p>';
     } else {
         $who = $conn['username'] !== '' ? '@' . $conn['username'] : 'lykli úr wp-config.php';
         $when = $fetched > 0 ? wp_date('j.n.Y H:i', $fetched) : 'aldrei';
         echo '<p>Tengt sem <strong>' . esc_html($who) . '</strong>. ' . (int) $count . ' færslur á forsíðunni, '
             . 'síðast sóttar ' . esc_html($when) . '. '
-            . ($conn['constant'] ? 'Lykillinn er í wp-config.php og endurnýjast ekki sjálfkrafa.'
-                : 'Lykillinn var endurnýjaður ' . esc_html(wp_date('j.n.Y', $conn['issued'])) . ' og endurnýjast sjálfkrafa.')
+            . ($conn['constant'] ? 'Lykillinn er í wp-config.php.' : 'Lykillinn rennur ekki út.')
             . '</p>';
     }
     if ($conn === null || !$conn['constant']) {
-        echo '<form method="post" action="' . esc_url($post_url) . '" style="display:flex;gap:8px;max-width:640px">';
+        $account_id = $conn !== null ? $conn['account_id'] : '';
+        echo '<form method="post" action="' . esc_url($post_url) . '" style="display:flex;flex-wrap:wrap;gap:8px;max-width:760px">';
         echo '<input type="hidden" name="action" value="mos_instagram_token">';
         wp_nonce_field('mos_instagram_token');
-        echo '<input type="password" name="token" class="regular-text" style="flex:1" autocomplete="off" '
+        echo '<input type="password" name="token" class="regular-text" style="flex:2 1 280px" autocomplete="off" '
             . 'spellcheck="false" placeholder="' . ($conn === null ? 'Aðgangslykill' : 'Nýr aðgangslykill') . '" '
-            . 'aria-label="Aðgangslykill Instagram" required>';
+            . 'aria-label="Aðgangslykill kerfisnotanda" required>';
+        echo '<input type="text" name="account_id" class="regular-text" style="flex:1 1 180px" inputmode="numeric" '
+            . 'pattern="[0-9]{5,30}" autocomplete="off" spellcheck="false" placeholder="Auðkenni Instagram-aðgangs" '
+            . 'aria-label="Auðkenni Instagram-aðgangs" value="' . esc_attr($account_id) . '" required>';
         echo '<button class="button button-primary">' . ($conn === null ? 'Tengja' : 'Skipta um lykil') . '</button></form>';
     }
     if ($conn !== null && !$conn['constant']) {
@@ -437,12 +456,19 @@ function mos_instagram_handle_token(): void {
     }
     check_admin_referer('mos_instagram_token');
     $token = isset($_POST['token']) ? trim((string) wp_unslash($_POST['token'])) : '';
+    $account_id = isset($_POST['account_id']) ? trim((string) wp_unslash($_POST['account_id'])) : '';
     if (!mos_instagram_token_shape_ok($token)) {
         wp_safe_redirect(mos_instagram_admin_url('shape') . '#instagram');
         exit;
     }
-    $username = mos_instagram_whoami($token);
+    if (!mos_instagram_account_id_ok($account_id)) {
+        wp_safe_redirect(mos_instagram_admin_url('account_id') . '#instagram');
+        exit;
+    }
+    $username = mos_instagram_account_username($token, $account_id);
     if ($username === null) {
+        mos_instagram_log(sprintf('connect refused for user %d: Meta rejected the token or account %s',
+            get_current_user_id(), $account_id));
         wp_safe_redirect(mos_instagram_admin_url('invalid') . '#instagram');
         exit;
     }
@@ -451,8 +477,8 @@ function mos_instagram_handle_token(): void {
         wp_safe_redirect(mos_instagram_admin_url('account') . '#instagram');
         exit;
     }
-    // A token from the dashboard is new: count its 60 days from now.
-    update_option(MOS_INSTAGRAM_TOKEN_OPTION, ['token' => $token, 'issued' => time(), 'username' => $username], false);
+    update_option(MOS_INSTAGRAM_TOKEN_OPTION,
+        ['token' => $token, 'account_id' => $account_id, 'username' => $username], false);
     mos_instagram_log(sprintf('connected as @%s by user %d', $username, get_current_user_id()), false);
     mos_instagram_maybe_refresh(true);
     wp_safe_redirect(mos_instagram_admin_url('connected') . '#instagram');
@@ -476,14 +502,16 @@ function mos_instagram_handle_disconnect(): void {
 
 if (defined('WP_CLI') && WP_CLI) {
     WP_CLI::add_command('mos-instagram status', static function (): void {
+        $problem = mos_instagram_config_problem();
+        if ($problem !== null) { WP_CLI::warning($problem); }
         $conn = mos_instagram_connection();
         if ($conn === null) { WP_CLI::log('Not connected (the storefront shows the follow banner).'); return; }
         $feed = get_option(MOS_INSTAGRAM_FEED_OPTION);
         $posts = is_array($feed) && is_array($feed['posts'] ?? null) ? count($feed['posts']) : 0;
         $fetched = is_array($feed) ? (int) ($feed['fetched'] ?? 0) : 0;
-        WP_CLI::log(sprintf('Connected as %s; token %s; %d posts, fetched %s.',
-            $conn['username'] !== '' ? '@' . $conn['username'] : '(wp-config constant)',
-            $conn['constant'] ? 'from MOS_INSTAGRAM_TOKEN (not auto-renewed)' : 'renewed ' . gmdate('Y-m-d', $conn['issued']),
+        WP_CLI::log(sprintf('Connected as %s (account %s); token %s; %d posts, fetched %s.',
+            $conn['username'] !== '' ? '@' . $conn['username'] : '(wp-config constants)', $conn['account_id'],
+            $conn['constant'] ? 'from MOS_INSTAGRAM_TOKEN' : 'saved in Stillingar (never expires)',
             $posts, $fetched > 0 ? gmdate('Y-m-d H:i', $fetched) . ' UTC' : 'never'));
     });
     WP_CLI::add_command('mos-instagram refresh', static function (): void {

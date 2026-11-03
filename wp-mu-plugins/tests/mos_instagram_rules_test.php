@@ -1,8 +1,8 @@
 <?php
 /**
  * Unit test for the pure rules in ../mos-instagram.php (no WordPress needed): the API normaliser (which posts are
- * kept, which picture each one uses), the caption excerpt, when the token is renewed, and the public payload (never
- * the token, only mirrored files).
+ * kept, which picture each one uses), the caption excerpt, the account-id and token checks, log redaction, and the
+ * public payload (never the token, only mirrored files).
  *
  * Run: php wp-mu-plugins/tests/mos_instagram_rules_test.php   (exit code 0 = all pass)
  */
@@ -107,12 +107,14 @@ check('excerpt: the emoji is kept whole', $emoji, 'Æfingaföt😀😀…');
 check('excerpt: trailing en dash and comma trimmed', mos_instagram_excerpt('Tilboð – frábært verð', 8), 'Tilboð…');
 check('excerpt: tags and entities stripped', mos_instagram_excerpt('<b>Tilboð</b> &amp; afsláttur'), 'Tilboð & afsláttur');
 
-// --- token renewal ---
+// --- Instagram account id (Business settings → Instagram accounts) ---
 $now = 1_800_000_000;
-check('token: fresh is not due', mos_instagram_token_due($now - 29 * DAY_IN_SECONDS, $now), false);
-check('token: 30 days exactly is not due', mos_instagram_token_due($now - 30 * DAY_IN_SECONDS, $now), false);
-check('token: past 30 days is due', mos_instagram_token_due($now - 30 * DAY_IN_SECONDS - 1, $now), true);
-check('token: unknown issue date is due', mos_instagram_token_due(0, $now), true);
+check('account id: digits', mos_instagram_account_id_ok('17841403588490854'), true);
+check('account id: too short', mos_instagram_account_id_ok('1234'), false);
+check('account id: not digits', mos_instagram_account_id_ok('17841403588490854/media'), false);
+check('account id: trailing newline', mos_instagram_account_id_ok("17841403588490854\n"), false);
+check('renewal code is gone', function_exists('mos_instagram_token_due') || defined('MOS_INSTAGRAM_REFRESH_URL'), false);
+check('API is the Graph API (Unified login)', MOS_INSTAGRAM_API, 'https://graph.facebook.com/v26.0/');
 
 // --- public payload ---
 $feed = ['fetched' => $now, 'posts' => [
@@ -129,21 +131,21 @@ check('payload: first post', $out['posts'][0], [
 ]);
 check('payload: alt when there is no caption', $out['posts'][1]['image']['alt'], 'Mynd af Instagram');
 check('payload: empty feed', mos_instagram_payload([], 'https://x')['posts'], []);
-check('payload: never a token key', strpos(json_encode(mos_instagram_payload($feed + ['token' => 'IGAAsecret'], 'https://x')), 'IGAA'), false);
+check('payload: never a token key', strpos(json_encode(mos_instagram_payload($feed + ['token' => 'EAAsecret'], 'https://x')), 'EAA'), false);
 
 // --- log redaction (WordPress's HTTP errors quote the request URL, token included) ---
 check('redact: token in a quoted URL', mos_instagram_redact(
-    'blocked requests through HTTP to the URL: https://graph.instagram.com/v26.0/me/media?fields=id&limit=12&access_token=IGAAsecret123.'),
-    'blocked requests through HTTP to the URL: https://graph.instagram.com/v26.0/me/media?fields=id&limit=12&access_token=[redacted].');
-check('redact: token first, other params kept', mos_instagram_redact('x?access_token=IGAA-a_b.c|d&grant_type=ig_refresh_token'),
-    'x?access_token=[redacted]&grant_type=ig_refresh_token');
-check('redact: encoded key', mos_instagram_redact('x?access%5Ftoken=IGAAs'), 'x?access%5Ftoken=[redacted]');
+    'blocked requests through HTTP to the URL: https://graph.facebook.com/v26.0/17841400000000001/media?fields=id&limit=12&access_token=EAAsecret123.'),
+    'blocked requests through HTTP to the URL: https://graph.facebook.com/v26.0/17841400000000001/media?fields=id&limit=12&access_token=[redacted].');
+check('redact: token first, other params kept', mos_instagram_redact('x?access_token=EAA-a_b.c|d&fields=username'),
+    'x?access_token=[redacted]&fields=username');
+check('redact: encoded key', mos_instagram_redact('x?access%5Ftoken=EAAs'), 'x?access%5Ftoken=[redacted]');
 check('redact: nothing to hide', mos_instagram_redact('cURL error 28: Operation timed out'), 'cURL error 28: Operation timed out');
 
 // --- token shape ---
-check('token shape: typical', mos_instagram_token_shape_ok('IGAAR' . str_repeat('x', 150)), true);
+check('token shape: typical', mos_instagram_token_shape_ok('EAAR' . str_repeat('x', 150)), true);
 check('token shape: too short', mos_instagram_token_shape_ok('abc'), false);
-check('token shape: spaces/quotes', mos_instagram_token_shape_ok('IGAA' . str_repeat('x', 40) . '" onclick'), false);
+check('token shape: spaces/quotes', mos_instagram_token_shape_ok('EAA' . str_repeat('x', 40) . '" onclick'), false);
 
 printf("%d passed, %d failed\n", $pass, $fail);
 exit($fail === 0 ? 0 : 1);

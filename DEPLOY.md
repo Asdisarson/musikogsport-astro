@@ -391,13 +391,22 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    (it rebuilds the menu, dropping hand edits made to it). Check: every menu link opens a page with products.
 3d. **Instagram row** (the owner; any time, also after cutover; free). Until it is done the home page ends with a
    "Fylgdu okkur á Instagram" banner instead of the latest posts.
-   1. In the Instagram app, make @musikogsport a professional account (Business or Creator).
-   2. On developers.facebook.com: create an app (type "Business"), add the product "Instagram" → "API setup with
-      Instagram login", and under "Generate access tokens" add @musikogsport, sign in with it and copy the token.
-      Your own account needs no App Review.
-   3. wp-admin → Stillingar → Instagram (administrators only): paste the token → Tengja. It is checked with Instagram
-      before it is saved, then renewed automatically every 30 days (it would expire after 60 unused days). If the
-      site is ever down for longer than that, paste a new one.
+   Meta now offers new apps only "API setup with Unified login", so the key is a **system-user token** of the
+   "Músík Og Sport" business portfolio. It never expires and needs no App Review for the store's own account.
+   1. @musikogsport is a professional (Business) account in the "Músík Og Sport" portfolio (business.facebook.com →
+      Settings → Accounts → Instagram accounts). Its page there shows its **ID** (digits): note it.
+   2. The portfolio's app is "Musik og Sport vefur" (developers.facebook.com, app 2353329905428084) with the product
+      "Instagram" → "API setup with Unified login".
+   3. business.facebook.com → Settings → Users → System users → Add: name `vefur`, role Employee. Then "Assign assets":
+      the app "Musik og Sport vefur" (Develop app) and @musikogsport (full control is not needed; content access is
+      enough). If Meta also lists the store's Facebook Page, assign it too.
+   4. On the system user: "Generate token" → app "Musik og Sport vefur" → expiry **Never** → permissions
+      `instagram_basic` (plus `pages_show_list` if it is offered) → Generate, and copy the token. Meta shows it once;
+      keep it out of e-mail and chat.
+   5. wp-admin → Stillingar → Instagram (administrators only): paste the token and the ID from step 1 → Tengja. Both
+      are checked with Meta (the account must be @musikogsport) before they are saved. The token stops working only
+      if it is revoked or the system user loses the account; then generate a new one the same way. (Ops may instead
+      set both `MOS_INSTAGRAM_TOKEN` and `MOS_INSTAGRAM_ACCOUNT_ID` in `wp-config.php`; that pair wins over the box.)
    Check: `wp mos-instagram status` says "Connected as @musikogsport", and within a few minutes
    `curl -s 'https://<wp-host>/wp-json/mos/v1/instagram' | jq '.posts | length'` is above 0. The pictures are copied
    to `wp-content/uploads/mos-instagram/`, which must be publicly served like the rest of `uploads/` (no deny rule).
