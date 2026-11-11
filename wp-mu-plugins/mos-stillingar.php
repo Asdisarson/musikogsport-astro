@@ -269,20 +269,28 @@ function mos_stillingar_base_css(): string {
 }
 
 function mos_stillingar_render(): void {
-    $page_id = mos_stillingar_front_page_id();
     echo '<div class="wrap"><h1>Stillingar</h1>';
+    mos_stillingar_render_pictures();
+    // Other storefront settings boxes (mos-instagram.php) hang here, below the pictures; each checks its own rights.
+    do_action('mos_stillingar_after');
+    echo '</div>';
+}
+
+/** The front-page pictures form (or why it isn't shown), inside the page's wrap. */
+function mos_stillingar_render_pictures(): void {
+    $page_id = mos_stillingar_front_page_id();
     if (!mos_stillingar_ready()) {
         echo '<div class="notice notice-error"><p>Advanced Custom Fields og mos-headless-api.php þurfa að vera virk.'
-            . '</p></div></div>';
+            . '</p></div>';
         return;
     }
     if ($page_id === 0) {
         echo '<div class="notice notice-warning"><p>Engin forsíða er valin. Veldu hana í Stillingar → Lestur neðar í '
-            . 'valmyndinni (Forsíða sýnir: Ákveðin síða).</p></div></div>';
+            . 'valmyndinni (Forsíða sýnir: Ákveðin síða).</p></div>';
         return;
     }
     if (!mos_stillingar_can_edit($page_id)) {
-        echo '<div class="notice notice-error"><p>Þú hefur ekki heimild til að breyta forsíðunni.</p></div></div>';
+        echo '<div class="notice notice-error"><p>Þú hefur ekki heimild til að breyta forsíðunni.</p></div>';
         return;
     }
     $state = mos_stillingar_current($page_id);
@@ -310,5 +318,4 @@ function mos_stillingar_render(): void {
         'updated_message' => 'Myndir vistaðar. Þær birtast á forsíðunni innan fárra mínútna.',
         'html_submit_button' => '<input type="submit" class="button button-primary button-large" value="%s" />',
     ]);
-    echo '</div>';
 }
