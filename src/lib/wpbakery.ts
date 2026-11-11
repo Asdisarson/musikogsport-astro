@@ -30,7 +30,7 @@ const ICON_GLYPHS = { 'vc_li-t-shirt': 'phone', 'vc_li-location': 'pin', 'vc_li-
 export type IconGlyph = (typeof ICON_GLYPHS)[keyof typeof ICON_GLYPHS];
 
 function iconGlyph(linecons: string | undefined): IconGlyph | null {
-  const name = linecons?.split(/\s+/).find((c) => c in ICON_GLYPHS) as keyof typeof ICON_GLYPHS | undefined;
+  const name = linecons?.split(/\s+/).find((c) => Object.hasOwn(ICON_GLYPHS, c)) as keyof typeof ICON_GLYPHS | undefined;
   return name ? ICON_GLYPHS[name] : null;
 }
 

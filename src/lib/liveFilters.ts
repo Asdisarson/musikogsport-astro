@@ -170,7 +170,7 @@ export function parseLiveFilters(params: URLSearchParams): LiveFilterState {
     verd: pricePreset(params.get('verd'))?.key ?? null,
     utsala: params.get('utsala') === '1',
     lager: params.get('lager') === '1',
-    orderby: orderby in ORDERINGS ? (orderby as OrderKey) : DEFAULT_ORDER,
+    orderby: Object.hasOwn(ORDERINGS, orderby) ? (orderby as OrderKey) : DEFAULT_ORDER,
     search: search ? search : null,
   };
 }

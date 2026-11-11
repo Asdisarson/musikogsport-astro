@@ -61,6 +61,8 @@ describe('parseLiveFilters', () => {
 
   it('ignores unknown orderby values', () => {
     expect(parse('orderby=title').orderby).toBe('date');
+    // names every object inherits are not orderings either
+    for (const key of ['constructor', 'toString', 'valueOf', '__proto__', 'hasOwnProperty']) expect(parse(`orderby=${key}`).orderby, key).toBe('date');
   });
 });
 

@@ -43,7 +43,7 @@ describe('parseWpBakery', () => {
   });
 
   it('renders nothing for an icon it has no glyph for (no empty circle)', () => {
-    for (const raw of ['[vc_icon icon_linecons="vc_li vc_li-diamond"]', '[vc_icon icon_fontawesome="fa fa-star"]', '[vc_icon]']) {
+    for (const raw of ['[vc_icon icon_linecons="vc_li vc_li-diamond"]', '[vc_icon icon_fontawesome="fa fa-star"]', '[vc_icon]', '[vc_icon icon_linecons="vc_li constructor"]', '[vc_icon icon_linecons="toString"]']) {
       expect(parseWpBakery(`[vc_row][vc_column]${raw}[/vc_column][/vc_row]`)[0].cols[0].blocks).toEqual([]);
     }
   });
