@@ -5,9 +5,10 @@
  * Run once with WP-CLI (not a mu-plugin; lives here for version tracking):
  *   wp eval-file wp-mu-plugins/seed/seed-live-clone.php /path/to/spec.json
  *
- * spec.json is produced from a saved copy of live's homepage HTML; each image entry carries
- * `file`, a local copy of the image. Images are imported into the media library once and reused
- * on re-runs (matched on the `_mos_seed_source` meta). Re-running overwrites the field values.
+ * spec.json is produced from a saved copy of live's homepage HTML; each image entry carries `image_url` and,
+ * optionally, `file`, a local copy of the image. Without a local copy the image is downloaded from `image_url`,
+ * over https from the live store's own hosts only (seed-image-source.php). Images are imported into the media
+ * library once and reused on re-runs (matched on the `_mos_seed_source` meta). Re-running overwrites the field values.
  */
 
 declare(strict_types=1);
@@ -22,6 +23,7 @@ if (wp_get_environment_type() === 'production' && getenv('MOS_SEED_FORCE') !== '
 require_once ABSPATH . 'wp-admin/includes/file.php';
 require_once ABSPATH . 'wp-admin/includes/media.php';
 require_once ABSPATH . 'wp-admin/includes/image.php';
+require_once __DIR__ . '/seed-image-source.php';
 
 $spec_path = $args[0] ?? '';
 $spec = is_readable($spec_path) ? json_decode((string) file_get_contents($spec_path), true) : null;
@@ -34,8 +36,9 @@ if ($page_id <= 0) {
     WP_CLI::error('No static front page is configured (page_on_front).');
 }
 
-/** Import a local image file once; returns the attachment ID or 0. An image imported on an earlier run
- *  (same source URL) is reused even when the spec no longer carries a local file. */
+/** Import an image once; returns the attachment ID or 0. An image imported on an earlier run (same source URL) is
+ *  reused. Otherwise the local file is imported, or, when the spec has none, the image is downloaded from its
+ *  source URL if that is one of the live store's own (mos_seed_image_download_allowed). */
 $import = static function (?string $file, string $source_url): int {
     if ($source_url !== '') {
         $existing = get_posts([
@@ -44,14 +47,25 @@ $import = static function (?string $file, string $source_url): int {
         ]);
         if ($existing) { return (int) $existing[0]; }
     }
-    if (!$file || !is_readable($file)) { return 0; }
-
-    $tmp = wp_tempnam(basename($file));
-    copy($file, $tmp);
-    $id = media_handle_sideload(['name' => basename($file), 'tmp_name' => $tmp], 0);
+    if ($file && is_readable($file)) {
+        $name = basename($file);
+        $tmp = wp_tempnam($name);
+        copy($file, $tmp);
+    } elseif (mos_seed_image_download_allowed($source_url)) {
+        $name = basename((string) parse_url($source_url, PHP_URL_PATH));
+        $tmp = download_url($source_url, 30);
+        if (is_wp_error($tmp)) {
+            WP_CLI::warning("Image download failed for $source_url: " . $tmp->get_error_message());
+            return 0;
+        }
+    } else {
+        if ($source_url !== '') { WP_CLI::warning("No local file, and not a store image to download: $source_url"); }
+        return 0;
+    }
+    $id = media_handle_sideload(['name' => $name, 'tmp_name' => $tmp], 0);
     if (is_wp_error($id)) {
         @unlink($tmp);
-        WP_CLI::warning('Image import failed for ' . basename($file) . ': ' . $id->get_error_message());
+        WP_CLI::warning("Image import failed for $name: " . $id->get_error_message());
         return 0;
     }
     update_post_meta($id, '_mos_seed_source', $source_url);

@@ -92,6 +92,8 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
     and unmapped raw values) and `wp mos-size purge`.
   - **Production (the owner's step):** upload it to `wp-content/mu-plugins/`, then run `wp mos-size reindex`
     (a few seconds; rerunnable). Until the reindex runs, size filters match nothing.
+    Run it again after uploading a copy whose normaliser changed (2026-11: "22/23" is the pair 22/23, no longer
+    the typo "22 2/3"), so existing products are re-read.
   - **Uninstall:** `wp mos-size purge` *while the file is still installed* (deletes the terms and their
     relationships), then delete the file. Nothing else to clean up.
   - Tests: `php tests/mos_size_normalise_test.php` (normaliser), `php tests/mos_size_helpers_test.php` (guards,
@@ -158,7 +160,9 @@ Other tests (all read-only; the `wp eval-file` ones run against the local site's
 
 `seed/` holds one-off WP-CLI scripts (not mu-plugins) that make a fresh install match live:
 - `wp eval-file seed/seed-live-clone.php <spec.json>` fills the Forsíða fields and imports the
-  images (spec: `seed/live-clone-spec.json` plus local copies of the images as `file`).
+  images (spec: `seed/live-clone-spec.json`; an image entry without a local copy as `file` is downloaded from its
+  `image_url`, https and the live store's own hosts only: `seed/seed-image-source.php`, test
+  `php tests/mos_seed_image_source_test.php`).
 - `wp eval-file seed/seed-live-menu.php seed/live-menu.json <topbar_id> <footer_id>` builds the
   "Aðalvalmynd" menu from live's mega-menu tree and assigns the locations. On the May-3 data pass
   `158 158`: menu 158 holds the five links live's footer shows (839 is a stale four-item copy).
