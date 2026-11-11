@@ -21,6 +21,8 @@ export default function DroppointSelect({ postcode }: Props) {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Bumped by "Reyna aftur": a failed fetch is asked again without the shopper changing postcode or shipping rate.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!/^\d{3}$/.test(postcode)) {
@@ -45,7 +47,7 @@ export default function DroppointSelect({ postcode }: Props) {
         reconcileDroppoint(postcode, list.map((x) => x.id));
       })
       .catch(() => {
-        if (alive) setErr('Gat ekki sótt póstbox. Reyndu aftur.');
+        if (alive) setErr('Gat ekki sótt póstbox.');
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -53,7 +55,7 @@ export default function DroppointSelect({ postcode }: Props) {
     return () => {
       alive = false;
     };
-  }, [postcode]);
+  }, [postcode, attempt]);
 
   // A chosen locker is valid only for the postcode it was picked for.
   const value = chosen && chosen.postcode === postcode ? chosen.id : '';
@@ -84,7 +86,10 @@ export default function DroppointSelect({ postcode }: Props) {
       </select>
       {err && (
         <p className="form-error" role="alert">
-          {err}
+          {err}{' '}
+          <button type="button" className="link-button" disabled={loading} onClick={() => setAttempt((n) => n + 1)}>
+            Reyna aftur
+          </button>
         </p>
       )}
     </div>
