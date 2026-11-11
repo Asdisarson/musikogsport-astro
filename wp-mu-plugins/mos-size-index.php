@@ -240,7 +240,8 @@ function mos_size_normalise(string $raw): ?array {
     $v = null;
     if (preg_match('/^(\d{2})\/3$/', $n, $m) && (int) $m[1] >= 16 && (int) $m[1] <= 50) {
         $v = (int) $m[1] + ((int) $m[1] % 2 === 0 ? 2 : 1) / 3;            // "42/3": adidas step
-    } elseif (preg_match('/^(\d{2})\/([12])3$/', $n, $m) && (int) $m[1] >= 16 && (int) $m[1] <= 50) {
+    } elseif (preg_match('/^(\d{2})\/([12])3$/', $n, $m) && (int) $m[1] >= 16 && (int) $m[1] <= 50
+        && (int) ($m[2] . '3') !== (int) $m[1] + 1) {                       // not "22/23": neighbouring sizes are a pair (the range below)
         $v = (int) $m[1] + (int) $m[2] / 3;                                 // "37/13", "40/23"
     } elseif (preg_match('/^(\d{1,2}) ?([12])\/3$/', $n, $m)) {
         $v = (int) $m[1] + (int) $m[2] / 3;                                 // "38 2/3", "382/3"

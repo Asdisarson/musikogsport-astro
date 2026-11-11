@@ -26,6 +26,11 @@ $cases = [
     ['371/3', '37-1-3', '37 1/3', 'shoe', 37.3333],
     ['37/13', '37-1-3', '37 1/3', 'shoe', 37.3333],   // typo: the "1" ended up after the slash
     ['40/23', '40-2-3', '40 2/3', 'shoe', 40.6667],
+    ['42/23', '42-2-3', '42 2/3', 'shoe', 42.6667],
+    // …but a pair of neighbouring sizes is that pair in every spelling, never the typo (kids' shoes "22/23").
+    ['22/23', '22-23', '22/23', 'shoe', 22.001],
+    ['22-23', '22-23', '22/23', 'shoe', 22.001],
+    ['22 / 23', '22-23', '22/23', 'shoe', 22.001],
     ['42/3', '42-2-3', '42 2/3', 'shoe', 42.6667],    // digit lost: even size → ⅔ (adidas step)
     ['41/3', '41-1-3', '41 1/3', 'shoe', 41.3333],    // odd size → ⅓
     // Shoe: halves and decimals.
