@@ -53,7 +53,11 @@ $import = static function (?string $file, string $source_url): int {
         copy($file, $tmp);
     } elseif (mos_seed_image_download_allowed($source_url)) {
         $name = basename((string) parse_url($source_url, PHP_URL_PATH));
+        // No redirects: the allow-list was checked for this URL, not for wherever it might send us.
+        $no_redirect = static fn (array $args): array => ['redirection' => 0] + $args;
+        add_filter('http_request_args', $no_redirect);
         $tmp = download_url($source_url, 30);
+        remove_filter('http_request_args', $no_redirect);
         if (is_wp_error($tmp)) {
             WP_CLI::warning("Image download failed for $source_url: " . $tmp->get_error_message());
             return 0;
