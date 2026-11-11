@@ -8,6 +8,7 @@ import {
   CHECKOUT_RECOVERY_POLL,
   STORE_API_TIMEOUT_MS,
   WOO_REST_TIMEOUT_MS,
+  storeBudgetLeft,
 } from './timeouts';
 
 describe('money-path time budgets (LM-02)', () => {
@@ -25,5 +26,19 @@ describe('money-path time budgets (LM-02)', () => {
     const { tries, intervalMs } = CHECKOUT_RECOVERY_POLL;
     expect(tries).toBeGreaterThanOrEqual(3);
     expect(tries * intervalMs).toBeGreaterThanOrEqual(15_000);
+  });
+});
+
+describe('storeBudgetLeft: one Store API budget for a request that makes two calls', () => {
+  it('is what the first call left of the budget, so both together still answer before the browser gives up', () => {
+    expect(storeBudgetLeft(0)).toBe(STORE_API_TIMEOUT_MS);
+    expect(storeBudgetLeft(20_000)).toBe(5_000);
+    expect(20_000 + storeBudgetLeft(20_000)).toBeLessThan(CART_CLIENT_TIMEOUT_MS);
+  });
+
+  it('never goes below 1 ms: a spent budget makes the second call time out at once instead of waiting again', () => {
+    expect(storeBudgetLeft(STORE_API_TIMEOUT_MS)).toBe(1);
+    expect(storeBudgetLeft(60_000)).toBe(1);
+    expect(storeBudgetLeft(-5)).toBe(STORE_API_TIMEOUT_MS);
   });
 });

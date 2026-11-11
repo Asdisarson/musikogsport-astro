@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { checkout } from '../../lib/storeApi';
-import { badRequest, ensureToken, readJson, respondCart, writeOrderCookie } from '../../lib/cartProxy';
+import { badRequest, cartSession, readJson, respondCart, writeOrderCookie } from '../../lib/cartProxy';
 import { checkoutPayload } from '../../lib/checkoutPayload';
 import { placedDespiteError, respondLostCheckout } from '../../lib/checkoutRecovery';
 import { isLostAnswer } from '../../lib/checkoutFlow';
@@ -37,11 +37,11 @@ export const POST: APIRoute = async (ctx) => {
   const attempt = body.extensions.mos.attempt ?? newAttemptId();
   body.extensions.mos.attempt = attempt;
 
-  const token = await ensureToken(ctx);
+  const { token, timeoutMs } = await cartSession(ctx);
   // Who is signed in, as of placing the order (usually memoized from the checkout page).
   const authToken = readAuthToken(ctx.cookies);
   const shopper = authToken ? await verifiedUser(authToken) : null;
-  const result = await checkout(body, token);
+  const result = await checkout(body, token, timeoutMs);
   if (result.transportFailure || isLostAnswer(result.status, result.data)) {
     return respondLostCheckout(ctx, attempt, result.transportFailure ?? `upstream ${result.status}`);
   }

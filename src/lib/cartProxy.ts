@@ -7,6 +7,7 @@ import { getCart, type StoreResult } from './storeApi';
 import type { Cart } from './types';
 import { jsonResponse, tooManyRequests } from './http';
 import { createLimiter } from './rateLimit';
+import { STORE_API_TIMEOUT_MS, storeBudgetLeft } from './timeouts';
 import { visitorKey } from './visitor';
 
 const COOKIE = 'wc_cart_token';
@@ -70,16 +71,19 @@ export function readOrderCookie(ctx: { cookies: APIContext['cookies'] }): { id: 
   return null;
 }
 
-/** Ensure a Cart-Token exists; prime via GET /cart if missing (mutations need one). */
-export async function ensureToken(ctx: APIContext): Promise<string | null> {
+/** The Cart-Token for a mutation, primed via GET /cart if missing (mutations need one), and how long the mutation
+ *  may wait: the prime and the mutation share one Store API budget (lib/timeouts storeBudgetLeft), so a first add
+ *  on a slow WordPress still answers before the browser gives up and loses the new token's cookie. */
+export async function cartSession(ctx: APIContext): Promise<{ token: string | null; timeoutMs: number }> {
   const existing = readToken(ctx);
-  if (existing) return existing;
+  if (existing) return { token: existing, timeoutMs: STORE_API_TIMEOUT_MS };
+  const started = performance.now();
   const primed = await getCart(null);
   if (!primed.ok) {
     console.warn(`[store-api] cart prime failed: ${primed.status}`);
   }
   writeToken(ctx, primed.cartToken);
-  return primed.cartToken;
+  return { token: primed.cartToken, timeoutMs: storeBudgetLeft(performance.now() - started) };
 }
 
 // The Store API's answer for a cart that was never started (ISK, as the store is), served without asking it (CO-02).
@@ -97,7 +101,7 @@ export const EMPTY_CART: Cart = {
 
 /** GET /api/cart: every page view asks (the header badge). Without a cart token there is no cart, so the answer is
  *  the empty cart, from here: no WordPress round trip and no cookie for visitors who never touch the cart (CO-02).
- *  The first add primes a token (ensureToken). */
+ *  The first add primes a token (cartSession). */
 export async function readCart(ctx: APIContext): Promise<Response> {
   const token = readToken(ctx);
   if (!token) return new Response(JSON.stringify(EMPTY_CART), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });

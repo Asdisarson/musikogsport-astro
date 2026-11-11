@@ -21,7 +21,7 @@ export interface StoreResult<T> {
 
 async function storeFetch<T>(
   path: string,
-  opts: { method?: string; body?: unknown; cartToken?: string | null } = {},
+  opts: { method?: string; body?: unknown; cartToken?: string | null; timeoutMs?: number } = {},
 ): Promise<StoreResult<T>> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
@@ -38,8 +38,9 @@ async function storeFetch<T>(
       headers,
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       // Generous backstop only (lib/timeouts): this path is request-scoped (/api/* routes, never page SSR), and
-      // shipping calc + order placement call Pósturinn's external rate API, which can take several seconds.
-      signal: AbortSignal.timeout(STORE_API_TIMEOUT_MS),
+      // shipping calc + order placement call Pósturinn's external rate API, which can take several seconds. A caller
+      // that already spent part of the request's budget (the token prime: cartProxy cartSession) passes what is left.
+      signal: AbortSignal.timeout(opts.timeoutMs ?? STORE_API_TIMEOUT_MS),
     });
     text = await res.text();
   } catch (err) {
@@ -78,30 +79,32 @@ export const getCart = (token?: string | null) => storeFetch<Cart>('/cart', { ca
 export const addItem = (
   body: { id: number; quantity: number; variation?: { attribute: string; value: string }[] },
   token?: string | null,
-) => storeFetch<Cart>('/cart/add-item', { method: 'POST', body, cartToken: token });
+  timeoutMs?: number,
+) => storeFetch<Cart>('/cart/add-item', { method: 'POST', body, cartToken: token, timeoutMs });
 
-export const updateItem = (body: { key: string; quantity: number }, token?: string | null) =>
-  storeFetch<Cart>('/cart/update-item', { method: 'POST', body, cartToken: token });
+export const updateItem = (body: { key: string; quantity: number }, token?: string | null, timeoutMs?: number) =>
+  storeFetch<Cart>('/cart/update-item', { method: 'POST', body, cartToken: token, timeoutMs });
 
-export const removeItem = (body: { key: string }, token?: string | null) =>
-  storeFetch<Cart>('/cart/remove-item', { method: 'POST', body, cartToken: token });
+export const removeItem = (body: { key: string }, token?: string | null, timeoutMs?: number) =>
+  storeFetch<Cart>('/cart/remove-item', { method: 'POST', body, cartToken: token, timeoutMs });
 
-export const selectShippingRate = (body: { rate_id: string; package_id?: number | string }, token?: string | null) =>
-  storeFetch<Cart>('/cart/select-shipping-rate', { method: 'POST', body, cartToken: token });
+export const selectShippingRate = (body: { rate_id: string; package_id?: number | string }, token?: string | null, timeoutMs?: number) =>
+  storeFetch<Cart>('/cart/select-shipping-rate', { method: 'POST', body, cartToken: token, timeoutMs });
 
 export const updateCustomer = (
   body: { billing_address?: Partial<Address>; shipping_address?: Partial<Address> },
   token?: string | null,
-) => storeFetch<Cart>('/cart/update-customer', { method: 'POST', body, cartToken: token });
+  timeoutMs?: number,
+) => storeFetch<Cart>('/cart/update-customer', { method: 'POST', body, cartToken: token, timeoutMs });
 
-export const applyCoupon = (body: { code: string }, token?: string | null) =>
-  storeFetch<Cart>('/cart/apply-coupon', { method: 'POST', body, cartToken: token });
+export const applyCoupon = (body: { code: string }, token?: string | null, timeoutMs?: number) =>
+  storeFetch<Cart>('/cart/apply-coupon', { method: 'POST', body, cartToken: token, timeoutMs });
 
-export const removeCoupon = (body: { code: string }, token?: string | null) =>
-  storeFetch<Cart>('/cart/remove-coupon', { method: 'POST', body, cartToken: token });
+export const removeCoupon = (body: { code: string }, token?: string | null, timeoutMs?: number) =>
+  storeFetch<Cart>('/cart/remove-coupon', { method: 'POST', body, cartToken: token, timeoutMs });
 
 // Always a guest checkout: Straumur signs its return URL with a nonce for the user WordPress sees here,
 // and the shopper's browser comes back from the gateway without the storefront's token — a signed-in
 // checkout would die on that nonce. A signed-in customer's order is attached afterwards (/api/checkout).
-export const checkout = (body: CheckoutPayload, token?: string | null) =>
-  storeFetch<OrderResult>('/checkout', { method: 'POST', body, cartToken: token });
+export const checkout = (body: CheckoutPayload, token?: string | null, timeoutMs?: number) =>
+  storeFetch<OrderResult>('/checkout', { method: 'POST', body, cartToken: token, timeoutMs });

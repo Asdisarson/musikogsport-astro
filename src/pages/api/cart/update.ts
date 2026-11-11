@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { updateItem } from '../../../lib/storeApi';
-import { badRequest, clampQty, ensureToken, limitCartWrite, isNonEmptyString, readJson, respondCart } from '../../../lib/cartProxy';
+import { badRequest, clampQty, cartSession, limitCartWrite, isNonEmptyString, readJson, respondCart } from '../../../lib/cartProxy';
 
 export const prerender = false;
 
@@ -9,6 +9,6 @@ export const POST: APIRoute = async (ctx) => {
   if (!body || !isNonEmptyString(body.key)) return badRequest('Ógild beiðni.');
   const limited = limitCartWrite(ctx);
   if (limited) return limited;
-  const token = await ensureToken(ctx);
-  return respondCart(ctx, await updateItem({ key: body.key, quantity: clampQty(body.quantity) }, token));
+  const { token, timeoutMs } = await cartSession(ctx);
+  return respondCart(ctx, await updateItem({ key: body.key, quantity: clampQty(body.quantity) }, token, timeoutMs));
 };

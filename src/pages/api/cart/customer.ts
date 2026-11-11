@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { updateCustomer } from '../../../lib/storeApi';
-import { badRequest, ensureToken, readJson, respondCart } from '../../../lib/cartProxy';
+import { badRequest, cartSession, readJson, respondCart } from '../../../lib/cartProxy';
 import { isPlainObject } from '../../../lib/validate';
 import type { Address } from '../../../lib/types';
 
@@ -14,6 +14,6 @@ export const POST: APIRoute = async (ctx) => {
   if (!billing && !shipping) {
     return badRequest('Ógild beiðni.');
   }
-  const token = await ensureToken(ctx);
-  return respondCart(ctx, await updateCustomer({ billing_address: billing, shipping_address: shipping }, token));
+  const { token, timeoutMs } = await cartSession(ctx);
+  return respondCart(ctx, await updateCustomer({ billing_address: billing, shipping_address: shipping }, token, timeoutMs));
 };

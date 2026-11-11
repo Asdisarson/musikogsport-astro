@@ -105,8 +105,9 @@ describe('cartProxy', () => {
     expect(readToken(ctxWith(c))).toBeNull();
   });
 
-  it('ensureToken reuses the cookie, else primes a cart and stores its token (current behaviour: a failed prime still returns)', async () => {
-    const { ensureToken } = await import('./cartProxy');
+  it('cartSession reuses the cookie, else primes a cart and stores its token (current behaviour: a failed prime still returns)', async () => {
+    const { cartSession } = await import('./cartProxy');
+    const ensureToken = async (c: Parameters<typeof cartSession>[0]) => (await cartSession(c)).token;
     const has = fakeCookies({ wc_cart_token: 'mine' });
     expect(await ensureToken(ctxWith(has))).toBe('mine');
     expect(fetchMock).not.toHaveBeenCalled();

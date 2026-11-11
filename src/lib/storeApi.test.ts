@@ -64,4 +64,12 @@ describe('storeFetch failure mapping', () => {
     await getCart('tok');
     expect(spy).toHaveBeenCalledWith(STORE_API_TIMEOUT_MS);
   });
+
+  it('waits only as long as the caller says when the request already spent part of its budget', async () => {
+    const spy = vi.spyOn(AbortSignal, 'timeout');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+    const { addItem } = await import('./storeApi');
+    await addItem({ id: 5, quantity: 1 }, 'tok', 5_000);
+    expect(spy).toHaveBeenLastCalledWith(5_000);
+  });
 });

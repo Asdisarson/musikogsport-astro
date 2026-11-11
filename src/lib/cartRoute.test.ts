@@ -1,12 +1,12 @@
 // CO-02: every page view reads the cart (the header badge), so a visitor with no cart token gets an empty cart from
 // here: no WordPress round trip and no wc_cart_token cookie for people who never touch the cart. The first add
-// still primes a token (ensureToken).
+// still primes a token (cartSession).
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('astro:env/server', () => ({ WP_INTERNAL_URL: 'http://wp.test', MOS_CLIENT_IP_HEADER: undefined, MOS_TRUSTED_PROXY_HOPS: 0 }));
 const getCart = vi.fn(async (_token: unknown) => ({ status: 200, ok: true, data: { items: [{ key: 'k' }], items_count: 1 }, cartToken: 'rotated' }));
-const addItem = vi.fn(async (_body: unknown, _token: unknown) => ({ status: 201, ok: true, data: { items: [], items_count: 1 }, cartToken: 'after-add' }));
-vi.mock('./storeApi', () => ({ getCart: (t: unknown) => getCart(t), addItem: (b: unknown, t: unknown) => addItem(b, t) }));
+const addItem = vi.fn(async (_body: unknown, _token: unknown, _timeoutMs?: unknown) => ({ status: 201, ok: true, data: { items: [], items_count: 1 }, cartToken: 'after-add' }));
+vi.mock('./storeApi', () => ({ getCart: (t: unknown) => getCart(t), addItem: (b: unknown, t: unknown, ms?: unknown) => addItem(b, t, ms) }));
 
 function ctx(jarInit: Record<string, string> = {}, init: { method?: string; body?: unknown } = {}) {
   const url = new URL('https://musikogsport.is/api/cart');
@@ -59,5 +59,28 @@ describe('GET /api/cart (CO-02)', () => {
     expect(getCart).toHaveBeenCalledWith(null);
     expect(addItem.mock.calls[0][1]).toBe('rotated');
     expect(jar.get('wc_cart_token')).toBe('after-add');
+  });
+
+  it('gives the first add only what the token prime left of the Store API budget', async () => {
+    const { POST } = await import('../pages/api/cart/index');
+    const { STORE_API_TIMEOUT_MS, CART_CLIENT_TIMEOUT_MS } = await import('./timeouts');
+    addItem.mockClear();
+    const now = vi.spyOn(performance, 'now').mockReturnValueOnce(1_000).mockReturnValueOnce(21_000); // the prime took 20 s
+    const { c } = ctx({}, { method: 'POST', body: { id: 5, quantity: 1 } });
+    await POST(c);
+    now.mockRestore();
+    const wait = addItem.mock.calls[0][2] as number;
+    expect(wait).toBe(STORE_API_TIMEOUT_MS - 20_000);
+    expect(20_000 + wait).toBeLessThan(CART_CLIENT_TIMEOUT_MS);
+  });
+
+  it('gives an add with a cart token the whole budget', async () => {
+    const { POST } = await import('../pages/api/cart/index');
+    const { STORE_API_TIMEOUT_MS } = await import('./timeouts');
+    addItem.mockClear();
+    const { c } = ctx({ wc_cart_token: 'tok' }, { method: 'POST', body: { id: 5, quantity: 1 } });
+    await POST(c);
+    expect(addItem.mock.calls[0][1]).toBe('tok');
+    expect(addItem.mock.calls[0][2]).toBe(STORE_API_TIMEOUT_MS);
   });
 });

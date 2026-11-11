@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { addItem } from '../../../lib/storeApi';
-import { badRequest, clampQty, ensureToken, limitCartWrite, isPosInt, readCart, readJson, respondCart } from '../../../lib/cartProxy';
+import { badRequest, clampQty, cartSession, limitCartWrite, isPosInt, readCart, readJson, respondCart } from '../../../lib/cartProxy';
 
 export const prerender = false;
 
@@ -19,6 +19,6 @@ export const POST: APIRoute = async (ctx) => {
     : undefined;
   const limited = limitCartWrite(ctx);
   if (limited) return limited;
-  const token = await ensureToken(ctx);
-  return respondCart(ctx, await addItem({ id: body.id, quantity: clampQty(body.quantity), variation }, token));
+  const { token, timeoutMs } = await cartSession(ctx);
+  return respondCart(ctx, await addItem({ id: body.id, quantity: clampQty(body.quantity), variation }, token, timeoutMs));
 };
