@@ -2,7 +2,8 @@
 import Base from '../layouts/Base.astro';
 import Breadcrumbs from '../components/Breadcrumbs.astro';
 
-export const prerender = true;
+// On demand like every other page: prerendered, it would keep the menus, campaign bar and footer of build time.
+export const prerender = false;
 ---
 
 <Base
