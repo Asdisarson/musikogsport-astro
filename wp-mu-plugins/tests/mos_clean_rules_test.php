@@ -98,5 +98,12 @@ check('nothing overwritten', [$r['brand'], $r['brand_new'], $r['sport'], $r['col
 check('display name caps', mos_clean_brand_display_name('TABEDESIGN'), 'Tabedesign');
 check('display name kept', mos_clean_brand_display_name('Cébé'), 'Cébé');
 
+// A colour term goes only when nothing uses it AND the fill is not about to use it (apply sets the fill's colours
+// after the term hygiene, so a canonical colour with no products yet must survive until then).
+check('unused colour: deleted', mos_clean_colour_deletable('navy-blue', false, false, ['brunn']), true);
+check('colour with products: kept', mos_clean_colour_deletable('blar', true, false, []), false);
+check('colour the fill will set: kept', mos_clean_colour_deletable('brunn', false, false, ['brunn', 'blar']), false);
+check('colour the ops emptied: not counted twice', mos_clean_colour_deletable('dokkblatt', false, true, []), false);
+
 printf("%d passed, %d failed\n", $pass, $fail);
 exit($fail === 0 ? 0 : 1);

@@ -524,7 +524,10 @@ final class MOS_Clean_Journal {
  * Run the term hygiene ops. Products whose attribute is used for variations are skipped and reported; a merged
  * or moved term is deleted only once nothing carries it. The journal is saved after every op.
  *
- * @return array{changed:int[],skipped:list<string>,log:list<string>}
+ * The colour terms nothing uses are NOT deleted here: the fill step that follows sets colours, so that clean-up runs
+ * after it (mos_clean_delete_unused_colours, called from the CLI run with `emptied`).
+ *
+ * @return array{changed:int[],skipped:list<string>,log:list<string>,emptied:array<int,true>}
  */
 function mos_clean_run_term_ops(?MOS_Clean_Journal $journal): array {
     $dry = $journal === null;
@@ -553,8 +556,7 @@ function mos_clean_run_term_ops(?MOS_Clean_Journal $journal): array {
         }
         $journal?->save();
     }
-    $log[] = 'delete pa_litur terms nothing uses: ' . mos_clean_delete_unused_colours($journal, $emptied);
-    return ['changed' => array_keys($changed), 'skipped' => $skipped, 'log' => $log];
+    return ['changed' => array_keys($changed), 'skipped' => $skipped, 'log' => $log, 'emptied' => $emptied];
 }
 
 /** Rename one term to its proper name. @return string|null the log line, null when already right */
@@ -622,16 +624,30 @@ function mos_clean_move_products(array $op, WP_Term $from, ?MOS_Clean_Journal $j
 }
 
 /**
- * Delete the colour terms nothing uses (English and spelling duplicates of the Icelandic ones).
+ * Whether an unused-colour clean-up may delete a pa_litur term. Pure.
  *
- * @param array<int,true> $emptied terms the ops above emptied (or, in a preview, would empty): not counted twice
+ * @param bool         $emptied    the term ops emptied it (or, in a preview, would): they delete and count it themselves
+ * @param list<string> $fill_slugs colours the fill step set (or, in a preview, would set): in use after an apply
+ */
+function mos_clean_colour_deletable(string $slug, bool $has_products, bool $emptied, array $fill_slugs): bool {
+    return !$emptied && !$has_products && !in_array($slug, $fill_slugs, true);
+}
+
+/**
+ * Delete the colour terms nothing uses (English and spelling duplicates of the Icelandic ones). Runs after the fill
+ * step: a canonical colour with no products yet is the fill's target, and deleting it first would leave those
+ * products without a colour (and the preview, which deletes nothing, promising more than the apply sets).
+ *
+ * @param array<int,true> $emptied    terms the term ops emptied (or, in a preview, would empty): not counted twice
+ * @param list<string>    $fill_slugs colours the fill set (or, in a preview, would set)
  * @return int how many were (or would be) deleted
  */
-function mos_clean_delete_unused_colours(?MOS_Clean_Journal $journal, array $emptied): int {
+function mos_clean_delete_unused_colours(?MOS_Clean_Journal $journal, array $emptied, array $fill_slugs = []): int {
     $terms = get_terms(['taxonomy' => 'pa_litur', 'hide_empty' => false]);
     $n = 0;
     foreach (is_array($terms) ? $terms : [] as $t) {
-        if (isset($emptied[(int) $t->term_id]) || get_objects_in_term((int) $t->term_id, 'pa_litur') !== []) { continue; }
+        $has_products = get_objects_in_term((int) $t->term_id, 'pa_litur') !== [];
+        if (!mos_clean_colour_deletable((string) $t->slug, $has_products, isset($emptied[(int) $t->term_id]), $fill_slugs)) { continue; }
         if ($journal === null || mos_clean_delete_term($t, $journal)) { $n++; }
     }
     return $n;
@@ -1117,6 +1133,9 @@ if (defined('WP_CLI') && WP_CLI) {
                 WP_CLI::log('— Filling empty fields' . ($dry ? ' (preview: before the hygiene above, so sport counts can differ slightly)' : ''));
                 $keys = $journal ? $this->create_brands($ids, $journal) : mos_clean_brand_keys();
                 $fill = $this->fill($ids, $keys, $journal, $batch);
+                // After the fill, so its colour targets are in use (or, in a preview, known) before the unused ones go.
+                WP_CLI::log('  delete pa_litur terms nothing uses: ' . mos_clean_delete_unused_colours($journal, $ops['emptied'], array_keys($fill['colours'])));
+                $journal?->save();
                 if ($journal) { mos_clean_invalidate_caches(array_values(array_unique(array_merge($ops['changed'], $fill['changed'])))); }
             } finally {
                 $GLOBALS['mos_clean_running'] = false;
@@ -1168,10 +1187,10 @@ if (defined('WP_CLI') && WP_CLI) {
          * Fill every product's empty fields, in batches.
          *
          * @param int[] $ids
-         * @return array{set:array<string,int>,new_brands:array<string,int>,conflicts:array<string,list<string>>,changed:int[]}
+         * @return array{set:array<string,int>,new_brands:array<string,int>,colours:array<string,true>,conflicts:array<string,list<string>>,changed:int[]}
          */
         private function fill(array $ids, array $keys, ?MOS_Clean_Journal $journal, int $batch): array {
-            $out = ['set' => ['brand' => 0, 'gender' => 0, 'sport' => 0, 'colour' => 0], 'new_brands' => [], 'conflicts' => ['brand' => [], 'gender' => [], 'sport' => []], 'changed' => []];
+            $out = ['set' => ['brand' => 0, 'gender' => 0, 'sport' => 0, 'colour' => 0], 'new_brands' => [], 'colours' => [], 'conflicts' => ['brand' => [], 'gender' => [], 'sport' => []], 'changed' => []];
             foreach (array_chunk($ids, $batch) as $chunk) {
                 foreach ($chunk as $id) {
                     $p = wc_get_product($id);
@@ -1184,6 +1203,7 @@ if (defined('WP_CLI') && WP_CLI) {
                     }
                     foreach ($r['set'] as $field => $value) {
                         $out['set'][$field]++;
+                        if ($field === 'colour') { $out['colours'][(string) $value] = true; }
                         if ($field === 'brand' && str_ends_with($value, ' (new)')) { $out['new_brands'][$value] = ($out['new_brands'][$value] ?? 0) + 1; }
                     }
                     if ($r['set']) { $out['changed'][] = $id; }
