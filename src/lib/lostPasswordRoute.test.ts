@@ -1,6 +1,7 @@
-// The lost-password request tells the shopper "sent" only when WordPress took the request. A refusal (the store-wide
-// limit's 429, a 5xx) or no answer at all is an error to retry: the answer still depends only on WordPress being
-// reachable, never on whether the account exists, so there is no enumeration.
+// The lost-password request says "not sent" only for failures that happen before WordPress looks the account up:
+// its store-wide limit (429), a proxy that could not reach PHP (502/503), or a connection that failed outright.
+// Anything that can happen after the lookup (a 500 from the mailer, a time-out while the mail is being sent: only an
+// existing account gets that far) keeps the one "sent" answer, so the answer never tells whether the account exists.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('astro:env/server', () => ({ WP_INTERNAL_URL: 'http://wp.test', MOS_CLIENT_IP_HEADER: '', MOS_TRUSTED_PROXY_HOPS: 0 }));
@@ -34,8 +35,16 @@ describe('POST /api/account/lost-password', () => {
     expect(await post(async () => new Response('{}', { status: 200 }))).toBe('/min-sida/lost-password/?sent=1');
   });
 
-  it.each([429, 500, 502])('says the request was not sent when WordPress answers %i', async (status) => {
+  it.each([429, 502, 503])('says the request was not sent when WordPress answers %i', async (status) => {
     expect(await post(async () => new Response('{}', { status }))).toBe('/min-sida/lost-password/?error=notsent');
+  });
+
+  it.each([500, 504])('keeps the one answer for a %i, which an existing account alone could cause', async (status) => {
+    expect(await post(async () => new Response('{}', { status }))).toBe('/min-sida/lost-password/?sent=1');
+  });
+
+  it('keeps the one answer for a time-out (the mail step runs only for an existing account)', async () => {
+    expect(await post(async () => { throw new DOMException('The operation timed out.', 'TimeoutError'); })).toBe('/min-sida/lost-password/?sent=1');
   });
 
   it('says the request was not sent when WordPress is unreachable', async () => {

@@ -6,11 +6,14 @@ import { visitorKey } from '../../../lib/visitor';
 
 export const prerender = false;
 
-// WooCommerce's "Týnt lykilorð?" request. Every request WordPress takes gets the same answer (no account
-// enumeration); the reset email itself is WooCommerce's, sent by wp-mu-plugins/mos-account-api.php. A request
-// WordPress refused (its store-wide limit) or never got is an error to retry, not "sent": that answer depends
-// only on WordPress being reachable, so it says nothing about the account either.
+// WooCommerce's "Týnt lykilorð?" request. The reset email itself is WooCommerce's, sent by
+// wp-mu-plugins/mos-account-api.php. The answer never tells whether the account exists: "not sent" is said only for
+// a failure that happens before WordPress looks the account up (NOT_TAKEN, or a connection that failed outright).
+// A 500 or a time-out can come from the mail step, which runs for an existing account alone, so those keep the one
+// "sent" answer and are only logged.
 const requests = createLimiter(5, 60 * 60 * 1000);
+// WordPress's store-wide limit (checked before the lookup), and a proxy that could not reach PHP at all.
+const NOT_TAKEN = new Set([429, 502, 503]);
 
 export const POST: APIRoute = async (ctx) => {
   const { request, url, redirect } = ctx;
@@ -19,16 +22,20 @@ export const POST: APIRoute = async (ctx) => {
   const login = String(form?.get('user_login') ?? '').trim();
   if (!login) return redirect('/min-sida/lost-password/?error=empty', 303);
   if (!requests.take(visitorKey(ctx))) return redirect('/min-sida/lost-password/?error=limited', 303);
-  const res = await fetch(`${WP_INTERNAL_URL}/wp-json/mos/v1/account/lost-password`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_login: login.slice(0, 200) }),
-    signal: AbortSignal.timeout(10000),
-  }).catch((err: unknown) => {
+  let refused = false;
+  try {
+    const res = await fetch(`${WP_INTERNAL_URL}/wp-json/mos/v1/account/lost-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_login: login.slice(0, 200) }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) console.warn(`[account] lost-password: WordPress answered ${res.status}`);
+    refused = NOT_TAKEN.has(res.status);
+  } catch (err: unknown) {
     console.warn(`[account] lost-password: WordPress unreachable: ${err instanceof Error ? err.message : String(err)}`);
-    return null;
-  });
-  if (res && !res.ok) console.warn(`[account] lost-password: WordPress answered ${res.status}`);
-  if (!res?.ok) return redirect('/min-sida/lost-password/?error=notsent', 303);
+    refused = !(err instanceof Error && err.name === 'TimeoutError');
+  }
+  if (refused) return redirect('/min-sida/lost-password/?error=notsent', 303);
   return redirect('/min-sida/lost-password/?sent=1', 303);
 };
