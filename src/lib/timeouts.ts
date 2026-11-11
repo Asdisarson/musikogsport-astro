@@ -13,9 +13,10 @@ export const STORE_API_TIMEOUT_MS = 25_000;
 
 /** What is left of the Store API wait after `spentMs` of it went to an earlier call in the same request (the token
  *  prime before a first add: cartProxy cartSession). The two calls share one budget, so the request as a whole still
- *  answers before the browser's CART_CLIENT_TIMEOUT_MS. Never below 1 ms: a spent budget times the next call out at once. */
+ *  answers before the browser's CART_CLIENT_TIMEOUT_MS. Never below 1 ms: a spent budget times the next call out at once.
+ *  Whole milliseconds (the time spent is rounded up): AbortSignal.timeout throws on a fraction. */
 export function storeBudgetLeft(spentMs: number): number {
-  return Math.max(1, STORE_API_TIMEOUT_MS - Math.max(0, spentMs));
+  return Math.max(1, STORE_API_TIMEOUT_MS - Math.ceil(Math.max(0, spentMs)));
 }
 
 /** The server's wait for one WooCommerce REST read (catalog, order lookups, checkout recovery). */

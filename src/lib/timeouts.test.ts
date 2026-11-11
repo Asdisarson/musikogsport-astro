@@ -36,6 +36,13 @@ describe('storeBudgetLeft: one Store API budget for a request that makes two cal
     expect(20_000 + storeBudgetLeft(20_000)).toBeLessThan(CART_CLIENT_TIMEOUT_MS);
   });
 
+  it('is whole milliseconds: AbortSignal.timeout refuses a fraction, and the elapsed time is one', () => {
+    const left = storeBudgetLeft(56.63);
+    expect(Number.isInteger(left)).toBe(true);
+    expect(left).toBe(STORE_API_TIMEOUT_MS - 57);
+    expect(() => AbortSignal.timeout(left)).not.toThrow();
+  });
+
   it('never goes below 1 ms: a spent budget makes the second call time out at once instead of waiting again', () => {
     expect(storeBudgetLeft(STORE_API_TIMEOUT_MS)).toBe(1);
     expect(storeBudgetLeft(60_000)).toBe(1);
