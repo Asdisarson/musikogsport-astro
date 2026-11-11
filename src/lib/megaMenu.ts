@@ -35,6 +35,9 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
 /** A menu href that leads somewhere: '#' and the home page are WordPress menu headings ("Vörumerki", "Úrval"). */
 export const isLinkHref = (href?: string | null): href is string => Boolean(href) && href !== '/' && href !== '#';
 
+/** The top-level menu items that are shop sections to link to (the footer's shop column): headings are left out. */
+export const shopSections = (primary: MenuItem[]): MenuItem[] => primary.filter((i) => isLinkHref(i.href));
+
 /** The item's mega-menu panel, or null when it has no children (a plain link). */
 export function megaPanel(item: MenuItem): MegaPanel | null {
   const kids = item.children;

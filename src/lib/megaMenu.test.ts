@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { megaPanel } from './megaMenu';
+import { megaPanel, shopSections } from './megaMenu';
 import type { MenuItem } from './siteChrome';
 
 const item = (id: number, title: string, children: MenuItem[] = []): MenuItem => ({
@@ -60,5 +60,13 @@ describe('megaPanel', () => {
       expect(panel.flow, `${n} links`).toBe(flow);
       expect(panel.columns).toBe(4);
     }
+  });
+});
+
+describe('shopSections', () => {
+  it('keeps the top-level items that lead somewhere: "#" and the home page are menu headings', () => {
+    const item = (title: string, href: string) => ({ id: title.length, title, href, children: [] }) as unknown as MenuItem;
+    const menu = [item('Skór', '/voruflokkur/skor/'), item('Úrval', '#'), item('Vörumerki', '/'), item('Tómt', ''), item('Fatnaður', '/voruflokkur/fatnadur/')];
+    expect(shopSections(menu).map((i) => i.title)).toEqual(['Skór', 'Fatnaður']);
   });
 });

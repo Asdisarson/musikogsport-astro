@@ -8,6 +8,7 @@
 import Icon from './Icon.astro';
 import type { SiteChrome } from '../lib/siteChrome';
 import { companyParts } from '../lib/companyLine';
+import { shopSections } from '../lib/megaMenu';
 import { linkRel } from '../lib/safeUrl';
 
 interface Props {
@@ -17,8 +18,8 @@ const { chrome } = Astro.props;
 const f = chrome.footer;
 const addressLines = f.address.split(/\r?\n/).filter(Boolean);
 const tel = f.phone.replace(/[^\d+]/g, '');
-// Top-level shop sections; an item pointing at the home page ("Vörumerki") is only a menu heading.
-const shop = chrome.primary.filter((i) => i.href && i.href !== '/');
+// Top-level shop sections; an item pointing at '#' or the home page ("Úrval", "Vörumerki") is only a menu heading.
+const shop = shopSections(chrome.primary);
 // "© 2026 Músík og Sport ehf. · Kt. 710303-2310", or wp-admin's sentence as written when it doesn't read that way
 const company = companyParts(f.companyLine);
 const year = new Date().getFullYear();
