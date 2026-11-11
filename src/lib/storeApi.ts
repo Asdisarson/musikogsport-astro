@@ -106,5 +106,5 @@ export const removeCoupon = (body: { code: string }, token?: string | null, time
 // Always a guest checkout: Straumur signs its return URL with a nonce for the user WordPress sees here,
 // and the shopper's browser comes back from the gateway without the storefront's token — a signed-in
 // checkout would die on that nonce. A signed-in customer's order is attached afterwards (/api/checkout).
-export const checkout = (body: CheckoutPayload, token?: string | null, timeoutMs?: number) =>
-  storeFetch<OrderResult>('/checkout', { method: 'POST', body, cartToken: token, timeoutMs });
+export const checkout = (body: CheckoutPayload, token?: string | null) =>
+  storeFetch<OrderResult>('/checkout', { method: 'POST', body, cartToken: token });

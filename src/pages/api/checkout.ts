@@ -37,11 +37,13 @@ export const POST: APIRoute = async (ctx) => {
   const attempt = body.extensions.mos.attempt ?? newAttemptId();
   body.extensions.mos.attempt = attempt;
 
-  const { token, timeoutMs } = await cartSession(ctx);
+  // Checkout keeps its own full wait (the browser's CHECKOUT_CLIENT_TIMEOUT_MS covers it): a call cut short by a
+  // spent prime budget would be handled as a lost answer for an order WordPress was never asked to place.
+  const { token } = await cartSession(ctx);
   // Who is signed in, as of placing the order (usually memoized from the checkout page).
   const authToken = readAuthToken(ctx.cookies);
   const shopper = authToken ? await verifiedUser(authToken) : null;
-  const result = await checkout(body, token, timeoutMs);
+  const result = await checkout(body, token);
   if (result.transportFailure || isLostAnswer(result.status, result.data)) {
     return respondLostCheckout(ctx, attempt, result.transportFailure ?? `upstream ${result.status}`);
   }
