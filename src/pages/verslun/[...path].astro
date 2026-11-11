@@ -20,7 +20,7 @@ import { formatSaleBadge, salePercent } from '../../lib/price';
 import { isSizeAttribute, pricesVary, sortSizeOptions } from '../../lib/variations';
 import { ld, productLd, breadcrumbList } from '../../lib/jsonld';
 import { loadCatalogTerms } from '../../lib/catalogTerms';
-import { cardCategories, categoryChain, productCrumbTrail, relatedScope } from '../../lib/categoryTree';
+import { cardCategories, categoryChain, categoryHref, productCrumbTrail, relatedScope } from '../../lib/categoryTree';
 import { categoryPath, movedCategoryTarget, productPath } from '../../lib/paths';
 import { isShoe, sizeChartFor, wantAttr } from '../../lib/sizeGuide';
 import { markUnavailable } from '../../lib/http';
@@ -138,7 +138,7 @@ if (product) {
 // Meta block (live: Vörunúmer / Flokkar / Merkimiðar / Vörumerki, terms alphabetical).
 const byName = <T extends { name: string }>(list: T[] = []) =>
   list.map((t) => ({ ...t, name: decodeEntities(t.name) })).sort((a, b) => a.name.localeCompare(b.name, 'is'));
-const metaCats = byName(product?.categories).map((c) => ({ name: c.name, href: categoryPath(categoryChain(terms.categories, c.id)) }));
+const metaCats = byName(product?.categories).map((c) => ({ name: c.name, href: categoryHref(terms.categories, c.id) }));
 const metaTags = byName(product?.tags).map((t) => ({ name: t.name, href: `/merkimidar/${t.slug}/` }));
 const metaBrands = byName(product?.brands).map((b) => ({ name: b.name, href: `/brand/${b.slug}/` }));
 const hasMeta = Boolean(product?.sku) || metaCats.length > 0 || metaTags.length > 0 || metaBrands.length > 0;
@@ -278,7 +278,7 @@ const shareUrl = `https://www.facebook.com/sharer.php?u=${encodeURIComponent(can
                       {metaCats.length > 0 && (
                         <span class="pdp-meta__row">
                           <span class="pdp-meta__k">{metaCats.length === 1 ? 'Flokkur:' : 'Flokkar:'}</span>
-                          <span class="pdp-meta__v">{metaCats.map((c, i) => (<>{i > 0 && ', '}<a href={c.href}>{c.name}</a></>))}</span>
+                          <span class="pdp-meta__v">{metaCats.map((c, i) => (<>{i > 0 && ', '}{c.href ? <a href={c.href}>{c.name}</a> : c.name}</>))}</span>
                         </span>
                       )}
                       {metaTags.length > 0 && (

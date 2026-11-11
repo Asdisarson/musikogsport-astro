@@ -16,6 +16,13 @@ export function categoryChain(categories: CategoryTerm[], id: number): string[] 
   return chain;
 }
 
+/** The category's archive URL, or null when the term list doesn't have it (a degraded term sweep hands every caller
+ *  an empty list): a link built from an empty chain would be /voruflokkur//, which leads nowhere. */
+export function categoryHref(categories: CategoryTerm[], id: number): string | null {
+  const chain = categoryChain(categories, id);
+  return chain.length > 0 ? categoryPath(chain) : null;
+}
+
 /** Top-level categories that group products by something other than what they are (live's "kyn" gender facets,
  *  WordPress's unsorted buckets). The archive hides them from its filters. */
 export const STRUCTURAL_ROOT_SLUGS: ReadonlySet<string> = new Set([KYN_PARENT_SLUG, 'uncategorized', 'oflokkad', 'unisex']);

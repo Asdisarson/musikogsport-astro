@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardCategories, categoryChain, resolveCategoryPath, childrenOf, productCrumbTrail, railCategoryLinks, relatedScope } from './categoryTree';
+import { cardCategories, categoryChain, categoryHref, resolveCategoryPath, childrenOf, productCrumbTrail, railCategoryLinks, relatedScope } from './categoryTree';
 import type { CategoryTerm } from './liveFilters';
 
 const cats: CategoryTerm[] = [
@@ -250,5 +250,21 @@ describe('relatedScope', () => {
   });
   it('breaks a depth tie by the lower id, and skips categories missing from the tree', () => {
     expect(relatedScope([901, 700, 12345], tree)).toEqual({ categoryId: 700, audienceIds: [] });
+  });
+});
+
+describe('categoryHref', () => {
+  const terms = [
+    { id: 1, name: 'Skór', slug: 'skor', parent: 0 },
+    { id: 2, name: 'Hlaupaskór', slug: 'hlaupaskor', parent: 1 },
+  ] as CategoryTerm[];
+
+  it('is the /voruflokkur/ path of a known category', () => {
+    expect(categoryHref(terms, 2)).toBe('/voruflokkur/skor/hlaupaskor/');
+  });
+
+  it('is null for a category the term list does not have (degraded terms), never /voruflokkur//', () => {
+    expect(categoryHref([], 2)).toBeNull();
+    expect(categoryHref(terms, 99)).toBeNull();
   });
 });
