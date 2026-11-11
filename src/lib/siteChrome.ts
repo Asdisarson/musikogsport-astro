@@ -34,7 +34,7 @@ export interface SiteChrome {
   campaign: { text: string; textRight: string; notice: string };
   logos: { header: ChromeImage | null; footer: ChromeImage | null };
   /** Goya's free-shipping progress bar, or null when switched off in WordPress. */
-  shippingBar: (ShippingBar & { includeTaxes: boolean }) | null;
+  shippingBar: ShippingBar | null;
   footer: {
     address: string;
     directionsLabel: string;

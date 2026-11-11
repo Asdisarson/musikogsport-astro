@@ -8,6 +8,8 @@ export interface ShippingBar {
   success: string;
   color: string;
   locations: string[];
+  /** Whether the goal is measured against the subtotal with tax (Goya's switch). Absent means with tax. */
+  includeTaxes?: boolean;
 }
 
 export interface ShippingProgress {

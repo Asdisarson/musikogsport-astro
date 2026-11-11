@@ -113,7 +113,7 @@ export default function CartView({ shippingBar = null }: { shippingBar?: Shippin
             </summary>
             <CouponField variant="cart" />
           </details>
-          {shippingBar && <ShippingBarView bar={shippingBar} subtotal={cartSubtotal($cart)} />}
+          {shippingBar && <ShippingBarView bar={shippingBar} subtotal={cartSubtotal($cart, shippingBar.includeTaxes ?? true)} />}
           <a className="btn-dark btn-block cart-totals__checkout" href="/gera-upp/">
             Ganga frá pöntun
           </a>

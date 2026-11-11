@@ -3,12 +3,13 @@ import { productPath } from './paths';
 import { isSizeAttribute } from './variations';
 import type { Cart, CartItem } from './types';
 
-/** Cart subtotal in whole krónur as live shows it (items incl. tax, before shipping/discounts). */
-export function cartSubtotal(cart: Cart | null): number {
+/** Cart subtotal in whole krónur as live shows it (items incl. tax, before shipping/discounts). The free-shipping
+ *  bar counts it without the tax when WordPress says so (Goya's "subtotal incl. taxes" switch: ShippingBar.includeTaxes). */
+export function cartSubtotal(cart: Cart | null, includeTaxes = true): number {
   if (!cart) return 0;
   const t = cart.totals;
   const minor = 10 ** (t.currency_minor_unit ?? 0);
-  return (Number(t.total_items) + Number(t.total_items_tax ?? 0)) / minor;
+  return (Number(t.total_items) + (includeTaxes ? Number(t.total_items_tax ?? 0) : 0)) / minor;
 }
 
 /** A line's subtotal incl. tax, in minor units (what live's cart rows show, before coupons). */

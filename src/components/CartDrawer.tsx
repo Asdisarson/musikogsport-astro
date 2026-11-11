@@ -116,7 +116,7 @@ export default function CartDrawer({ shippingBar = null }: { shippingBar?: Shipp
               <span>Millisamtala:</span>
               <span>{formatISK(cartSubtotal($cart))}</span>
             </p>
-            {shippingBar && <ShippingBarView bar={shippingBar} subtotal={cartSubtotal($cart)} />}
+            {shippingBar && <ShippingBarView bar={shippingBar} subtotal={cartSubtotal($cart, shippingBar.includeTaxes ?? true)} />}
             <a className="btn-dark btn-block" href="/gera-upp/" onClick={closeCart}>Ganga frá pöntun</a>
             <a className="btn-outline btn-block" href="/karfa/" onClick={closeCart}>Skoða körfu</a>
           </div>
