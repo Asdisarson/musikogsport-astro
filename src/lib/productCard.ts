@@ -67,6 +67,14 @@ export function productSubtitle({ category, brands, name }: { category?: string;
   return parts.join(' · ');
 }
 
+/** The category at the start of a product subtitle as a link, with what follows it (" · Nike") as text; null when the
+ *  subtitle doesn't start with that category or the category has no page. */
+export function subtitleLink(subtitle: string, category?: { name: string; path: string }): { name: string; href: string; rest: string } | null {
+  const name = category?.name.trim() ?? '';
+  if (!name || !category?.path || !subtitle.startsWith(name)) return null;
+  return { name, href: category.path, rest: subtitle.slice(name.length) };
+}
+
 /** "2 litir", "21 litur": Icelandic takes the singular after numbers ending in 1, except 11. */
 export function colourLabel(n: number): string {
   return countWord(n, 'litur', 'litir');

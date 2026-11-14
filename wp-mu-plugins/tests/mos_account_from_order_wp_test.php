@@ -60,7 +60,13 @@ try {
     $mails = [];
     $r = $call($id, $key);
     $user_id = (int) email_exists($email);
-    $check('right key: ok and an account on the order e-mail', $status($r) === 200 && $r->get_data() === ['ok' => true] && $user_id > 0);
+    $data = $status($r) === 200 ? $r->get_data() : [];
+    $check('right key: ok and an account on the order e-mail', ($data['ok'] ?? null) === true && $user_id > 0);
+    $token = (string) ($data['token'] ?? '');
+    $claims = $token !== '' ? mos_jwt_verified_claims($token) : null;
+    $check('the answer carries a sign-in token for the new account', $claims !== null && (int) ($claims->data->user->id ?? 0) === $user_id
+        && ($claims->iss ?? '') === get_bloginfo('url') && (int) ($claims->exp ?? 0) > time(), $token === '' ? 'no token (jwt plugin or key missing?)' : '');
+    $check('the token is bound to the stored password hash', $claims !== null && mos_jwt_mark_valid($user_id, (string) ($claims->data->mos_pwh ?? '')));
     $fresh = wc_get_order($id);
     $check('the order is on the new account', (int) $fresh->get_customer_id() === $user_id);
     $customer = new WC_Customer($user_id);
@@ -74,10 +80,14 @@ try {
     $check('the mail links to the storefront new-password page for this user', $linked && (int) ($q['id'] ?? 0) === $user_id && !empty($q['key']));
     $check('the link key is a valid reset key', $linked && !is_wp_error(check_password_reset_key((string) ($q['key'] ?? ''), get_userdata($user_id)->user_login)));
     $check('no password in the mail', !preg_match('/lykilorð(ið)? (þitt )?er/i', $message));
+    if ($claims !== null) {
+        wp_set_password(wp_generate_password(20), $user_id);
+        $check('choosing a password revokes the token', !mos_jwt_mark_valid($user_id, (string) $claims->data->mos_pwh));
+    }
 
     $mails = [];
     $again = $call($id, $key);
-    $check('asked again: same answer, no second mail', $status($again) === 200 && $again->get_data() === ['ok' => true] && $mails === []);
+    $check('asked again: ok, no token, no second mail', $status($again) === 200 && $again->get_data() === ['ok' => true] && $mails === []);
 
     // another guest order on the same (now taken) e-mail: same answer, the order stays a guest order
     $second = wc_create_order();
@@ -85,7 +95,7 @@ try {
     $second->save();
     $mails = [];
     $r2 = $call($second->get_id(), $second->get_order_key());
-    $check('e-mail with an account: same answer, no mail, order not attached', $status($r2) === 200 && $mails === [] && (int) wc_get_order($second->get_id())->get_customer_id() === 0);
+    $check('e-mail with an account: ok without a token, no mail, order not attached', $status($r2) === 200 && $r2->get_data() === ['ok' => true] && $mails === [] && (int) wc_get_order($second->get_id())->get_customer_id() === 0);
     $second->delete(true);
 } finally {
     remove_filter('woocommerce_mail_callback', $capture, 99);

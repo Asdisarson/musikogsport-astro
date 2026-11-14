@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardLabel, colourCount, colourLabel, isColourAttribute, NEW_PRODUCT_DAYS, productSubtitle } from './productCard';
+import { cardLabel, colourCount, colourLabel, isColourAttribute, NEW_PRODUCT_DAYS, productSubtitle, subtitleLink } from './productCard';
 import type { WooAttribute } from './types';
 
 describe('cardLabel', () => {
@@ -104,5 +104,21 @@ describe('productSubtitle', () => {
 
   it('does not repeat a brand that is also the category name', () => {
     expect(productSubtitle({ category: 'Hoka', brands: [{ name: 'HOKA' }], name: 'HOKA Clifton' })).toBe('Hoka');
+  });
+});
+
+describe('subtitleLink', () => {
+  const peysur = { name: 'Peysur', path: '/voruflokkur/fatnadur/efri-likami/peysur-efri-likami/' };
+
+  it('links the category at the start of the subtitle and keeps the rest as text', () => {
+    expect(subtitleLink('Peysur · Nike', peysur)).toEqual({ name: 'Peysur', href: peysur.path, rest: ' · Nike' });
+    expect(subtitleLink('Peysur', peysur)).toEqual({ name: 'Peysur', href: peysur.path, rest: '' });
+  });
+
+  it('links nothing when the subtitle does not start with the category (brand only, or none)', () => {
+    expect(subtitleLink('Nike', peysur)).toBeNull();
+    expect(subtitleLink('Nike', undefined)).toBeNull();
+    expect(subtitleLink('', peysur)).toBeNull();
+    expect(subtitleLink('Peysur · Nike', { name: 'Peysur', path: '' })).toBeNull();
   });
 });

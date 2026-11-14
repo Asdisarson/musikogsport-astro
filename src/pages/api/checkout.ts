@@ -5,7 +5,7 @@ import { checkoutPayload, wantsAccount } from '../../lib/checkoutPayload';
 import { placedDespiteError, respondLostCheckout } from '../../lib/checkoutRecovery';
 import { isLostAnswer } from '../../lib/checkoutFlow';
 import { newAttemptId } from '../../lib/attemptId';
-import { readAuthToken, verifiedUser } from '../../lib/auth';
+import { readAuthToken, setAuth, verifiedUser } from '../../lib/auth';
 import { createAccountFromOrder, linkOrderToSignedIn } from '../../lib/account';
 import { sameOrigin, tooManyRequests } from '../../lib/http';
 import { createLimiter } from '../../lib/rateLimit';
@@ -59,8 +59,15 @@ export const POST: APIRoute = async (ctx) => {
     // After the response: the hand-off to the card page never waits on it, and a failure is logged without
     // failing the placed order. The customer id is WordPress's answer for this session's token.
     if (authToken && shopper) void linkOrderToSignedIn(authToken, result.data.order_id, shopper);
-    // Nobody signed in (as WordPress sees it) and the "Stofna aðgang" box ticked: an account on the order's e-mail, likewise after the response.
-    else if (!shopper && wantsAccount(raw)) void createAccountFromOrder(result.data.order_id, result.data.order_key);
+    // Nobody signed in (as WordPress sees it) and the "Stofna aðgang" box ticked: an account on the order's e-mail,
+    // and this browser signed in to it, as WooCommerce's checkout does. Waited for (briefly) so the sign-in cookie
+    // goes out with this answer; the order is placed either way. If WordPress didn't answer in time, the account is
+    // asked for once more after the response, without the sign-in.
+    else if (!shopper && wantsAccount(raw)) {
+      const made = await createAccountFromOrder(result.data.order_id, result.data.order_key);
+      if (made.token) setAuth(ctx.cookies, made.token, false);
+      else if (made.retry) void createAccountFromOrder(result.data.order_id, result.data.order_key, 15_000);
+    }
   }
   // A free order goes without a payment method (CO-21); if the cart needs payment after all, WooCommerce says so in
   // English: say it the way the form does.

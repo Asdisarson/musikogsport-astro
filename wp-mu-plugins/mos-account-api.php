@@ -108,9 +108,12 @@ function mos_account_reset_password(WP_REST_Request $req) {
  * it with its addresses, and the customer gets a mail with a link to choose a password (the storefront's
  * /min-sida/lost-password/?key=…&id=…, the same page WooCommerce's reset mail opens). Nothing is asked of the
  * shopper here and no password travels.
- *   - An e-mail that already has an account: nothing happens and the answer is the same, so the route does not
- *     tell who has an account. The order is NOT put on that account: whoever typed the address is not proven to
- *     own it.
+ *   - A new account answers with a sign-in token: the storefront signs that browser in, as WooCommerce's checkout
+ *     does. Whoever placed the order can therefore open the new account (which holds only that order) until the
+ *     owner of the mailbox chooses a password; that revokes the token.
+ *   - An e-mail that already has an account: nothing happens and no token is given. The order is NOT put on that
+ *     account: whoever typed the address is not proven to own it. (The caller, who holds the order key, can tell
+ *     the two cases apart, as with any checkout that creates accounts.)
  *   - Only an order with no customer yet, placed within MOS_ACCOUNT_ORDER_WINDOW.
  * --------------------------------------------------------------------- */
 
@@ -136,6 +139,34 @@ function mos_account_order_problem(int $customer_id, int $created, int $now, str
     return $email_taken ? 'email-taken' : null;
 }
 
+/**
+ * A sign-in token for a customer, in the shape the jwt-authentication plugin issues (same claims, key, algorithm
+ * and filters, so the storefront and the revocation checks below treat it as any other): the new customer is
+ * signed in on the device that placed the order, as WooCommerce's own checkout does. It carries the password-hash
+ * fingerprint like every token, so it stops working the moment the customer chooses a password through the mail,
+ * and they sign in with that. Null when the plugin or its key is missing.
+ */
+function mos_account_issue_token(WP_User $user): ?string {
+    if (!defined('JWT_AUTH_SECRET_KEY') || !class_exists('\Tmeister\Firebase\JWT\JWT')) { return null; }
+    $now = time();
+    $claims = [
+        'iss'  => get_bloginfo('url'),
+        'iat'  => $now,
+        'nbf'  => apply_filters('jwt_auth_not_before', $now, $now),
+        'exp'  => apply_filters('jwt_auth_expire', $now + (DAY_IN_SECONDS * 7), $now),
+        'data' => ['user' => ['id' => $user->ID]],
+    ];
+    try {
+        return \Tmeister\Firebase\JWT\JWT::encode(
+            apply_filters('jwt_auth_token_before_sign', $claims, $user),
+            JWT_AUTH_SECRET_KEY,
+            (string) apply_filters('jwt_auth_algorithm', 'HS256')
+        );
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
 /** The link in the welcome mail: the storefront's new-password page for this key and user. */
 function mos_account_password_url(string $key, int $user_id): string {
     $base = function_exists('mos_headless_target_base') && mos_headless_target_base() !== '' ? mos_headless_target_base() : untrailingslashit(home_url());
@@ -151,7 +182,7 @@ function mos_account_from_order(WP_REST_Request $req) {
     if (!$order instanceof WC_Order || $key === '' || !hash_equals((string) $order->get_order_key(), $key)) {
         return new WP_Error('mos_account_order', 'Pöntun fannst ekki.', ['status' => 400]);
     }
-    $ok = rest_ensure_response(['ok' => true]); // the one answer for every order with the right key
+    $ok = rest_ensure_response(['ok' => true]); // the answer when no account is made
     $email = sanitize_email((string) $order->get_billing_email());
     $created = $order->get_date_created() ? $order->get_date_created()->getTimestamp() : 0;
     $taken = $email !== '' && is_email($email) ? (bool) email_exists($email) : true;
@@ -197,11 +228,16 @@ function mos_account_from_order(WP_REST_Request $req) {
     }
 
     $user = get_user_by('id', (int) $user_id);
+    // The answer for an account made just now: the sign-in token for this browser (see mos_account_issue_token).
+    $token = $user instanceof WP_User ? mos_account_issue_token($user) : null;
+    $made = rest_ensure_response($token !== null ? ['ok' => true, 'token' => $token] : ['ok' => true]);
+    if ($token === null) { error_log('[mos-account] new account for order ' . $order->get_id() . ' not signed in: no token could be issued'); }
+
     $reset = $user instanceof WP_User ? get_password_reset_key($user) : new WP_Error('no_user');
     if (is_wp_error($reset)) {
         // The account exists; the customer can still ask for a link at /min-sida/lost-password/.
         error_log('[mos-account] welcome mail for order ' . $order->get_id() . ' not sent: ' . $reset->get_error_code());
-        return $ok;
+        return $made;
     }
     $url = mos_account_password_url($reset, (int) $user_id);
     $body = '<p>Hæ ' . esc_html($order->get_billing_first_name()) . ',</p>'
@@ -212,7 +248,7 @@ function mos_account_from_order(WP_REST_Request $req) {
     if (!$mailer->send($email, 'Aðgangurinn þinn hefur verið stofnaður', $mailer->wrap_message('Velkomin(n)', $body))) {
         error_log('[mos-account] welcome mail for order ' . $order->get_id() . ' not sent: the mailer refused it');
     }
-    return $ok;
+    return $made;
 }
 
 /* ------------------------------------------------------------------------

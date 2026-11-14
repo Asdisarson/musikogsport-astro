@@ -193,24 +193,37 @@ export async function getOwnOrder(customerId: number, orderId: number): Promise<
   };
 }
 
+/** A JWT's three base64url segments: anything else is not a token WordPress issued. */
+const NEW_ACCOUNT_TOKEN = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
+/** What became of the checkout's "Stofna aðgang" request:
+ *  token: the account was made just now, and this signs the shopper in;
+ *  retry: WordPress didn't answer or failed, so the account may not exist yet (ask once more, later). */
+export interface NewAccount {
+  token: string | null;
+  retry: boolean;
+}
+
 /** Make an account for the e-mail of a just-placed guest order (the checkout's "Stofna aðgang" box). WordPress
- *  checks the order key, creates the customer, puts the order on it and mails a link to choose a password; an
- *  e-mail that already has an account is left alone, with the same answer. One retry; logs, never throws. Meant
- *  to run after the checkout response. */
-export async function createAccountFromOrder(orderId: number, orderKey: string): Promise<void> {
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const res = await fetch(`${WP_INTERNAL_URL}/wp-json/mos/v1/account/from-order`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: orderId, order_key: orderKey }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (res.ok) return;
-      console.warn(`[account] no account made for order ${orderId} (attempt ${attempt}): WordPress answered ${res.status}`);
-      if (res.status < 500) return; // refused: asking again changes nothing
-    } catch (err) {
-      console.warn(`[account] no account made for order ${orderId} (attempt ${attempt}): ${err instanceof Error ? err.message : String(err)}`);
+ *  checks the order key, creates the customer, puts the order on it and mails a link to choose a password; for an
+ *  account made now it answers with a sign-in token. An e-mail that already has an account is left alone (no
+ *  token). One attempt; logs, never throws. */
+export async function createAccountFromOrder(orderId: number, orderKey: string, timeoutMs = 8_000): Promise<NewAccount> {
+  try {
+    const res = await fetch(`${WP_INTERNAL_URL}/wp-json/mos/v1/account/from-order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: orderId, order_key: orderKey }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) {
+      console.warn(`[account] no account made for order ${orderId}: WordPress answered ${res.status}`);
+      return { token: null, retry: res.status >= 500 }; // a 4xx is a refusal: asking again changes nothing
     }
+    const token = ((await res.json().catch(() => null)) as { token?: unknown } | null)?.token;
+    return { token: typeof token === 'string' && NEW_ACCOUNT_TOKEN.test(token) ? token : null, retry: false };
+  } catch (err) {
+    console.warn(`[account] no account made for order ${orderId}: ${err instanceof Error ? err.message : String(err)}`);
+    return { token: null, retry: true };
   }
 }
