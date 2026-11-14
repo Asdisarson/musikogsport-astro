@@ -19,6 +19,8 @@ import { sanitizeHtml } from '../../lib/sanitize';
 import { formatSaleBadge, salePercent } from '../../lib/price';
 import { isSizeAttribute, pricesVary, sortSizeOptions } from '../../lib/variations';
 import { ld, productLd, breadcrumbList } from '../../lib/jsonld';
+import { metaDescription, productFallbackDescription } from '../../lib/seo';
+import { formatISK } from '../../lib/format';
 import { loadCatalogTerms } from '../../lib/catalogTerms';
 import { cardCategories, categoryChain, categoryHref, productCrumbTrail, relatedScope } from '../../lib/categoryTree';
 import { categoryPath, movedCategoryTarget, productPath } from '../../lib/paths';
@@ -187,7 +189,7 @@ const shareUrl = `https://www.facebook.com/sharer.php?u=${encodeURIComponent(can
 
 {
   product ? (
-    <Base title={name} description={textOf(product.short_description).slice(0, 150)} image={img.src} ogType="product">
+    <Base title={name} description={metaDescription(stripShortcodes(product.short_description ?? ''), stripShortcodes(product.description ?? ''), productFallbackDescription({ name, brand: metaBrands[0]?.name, price: Number(product.price) > 0 ? formatISK(product.price) : undefined }))} image={img.src} ogType="product">
       {productLdObj && <script type="application/ld+json" is:inline slot="head" set:html={ld(productLdObj)} />}
       {breadcrumbLdObj && <script type="application/ld+json" is:inline slot="head" set:html={ld(breadcrumbLdObj)} />}
 

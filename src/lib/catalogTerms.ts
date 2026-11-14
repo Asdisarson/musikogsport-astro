@@ -33,12 +33,15 @@ interface RawTerm {
   slug: string;
   parent?: number;
   count?: number;
+  description?: string;
 }
 
 export interface CatalogData extends CatalogTerms {
   tags: TermRef[];
   /** term id -> product count (categories/brands), as reported by the Store API. */
   counts: Map<number, number>;
+  /** term id -> the term's own description (HTML) for categories/brands that have one. */
+  descriptions?: Map<number, string>;
   /** True when the terms couldn't be loaded at all (WordPress down on a cold start). */
   degraded: boolean;
 }
@@ -105,7 +108,11 @@ async function sweep(): Promise<CatalogData> {
   ]);
   const categories: CategoryTerm[] = cats.map((c) => ({ ...toRef(c), parent: c.parent ?? 0 }));
   const counts = new Map<number, number>();
-  for (const t of [...cats, ...brands]) counts.set(t.id, t.count ?? 0);
+  const descriptions = new Map<number, string>();
+  for (const t of [...cats, ...brands]) {
+    counts.set(t.id, t.count ?? 0);
+    if (t.description) descriptions.set(t.id, t.description);
+  }
   return {
     categories,
     brands: brands.map(toRef),
@@ -114,6 +121,7 @@ async function sweep(): Promise<CatalogData> {
     colours: colours.map(toRef),
     tags: tags.map(toRef),
     counts,
+    descriptions,
     degraded: false,
   };
 }

@@ -10,6 +10,8 @@ import OpenStatus from '../components/OpenStatus.astro';
 import WpContent from '../components/WpContent.astro';
 import { markUnavailable } from '../lib/http';
 import { DAY_NAMES, hoursLines, parseHours } from '../lib/openingHours';
+import { ld } from '../lib/jsonld';
+import { INSTAGRAM_URL, storeLd } from '../lib/seo';
 import { loadSiteChrome } from '../lib/siteChrome';
 import { getWpPage, WpUnavailable } from '../lib/wp';
 
@@ -29,11 +31,22 @@ else if (!page) Astro.response.status = 404;
 const week = page ? parseHours(hoursLines(page.rows)) : null;
 const contact = chrome.footer;
 const tel = contact.phone.replace(/[^\d+]/g, '');
+const siteUrl = Astro.site?.href ?? 'https://musikogsport.is/';
+const store = storeLd({
+  siteUrl,
+  logo: new URL(chrome.logos.header?.url ?? '/logo-header.webp', siteUrl).href,
+  email: contact.email,
+  phone: contact.phone,
+  address: contact.address,
+  instagram: INSTAGRAM_URL,
+  week,
+});
 ---
 
 {
   page ? (
     <Base title={page.title} description="Opnunartími Músík og Sport, Dalshraun 10, Hafnarfirði.">
+      <script type="application/ld+json" is:inline slot="head" set:html={ld(store)} />
       <div class="hours">
         <header class="hours__head">
           <h1 class="page-title">{page.title}</h1>

@@ -1,6 +1,7 @@
 import { defineMiddleware } from 'astro:middleware';
 import { slashRedirect } from './lib/paths';
 import { finishResponse } from './lib/responseHeaders';
+import { isCanonicalHost } from './lib/seo';
 import { hstsEnabled, securityHeaders } from './lib/securityHeaders.mjs';
 import { MEDIA_BASE_URL } from './lib/img';
 import { installProcessHandlers, log, runtimeEnv } from './lib/logger';
@@ -8,6 +9,7 @@ import { installProcessHandlers, log, runtimeEnv } from './lib/logger';
 // Run-time switch (DEPLOY.md "Security headers"): HSTS only once DNS and TLS on the apex are settled.
 const HSTS = hstsEnabled(runtimeEnv('MOS_HSTS'));
 const HEADERS = securityHeaders({ mediaBaseUrl: MEDIA_BASE_URL, hsts: HSTS });
+const NOINDEX: [string, string] = ['X-Robots-Tag', 'noindex, nofollow'];
 
 export const onRequest = defineMiddleware(async (ctx, next) => {
   // Prerendered pages run through here at build time only; their headers come from server.mjs.
@@ -30,7 +32,10 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
     log.error('request failed', { method, path, status: 500, ms: Math.round(performance.now() - started), err });
     throw err;
   }
-  const out = finishResponse(res, { path, method, cookiesPending: !ctx.cookies.headers().next().done, headers: HEADERS });
+  // On any host but the site's own (new.musikogsport.is before the move) the pages are duplicates: keep them out of
+  // search engines. On the real host nothing is added.
+  const headers = isCanonicalHost(ctx.url.host, ctx.site) ? HEADERS : [...HEADERS, NOINDEX];
+  const out = finishResponse(res, { path, method, cookiesPending: !ctx.cookies.headers().next().done, headers });
   const fields = { method, path, status: out.status, ms: Math.round(performance.now() - started) };
   if (out.status >= 500) log.warn(out.status === 503 ? 'upstream unavailable' : 'server error', fields);
   else log.debug('request', fields);

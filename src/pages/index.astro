@@ -15,6 +15,11 @@ import { loadInstagram } from '../lib/instagram';
 import { storeProducts, type StoreQuery } from '../lib/storeCatalog';
 import type { WooProduct } from '../lib/types';
 import { markUnavailable } from '../lib/http';
+import { ld } from '../lib/jsonld';
+import { hoursLines, parseHours } from '../lib/openingHours';
+import { INSTAGRAM_URL, storeLd } from '../lib/seo';
+import { loadSiteChrome } from '../lib/siteChrome';
+import { getWpPage } from '../lib/wp';
 
 // The home page (nike-look), all WordPress "Forsíða" data: a full-bleed hero (first banner image, hero
 // heading/text/button), then product-tile carousels alternating with story-tile rows from the other banners.
@@ -41,11 +46,26 @@ const rowProducts: WooProduct[][] = await Promise.all(
   rowConfigs.map((r) => storeProducts({ ...rowQuery(r), page: 1, per_page: r.count }).then((p) => p.items).catch(() => [])),
 );
 const instagram = await instagramPosts;
+
+// The shop for search engines (lib/seo storeLd). The hours come from the Opnunartími page (cached); when it can't be
+// loaded or read, the node simply has none.
+const [chrome, hoursPage] = await Promise.all([loadSiteChrome(), getWpPage('opnunartimi').catch(() => null)]);
+const siteUrl = Astro.site?.href ?? 'https://musikogsport.is/';
+const store = storeLd({
+  siteUrl,
+  logo: new URL(chrome.logos.header?.url ?? '/logo-header.webp', siteUrl).href,
+  email: chrome.footer.email,
+  phone: chrome.footer.phone,
+  address: chrome.footer.address,
+  instagram: INSTAGRAM_URL,
+  week: hoursPage ? parseHours(hoursLines(hoursPage.rows)) : null,
+});
 const plan = planHome(front?.hero, front?.banners ?? []);
 const sections = homeSections(rowConfigs.length, plan.stories);
 ---
 
 <Base>
+  <script type="application/ld+json" is:inline slot="head" set:html={ld(store)} />
   <div class="home">
     {plan.hero && <HeroSlider plan={plan.hero} />}
     {

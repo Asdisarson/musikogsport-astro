@@ -10,6 +10,7 @@ import { resolveCategoryPath } from '../../lib/categoryTree';
 import { archiveHref, movedCategoryTarget, pageLinks, splitPagination } from '../../lib/paths';
 import { markUnavailable } from '../../lib/http';
 import { ld, breadcrumbList } from '../../lib/jsonld';
+import { listingDescription } from '../../lib/seo';
 
 export const prerender = false;
 
@@ -49,7 +50,7 @@ const name = resolved?.term.name ?? '';
 
 {
   found && archive && resolved ? (
-    <Base pageLinks={pageLinks(resolved.path, page, archive.result.totalPages, params)} title={page > 1 ? `${filterTitle(name, archive.activeLabels)} — síða ${page}` : filterTitle(name, archive.activeLabels)} description={`${name} — vörur í vefverslun Músík og Sport.`}>
+    <Base pageLinks={pageLinks(resolved.path, page, archive.result.totalPages, params)} title={page > 1 ? `${filterTitle(name, archive.activeLabels)} — síða ${page}` : filterTitle(name, archive.activeLabels)} description={listingDescription({ name, count: terms.counts.get(resolved.term.id), termDescription: terms.descriptions?.get(resolved.term.id) })}>
       {breadcrumbLdObj && <script type="application/ld+json" is:inline slot="head" set:html={ld(breadcrumbLdObj)} />}
       <ArchiveView title={name} navCategoryId={resolved.term.id} crumbs={crumbs} basePath={resolved.path} params={params} archive={archive} page={page} />
     </Base>

@@ -4,6 +4,7 @@ import ArchiveView from '../../components/ArchiveView.astro';
 import NotFound from '../../components/NotFound.astro';
 import { loadArchive } from '../../lib/archive';
 import { filterTitle } from '../../lib/facets';
+import { listingCanonicalSearch, SITE_NAME } from '../../lib/seo';
 import { markUnavailable } from '../../lib/http';
 import { pageLinks } from '../../lib/paths';
 
@@ -12,9 +13,16 @@ export const prerender = false;
 const params = Astro.url.searchParams;
 const archive = await loadArchive(params, 1);
 if (archive.unavailable) markUnavailable(Astro.response);
+// Konur, Karlar and Börn (?kyn=<slug> alone) are pages of their own: self-canonical, with their own description.
+// Only when the value is a real gender category (exactly one active filter came out of it).
+const gender = !archive.unavailable && listingCanonicalSearch(params) && archive.activeLabels.length === 1 ? archive.activeLabels[0] : undefined;
+const canonicalSearch = gender ? listingCanonicalSearch(params) : '';
+const description = gender
+  ? `${gender}: íþróttaföt, skór og fylgihlutir í vefverslun ${SITE_NAME}.`
+  : `Íþróttavörur, fatnaður og skór — vefverslun ${SITE_NAME}.`;
 const crumbs = [{ label: 'Heim', href: '/' }, { label: 'Verslun' }];
 ---
 
-<Base title={filterTitle('Verslun', archive.activeLabels)} pageLinks={archive.unavailable ? undefined : pageLinks('/verslun/', 1, archive.result.totalPages, params)} description="Íþróttavörur, fatnaður og skór — vefverslun Músík og Sport.">
+<Base canonicalSearch={canonicalSearch} title={filterTitle('Verslun', archive.activeLabels)} pageLinks={archive.unavailable ? undefined : pageLinks('/verslun/', 1, archive.result.totalPages, params)} description={description}>
   {archive.unavailable ? <NotFound unavailable /> : <ArchiveView title="Verslun" navCategoryId={0} crumbs={crumbs} basePath="/verslun/" params={params} archive={archive} page={1} />}
 </Base>

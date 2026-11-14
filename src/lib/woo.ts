@@ -367,15 +367,15 @@ export function listAllProductSlugs(): Promise<ProductSlug[]> {
   return runSweep(productSlugSweep, async () => {
     const entries: ProductSlug[] = [];
     for (let page = 1; page <= MAX_PAGES; page++) {
-      const { data, totalPages } = await wooGet<ProductSlug[]>('/products', {
+      const { data, totalPages } = await wooGet<{ slug: string; permalink: string; date_modified_gmt?: string | null }[]>('/products', {
         status: 'publish',
-        _fields: 'slug,permalink,modified',
+        _fields: 'slug,permalink,date_modified_gmt', // wc/v3 has no `modified`
         per_page: 100,
         page,
         orderby: 'id',
         order: 'asc',
       });
-      for (const p of data) if (p.slug) entries.push({ slug: p.slug, permalink: p.permalink, modified: p.modified });
+      for (const p of data) if (p.slug) entries.push({ slug: p.slug, permalink: p.permalink, modified: p.date_modified_gmt ?? undefined });
       if (page >= totalPages || data.length === 0) break;
     }
     return entries;

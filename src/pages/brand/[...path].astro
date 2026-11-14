@@ -8,6 +8,7 @@ import { filterTitle } from '../../lib/facets';
 import { loadCatalogTerms } from '../../lib/catalogTerms';
 import { archiveHref, pageLinks, splitPagination } from '../../lib/paths';
 import { markUnavailable } from '../../lib/http';
+import { listingDescription } from '../../lib/seo';
 
 export const prerender = false;
 
@@ -30,7 +31,7 @@ const crumbs = [{ label: 'Heim', href: '/' }, { label: brand?.name ?? '' }];
 
 {
   found && archive && brand ? (
-    <Base pageLinks={pageLinks(basePath, page, archive.result.totalPages, params)} title={page > 1 ? `${filterTitle(`Vörumerki: ${brand.name}`, archive.activeLabels)} — síða ${page}` : filterTitle(`Vörumerki: ${brand.name}`, archive.activeLabels)} description={`${brand.name} — vörumerki í vefverslun Músík og Sport.`}>
+    <Base pageLinks={pageLinks(basePath, page, archive.result.totalPages, params)} title={page > 1 ? `${filterTitle(`Vörumerki: ${brand.name}`, archive.activeLabels)} — síða ${page}` : filterTitle(`Vörumerki: ${brand.name}`, archive.activeLabels)} description={listingDescription({ name: brand.name, count: terms.counts.get(brand.id), termDescription: terms.descriptions?.get(brand.id) })}>
       <ArchiveView title={brand.name} crumbs={crumbs} basePath={basePath} params={params} archive={archive} page={page} />
     </Base>
   ) : (
