@@ -94,6 +94,8 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
     (a few seconds; rerunnable). Until the reindex runs, size filters match nothing.
     Run it again after uploading a copy whose normaliser changed (2026-11: "22/23" is the pair 22/23, no longer
     the typo "22 2/3"), so existing products are re-read.
+  - **No WP-CLI on the host (Plesk):** `bin/mos-size-reindex.php` runs the same backfill with PHP alone (Scheduled
+    Tasks → "Run a PHP script" → Run Now; `--dry-run` writes nothing).
   - **Uninstall:** `wp mos-size purge` *while the file is still installed* (deletes the terms and their
     relationships), then delete the file. Nothing else to clean up.
   - Tests: `php tests/mos_size_normalise_test.php` (normaliser), `php tests/mos_size_helpers_test.php` (guards,
