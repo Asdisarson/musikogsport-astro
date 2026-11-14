@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro check && astro build",
+    "build:plesk": "WP_INTERNAL_URL=https://musikogsport.is MOS_MEDIA_BASE_URL=https://musikogsport.is MOS_EXTRA_ALLOWED_HOSTS=new.musikogsport.is MOS_CLIENT_IP_HEADER=cf-connecting-ip astro build",
     "preview": "astro preview",
     "test": "vitest run",
     "astro": "astro"

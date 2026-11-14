@@ -236,6 +236,26 @@ rebuild).
 - Open owner decisions (ticket 02): enforcing the CSP, turning HSTS on, rate limits on the rest of the payment-flow routes (checkout itself is done),
   the Node 24 move.
 
+## Plesk
+
+The storefront on the same server as WordPress, under Plesk's Node.js extension (Phusion Passenger), served on
+`new.musikogsport.is` until cutover.
+
+- **Files:** Plesk's Git extension pulls this repository into the subdomain's folder (the application root).
+- **Node.js:** version 22 (Astro needs 22.23.4 or newer). Application Startup File `app.cjs`: Passenger loads it
+  with `require()`, and it imports `server.mjs`. Passenger takes over the port, so `HOST` and `PORT` are not set.
+- **Build:** "NPM install", then "Run script" `build:plesk`. That script carries the build-time values
+  (`WP_INTERNAL_URL`, `MOS_MEDIA_BASE_URL`, `MOS_EXTRA_ALLOWED_HOSTS`, `MOS_CLIENT_IP_HEADER`) and skips
+  `astro check`, whose packages are devDependencies that a production install leaves out. Repeat both and
+  "Restart App" after every pull.
+- **Document Root:** `dist/client` under the application root, never the root itself: nginx serves the document
+  root as static files, and the root holds the source and any `.env`.
+- **Custom environment variables** (Node.js → Environment): `WOOCOMMERCE_CONSUMER_KEY`,
+  `WOOCOMMERCE_CONSUMER_SECRET`, `MOS_HSTS`, `MOS_LOG_LEVEL`. `ASTRO_KEY` has to be in the environment of the build.
+- **Visitor IP:** `build:plesk` sets `MOS_CLIENT_IP_HEADER=cf-connecting-ip`, because Cloudflare is in front. That
+  header is only trustworthy if the server accepts web traffic from Cloudflare's addresses alone; a caller reaching
+  the server's IP directly can forge it and get its own rate-limit bucket.
+
 ## Production hardening
 
 What the storefront does for production traffic (ticket 02), and what is left to the owner.
