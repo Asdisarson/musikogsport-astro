@@ -143,8 +143,8 @@ rebuild).
 | `MOS_HSTS` | RUN_TIME | no | `0`; `1` after cutover once DNS and TLS on `musikogsport.is` are settled |
 | `MOS_LOG_LEVEL` | RUN_TIME | no | `info` |
 | `ASTRO_KEY` | BUILD_TIME | yes | output of `npx astro create-key`, kept across builds (server-island props, see [Environment](#environment)) |
-| `WP_INTERNAL_URL` | BUILD_TIME | no | WordPress origin. The spec says `https://musikogsport.is`: the live site, which is WordPress until cutover. At cutover it becomes WordPress's own hostname (e.g. `https://wp.musikogsport.is`), with a rebuild. |
-| `MOS_MEDIA_BASE_URL` | RUN_AND_BUILD_TIME | no | WordPress's public origin, where its media is served. The spec says `https://musikogsport.is`, the same as `WP_INTERNAL_URL`, and it changes with it at cutover. `photoBg` samples product photos from this host only. |
+| `WP_INTERNAL_URL` | BUILD_TIME | no | WordPress origin: `https://wp.musikogsport.is`, WordPress's own hostname (step 1). It must resolve and serve valid HTTPS before the first build, and it does not change at cutover. |
+| `MOS_MEDIA_BASE_URL` | RUN_AND_BUILD_TIME | no | WordPress's public origin, where its media is served: `https://wp.musikogsport.is`, the same as `WP_INTERNAL_URL`. `photoBg` samples product photos from this host only. |
 | `MOS_CLIENT_IP_HEADER` | BUILD_TIME | no | `do-connecting-ip` |
 | `MOS_TRUSTED_PROXY_HOPS` | BUILD_TIME | no | `1` (fallback only) |
 | `MOS_EXTRA_ALLOWED_HOSTS` | BUILD_TIME | no | `${APP_DOMAIN}`: the app's primary domain, i.e. the default `<app>.ondigitalocean.app` while no custom domain is added (the spec adds none until cutover), so form POSTs work there. DO's docs don't spell out how it resolves at build; if POSTs there get 403, put the exact default hostname here and rebuild. |
@@ -165,11 +165,11 @@ rebuild).
      `mos-headless-mode.php` only redirects once `MOS_STOREFRONT_URL` is defined, but the others act on upload.
    - The storefront calls WordPress server-side only, so no CORS change is needed. The storefront's cookies are
      host-only on `musikogsport.is`; WordPress cookies are not shared with it.
-2. **Check the spec**: `WP_INTERNAL_URL` and `MOS_MEDIA_BASE_URL` are `https://musikogsport.is` (the live
-   WordPress site, until cutover); set `github.branch` to the branch to deploy (the spec says `main`). Validate it:
-   `doctl apps spec validate .do/app.yaml`. `musikogsport.is` is behind Cloudflare: if its bot protection
-   challenges App Platform's requests, the build fails or pages answer 503. Then allow `/wp-json/` for server
-   traffic there, or do the WordPress hostname of step 1 first and use it here.
+2. **Check the spec**: `WP_INTERNAL_URL` and `MOS_MEDIA_BASE_URL` are `https://wp.musikogsport.is`, the WordPress
+   hostname of step 1. Until that name resolves and answers over valid HTTPS, every build fails. Set `github.branch`
+   to the branch to deploy (the spec says `main`). Validate it: `doctl apps spec validate .do/app.yaml`. If a CDN or
+   WAF in front of that hostname challenges App Platform's requests, the build fails or pages answer 503: allow
+   `/wp-json/` for server traffic there.
 3. **Create the app**: `doctl apps create --spec .do/app.yaml` (or Apps → Create App → import the spec in the
    control panel). Connect GitHub to DigitalOcean first so it can read `Asdisarson/musikogsport-astro`. The spec has no
    custom domain yet, on purpose (step 6).
@@ -199,9 +199,6 @@ rebuild).
      If the domain has a CAA record, add `letsencrypt.org` and `pki.goog`. DNSSEC-signed domains are not
      supported. Propagation can take up to 72 hours, and the certificate is issued once the records resolve.
      ([DO docs](https://docs.digitalocean.com/products/app-platform/how-to/manage-domains/))
-   - In `.do/app.yaml` (or Settings → Environment Variables) set `WP_INTERNAL_URL` and `MOS_MEDIA_BASE_URL` to the
-     WordPress hostname from step 1 and **Force rebuild and deploy**: both are inlined at build, and after the DNS
-     change `https://musikogsport.is` is the storefront itself.
    - WordPress: set `WP_HOME`/`WP_SITEURL` to its own hostname from step 1, and define `MOS_STOREFRONT_URL`
      (`https://musikogsport.is`) and `MOS_HEADLESS_REDIRECT_STATUS` (`301`) in `wp-config.php`. Keep WP-Cron
      running (see WordPress host above).
