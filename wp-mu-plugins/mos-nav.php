@@ -8,9 +8,10 @@
  *  "Endursmíða valmynd" button on the Stillingar page (administrators) does what `apply` does. Each rebuild keeps
  *  the build it replaces, hand edits included, as "Aðalvalmynd 2026 (afrit)": one backup, in Útlit → Valmyndir.
  *  Konur / Karlar / Börn get the same columns (Fatnaður, Skór, Íþróttir, Félagslið, Vörumerki, Úrval); every
- *  column lists its links by product count, drops links with fewer than MOS_NAV_MIN_PRODUCTS products and empty
- *  columns. Sports and clubs link to the storefront's filters (?ithrott=, ?team=), not to categories. The clubs in
+ *  column takes the links with the most products (none with fewer than MOS_NAV_MIN_PRODUCTS), lists them in
+ *  alphabetical order (Icelandic), and is dropped when empty. Sports and clubs link to the storefront's filters (?ithrott=, ?team=), not to categories. The clubs in
  *  MOS_NAV_PINNED_TEAMS are listed under Íþróttir › Félagslið whatever their product count, unless they have none.
+ *  National teams (MOS_NAV_NATIONAL_TEAMS) are not clubs: under Íþróttir they have their own column, Landslið.
  *
  * Author: Músík og Sport
  * Version: 1.0.0
@@ -28,7 +29,15 @@ const MOS_NAV_COLUMN_LINKS = 8;   // links per column
 const MOS_NAV_GENDERS = ['konur' => 'Konur', 'karlar' => 'Karlar', 'born' => 'Börn'];   // Kyn category slug → title
 const MOS_NAV_CLUBS_CATEGORY = 'lidafatnadur-fatnadur-2';
 // Félag/Lið slugs listed under Íþróttir › Félagslið after the ranked clubs, however few products they have (not none).
-const MOS_NAV_PINNED_TEAMS = ['island-iceland', 'paris-saint-germain', 'england', 'spann', 'brasilia', 'inter-milan', 'barcelona'];
+const MOS_NAV_PINNED_TEAMS = ['paris-saint-germain', 'inter-milan', 'barcelona'];
+// Félag/Lið slugs that are national teams (and national federations): under Íþróttir they get the column Landslið
+// instead of Félagslið, whatever their product count (not none). Both spellings of a country are here because the catalog has had both; a slug it lacks is skipped.
+const MOS_NAV_NATIONAL_TEAMS = [
+    'island-iceland', 'island', 'iceland', 'ksi', 'hsi',
+    'england', 'spann', 'spain', 'brasilia', 'brazil', 'argentina', 'thyskaland', 'germany', 'frakkland', 'france',
+    'italy', 'italia', 'portugal', 'belgia', 'belgium', 'holland', 'netherlands', 'kroatia', 'croatia',
+    'danmork', 'denmark', 'noregur', 'norway', 'svithjod', 'sweden', 'usa', 'mexico', 'japan',
+];
 
 /* ------------------------------------------------------------------------
  * 1. Pure helpers (no WordPress calls; tests/mos_nav_rules_test.php).
@@ -121,6 +130,57 @@ function mos_nav_with_pinned(array $index, string $key, array $ranked, array $sl
     return $ranked;
 }
 
+/** Whether a team link (built by $href) is a national team's. */
+function mos_nav_is_national(string $link, callable $href): bool {
+    foreach (MOS_NAV_NATIONAL_TEAMS as $slug) {
+        if ($href($slug) === $link) { return true; }
+    }
+    return false;
+}
+
+/** The national teams with products (the menu lists every column alphabetically: mos_nav_alphabetical). */
+function mos_nav_national_teams(array $index, callable $href): array {
+    return mos_nav_with_pinned($index, 'team', [], MOS_NAV_NATIONAL_TEAMS, $href);
+}
+
+/** The key a title sorts by in the Icelandic alphabet (a á b d ð e é f g h i í j k l m n o ó p r s t u ú v x y ý þ æ ö),
+ *  whatever its case; letters the alphabet lacks (c, q, w, z) fall where they do in English, digits come first. */
+function mos_nav_alpha_key(string $title): string {
+    static $order = null;
+    if ($order === null) {
+        $letters = ['a', 'á', 'b', 'c', 'd', 'ð', 'e', 'é', 'f', 'g', 'h', 'i', 'í', 'j', 'k', 'l', 'm', 'n', 'o', 'ó', 'p', 'q', 'r', 's', 't', 'u', 'ú', 'v', 'w', 'x', 'y', 'ý', 'z', 'þ', 'æ', 'ö'];
+        $order = [];
+        foreach ($letters as $i => $letter) { $order[$letter] = chr(65 + $i); }
+    }
+    $key = '';
+    foreach (preg_split('//u', mb_strtolower(html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'), 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $char) {
+        if (isset($order[$char])) { $key .= $order[$char]; }
+        elseif (ctype_digit($char)) { $key .= chr(48 + (int) $char); }
+        elseif ($char === ' ') { $key .= ' '; }
+        // punctuation carries no order
+    }
+    return $key;
+}
+
+/**
+ * The tree with every listed column in alphabetical order. A column is "listed" when its links were picked by
+ * product count (they carry `count`): which links make a column is still decided by the products, only their order
+ * is the alphabet's. Columns written by hand (Úrval, Fyrir) and the order of the columns and of the menu itself stay.
+ */
+function mos_nav_alphabetical(array $items): array {
+    foreach ($items as &$item) {
+        foreach ($item['children'] as &$column) {
+            $links = $column['children'];
+            if ($links === [] || array_filter($links, static fn ($l) => !array_key_exists('count', $l)) !== []) { continue; }
+            usort($links, static fn ($a, $b) => strcmp(mos_nav_alpha_key($a['title']), mos_nav_alpha_key($b['title'])) ?: strcmp($a['title'], $b['title']));
+            $column['children'] = $links;
+        }
+        unset($column);
+    }
+    unset($item);
+    return $items;
+}
+
 /** The leaf categories under a root, ranked like mos_nav_ranked(); $query is appended to each path. */
 function mos_nav_ranked_leaves(array $index, int $root, array $within, string $query, int $max): array {
     $cats = $index['terms']['cat'];
@@ -194,9 +254,16 @@ function mos_nav_tree(array $index): array {
     foreach (MOS_NAV_GENDERS as $slug => $title) { $items[] = mos_nav_gender_item($index, $slug, $title); }
     $items[] = mos_nav_category_item($index, 'skor', 'Skór', 'Tegundir', true);
     $team_href = static fn ($s) => "/verslun/?team=$s";
+    // The clubs: the ranked teams without the national ones (ranked without a maximum first, so that taking the
+    // national teams out leaves the column full).
+    $clubs = array_slice(array_values(array_filter(
+        mos_nav_ranked($index, 'team', [], $team_href, PHP_INT_MAX),
+        static fn ($row) => !mos_nav_is_national($row['href'], $team_href)
+    )), 0, 2 * $max);
     $items[] = mos_nav_item('Íþróttir', '#', array_filter([
         mos_nav_item('Íþróttir', '/verslun/', mos_nav_ranked($index, 'sport', [], static fn ($s) => "/verslun/?ithrott=$s", 2 * $max)),
-        mos_nav_item('Félagslið', '/verslun/', mos_nav_with_pinned($index, 'team', mos_nav_ranked($index, 'team', [], $team_href, 2 * $max), MOS_NAV_PINNED_TEAMS, $team_href)),
+        mos_nav_item('Félagslið', '/verslun/', mos_nav_with_pinned($index, 'team', $clubs, MOS_NAV_PINNED_TEAMS, $team_href)),
+        mos_nav_item('Landslið', '/verslun/', mos_nav_national_teams($index, $team_href)),
     ], static fn ($c) => $c['children'] !== []));
     $items[] = mos_nav_category_item($index, 'aefingarvorur', 'Æfingavörur', 'Flokkar', false);
     $brands = mos_nav_ranked($index, 'brand', [], static fn ($s) => "/brand/$s/", 2 * $max);
@@ -206,7 +273,7 @@ function mos_nav_tree(array $index): array {
     ], static fn ($c) => $c['children'] !== []));
     $sale = mos_nav_id($index['terms']['cat'], 'sale');
     $items[] = mos_nav_item('Útsala', $sale !== null ? mos_nav_category_path($index['terms']['cat'], $sale) : '/verslun/?utsala=1');
-    return array_values(array_filter($items));
+    return mos_nav_alphabetical(array_values(array_filter($items)));
 }
 
 /* ------------------------------------------------------------------------

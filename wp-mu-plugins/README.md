@@ -145,9 +145,11 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
 - **mos-nav.php** — builds the main menu from the catalog: `wp mos-nav preview` prints it with product counts,
   `wp mos-nav apply` writes it as "Aðalvalmynd 2026" in the primary location (the previous menu is kept for
   rollback). Konur/Karlar/Börn get the same columns (Fatnaður, Skór, Íþróttir, Félagslið, Vörumerki, Úrval); links
-  are ranked by product count, at most 8 per column, none under 5 products; sports and clubs link to the filters
-  (`?ithrott=`, `?team=`). The clubs in `MOS_NAV_PINNED_TEAMS` (Félag/Lið slugs) are always listed under
-  Íþróttir › Félagslið, after the ranked ones, whatever their product count (unless they have none). An ordinary
+  are picked by product count (at most 8 per column, none under 5 products) and listed alphabetically (Icelandic
+  order); sports and clubs link to the filters (`?ithrott=`, `?team=`). The clubs in `MOS_NAV_PINNED_TEAMS`
+  (Félag/Lið slugs) are always listed under Íþróttir › Félagslið, whatever their product count (unless they have
+  none). National teams (`MOS_NAV_NATIONAL_TEAMS`) are not clubs: under Íþróttir they have their own column,
+  Landslið. An ordinary
   menu afterwards (editable in wp-admin; a later apply rebuilds it). The "Endursmíða valmynd" button in the
   "Valmynd" box on the Stillingar page (administrators) does what `apply` does, so the owner needs no WP-CLI. A
   rebuild replaces the whole menu, hand edits included: the build it replaces is kept as "Aðalvalmynd 2026 (afrit)"

@@ -77,9 +77,44 @@ check('pinned follow the ranked, in the pinned order, once each, unknown and emp
 check('pinned href and count', [$pinned[2]['href'], $pinned[2]['count'], $pinned[1]['count']], ['/verslun/?team=england', 1, 2]);
 check('pinned push nothing out', array_column(mos_nav_with_pinned($pin_index, 'team', mos_nav_ranked($pin_index, 'team', [], $team_href, 1), ['england'], $team_href), 'title'), ['FH', 'England']);
 $pin_tree = mos_nav_tree(['terms' => $pin_terms, 'products' => $pin_index['products']]);
-check('Íþróttir › Félagslið lists the pinned teams', array_column($pin_tree[4]['children'][1]['children'], 'href'),
-    ['/verslun/?team=fh', '/verslun/?team=island-iceland', '/verslun/?team=england']);
-check('Karlar › Félagslið stays ranked only', array_column($pin_tree[1]['children'][1]['children'], 'title'), ['FH']);
+// National teams get their own column under Íþróttir, out of Félagslið: Ísland first, then by product count; a
+// pinned club (Barcelona) still joins the clubs however few products it has.
+$pin_terms['team'][64] = ['slug' => 'barcelona', 'name' => 'Barcelona', 'parent' => 0];
+$pin_terms['team'][65] = ['slug' => 'argentina', 'name' => 'Argentina', 'parent' => 0];
+$nat_products = array_merge($pin_index['products'], [row([3, 21], [50], [64])], array_fill(0, 6, row([3, 21], [50], [65])));   // 1 Barcelona, 6 Argentina
+$pin_tree = mos_nav_tree(['terms' => $pin_terms, 'products' => $nat_products]);
+$sports_menu = $pin_tree[4]['children'];
+check('Íþróttir has the columns Íþróttir, Félagslið, Landslið', array_column($sports_menu, 'title'), ['Íþróttir', 'Félagslið', 'Landslið']);
+check('Íþróttir › Félagslið lists clubs only (the pinned club too), alphabetically', array_column($sports_menu[1]['children'], 'href'),
+    ['/verslun/?team=barcelona', '/verslun/?team=fh']);
+check('Íþróttir › Landslið: alphabetical; a team with no products is left out', array_column($sports_menu[2]['children'], 'href'),
+    ['/verslun/?team=argentina', '/verslun/?team=england', '/verslun/?team=island-iceland']);
+
+// Alphabetical order, Icelandic: á after a, ð after d, í after i, þ æ ö last; case and punctuation do not matter.
+$sorted = static function (array $titles): array {
+    $tree = mos_nav_alphabetical([['title' => 'X', 'href' => '#', 'children' => [['title' => 'Dálkur', 'href' => '#', 'children' => array_map(static fn ($t) => ['title' => $t, 'href' => '#', 'children' => [], 'count' => 9], $titles)]]]]);
+    return array_column($tree[0]['children'][0]['children'], 'title');
+};
+check('alphabet: Icelandic letters in their places', $sorted(['Öskjur', 'Æfingar', 'Þór', 'Ísland', 'Ítalía', 'Inter', 'Álftanes', 'Arsenal', 'Dalvík', 'Ðe', 'adidas', 'Úlfar', 'Umbro']),
+    ['adidas', 'Arsenal', 'Álftanes', 'Dalvík', 'Ðe', 'Inter', 'Ísland', 'Ítalía', 'Umbro', 'Úlfar', 'Þór', 'Æfingar', 'Öskjur']);
+check('alphabet: case, punctuation and entities do not decide', $sorted(['nike', 'New Balance', 'F.C. Bayern', 'FH', 'Bolir &amp; toppar', 'Bolir']), ['Bolir', 'Bolir &amp; toppar', 'F.C. Bayern', 'FH', 'New Balance', 'nike']);
+check('alphabet: digits before letters', $sorted(['Adidas', '2XU', '66°Norður']), ['2XU', '66°Norður', 'Adidas']);
+$hand = mos_nav_alphabetical([['title' => 'X', 'href' => '#', 'children' => [['title' => 'Úrval', 'href' => '#', 'children' => [['title' => 'Vinsælt núna', 'href' => '#', 'children' => []], ['title' => 'Nýjast', 'href' => '#', 'children' => []]]]]]]);
+check('alphabet: a column written by hand keeps its order', array_column($hand[0]['children'][0]['children'], 'title'), ['Vinsælt núna', 'Nýjast']);
+$whole = mos_nav_tree(['terms' => $pin_terms, 'products' => $nat_products]);
+check('the menu itself and its columns keep their order', [array_column($whole, 'title'), array_column($whole[0]['children'], 'title') === array_column(mos_nav_gender_item(['terms' => $pin_terms, 'products' => $nat_products], 'konur', 'Konur')['children'], 'title')],
+    [array_column($whole, 'title'), true]);
+foreach ($whole as $top) {
+    foreach ($top['children'] as $column) {
+        $titles = array_column($column['children'], 'title');
+        if ($titles === [] || !array_key_exists('count', $column['children'][0])) { continue; }
+        check("listed column {$top['title']} › {$column['title']} is alphabetical", $titles, $sorted($titles));
+    }
+}
+check('national teams are told apart by slug', [mos_nav_is_national('/verslun/?team=england', static fn ($s) => "/verslun/?team=$s"), mos_nav_is_national('/verslun/?team=fh', static fn ($s) => "/verslun/?team=$s")], [true, false]);
+$no_nationals = mos_nav_tree(['terms' => $terms, 'products' => $products]);
+check('no Landslið column without national-team products', array_column($no_nationals[4]['children'], 'title'), array_values(array_diff(array_column($no_nationals[4]['children'], 'title'), ['Landslið'])));
+check('Karlar › Félagslið stays ranked only (pinned and thin teams are not added there)', array_column(mos_nav_tree(['terms' => $pin_terms, 'products' => $pin_index['products']])[1]['children'][1]['children'], 'title'), ['FH']);
 
 // The tree.
 $tree = mos_nav_tree($index);
