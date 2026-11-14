@@ -1,0 +1,15 @@
+---
+// Viðhald: the notice shown while the shop is closed for an update. Just a page at /vidhald/ — nothing sends
+// visitors here on its own. The chrome is the checkout's (logo only), so it offers no way into a shop that is closed,
+// and Base's lookups degrade to empty when WordPress is the thing being updated.
+import Base from '../layouts/Base.astro';
+
+export const prerender = false;
+---
+
+<Base title="Viðhald" noindex distractionFree>
+  <section class="container notfound">
+    <h1 class="notfound__title">Opnum aftur innan skamms</h1>
+    <p class="notfound__text">Við erum að uppfæra vefverslunina og opnum aftur innan skamms. Takk fyrir þolinmæðina.</p>
+  </section>
+</Base>
