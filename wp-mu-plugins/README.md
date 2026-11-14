@@ -55,6 +55,13 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
   straumurStatus routing (0–1), before WooCommerce's own redirects (10), so query strings survive. wp-admin, REST, wc-api, wp-login, cron, feeds, previews,
   uploads and WooCommerce's order-pay page (emailed "pay for this order" links) are not redirected. It
   does nothing when neither constant is defined.
+- **mos-search.php** — the product search behind the storefront's `/?s=` page and the live results in its search
+  sheet. It swaps the search clause of the Store API's `search` (and WordPress's `s`) for its own: every word has to
+  match, in the title, the SKU or a term name (category, brand, tag, attribute); words match by their stem
+  (peysa / peysur), a misspelt word becomes the nearest word the shop has (addidas → adidas), and when no product
+  has all the words those with any are shown. The index lives in the transient `mos_search_index_v1` (twelve
+  hours; dropped when a product or a term is saved). Tests: `tests/mos_search_test.php` (pure) and
+  `tests/mos_search_wp_test.php` (against the site's catalogue).
 - **mos-account-api.php** — `POST /wp-json/mos/v1/account/lost-password` and `…/reset-password`
   for the headless `/min-sida/` area (generic responses). Per-visitor limits live in the storefront,
   because WordPress only sees the storefront server's address; the WP-side limit (60 per 15 min) is a

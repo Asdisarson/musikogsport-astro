@@ -1,6 +1,8 @@
 ---
 // Product search: a full-width white sheet dropping over the header with one grey pill field.
-// Submits WordPress-style: /?s=<q>&post_type=product.
+// Submits WordPress-style: /?s=<q>&post_type=product. While the visitor types, the sheet shows the first products of
+// that same search and the categories and brands the text names (/api/search/suggest); without JavaScript it is the
+// plain form.
 import Icon from './Icon.astro';
 ---
 
@@ -14,6 +16,147 @@ import Icon from './Icon.astro';
     <button class="search-overlay__close" type="button" data-search-close aria-label="Loka leit">
       <Icon name="close" stroke-width={1.5} />
     </button>
+    <div class="search-overlay__results" data-search-results aria-live="polite" hidden></div>
   </div>
   <div class="search-overlay__backdrop" data-search-close></div>
 </div>
+
+<script>
+  import { SUGGEST_MIN_LENGTH, suggestQuery } from '../lib/searchSuggest';
+  import type { ProductSummary } from '../lib/types';
+
+  interface Suggestions {
+    query: string;
+    total: number;
+    products: ProductSummary[];
+    terms: { name: string; path: string }[];
+    url: string;
+  }
+
+  const WAIT_MS = 220; // after the last key, before asking
+  const input = document.querySelector<HTMLInputElement>('[data-search-input]');
+  const box = document.querySelector<HTMLElement>('[data-search-results]');
+
+  const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] => {
+    const node = document.createElement(tag);
+    node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+
+  function hit(p: ProductSummary): HTMLElement {
+    const link = el('a', 'search-hit');
+    link.href = p.path;
+    const media = el('span', 'search-hit__media');
+    const img = document.createElement('img');
+    img.alt = '';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.width = 300;
+    img.height = 300;
+    if (p.srcset) {
+      img.srcset = p.srcset;
+      img.sizes = '(max-width: 600px) 45vw, 180px';
+    }
+    img.src = p.image;
+    media.append(img);
+    const price = el('span', 'search-hit__price', p.outOfStock ? 'Uppselt' : (p.priceText ?? ''));
+    if (!p.outOfStock && p.percent) price.append(' ', el('span', 'search-hit__off', `-${p.percent}%`));
+    link.append(media, el('span', 'search-hit__name', p.name));
+    if (p.subtitle) link.append(el('span', 'search-hit__sub', p.subtitle));
+    link.append(price);
+    const item = document.createElement('li');
+    item.append(link);
+    return item;
+  }
+
+  function show(data: Suggestions): void {
+    if (!box) return;
+    const wrap = el('div', 'search-results');
+    if (data.terms.length > 0) {
+      const terms = el('div', 'search-results__terms');
+      const list = el('ul', 'search-terms');
+      for (const t of data.terms) {
+        const link = el('a', 'search-terms__link', t.name);
+        link.href = t.path;
+        const item = document.createElement('li');
+        item.append(link);
+        list.append(item);
+      }
+      terms.append(el('h2', 'search-results__heading', 'Flokkar og vörumerki'), list);
+      wrap.append(terms);
+    }
+    const products = el('div', 'search-results__products');
+    if (data.products.length > 0) {
+      const list = el('ul', 'search-hits');
+      list.append(...data.products.map(hit));
+      const all = el('a', 'btn-dark search-results__all', data.total > data.products.length ? `Sjá allar ${data.total} niðurstöður` : 'Opna leitarniðurstöður');
+      all.href = data.url;
+      products.append(el('h2', 'search-results__heading', 'Vörur'), list, all);
+    } else {
+      products.append(el('p', 'search-results__empty', `Engar vörur fundust fyrir „${data.query}“.`));
+    }
+    wrap.append(products);
+    box.replaceChildren(wrap);
+    box.hidden = false;
+  }
+
+  if (input && box) {
+    let timer = 0;
+    let asking: AbortController | null = null;
+    let shown = '';
+
+    const clear = () => {
+      asking?.abort();
+      shown = '';
+      box.hidden = true;
+      box.replaceChildren();
+      delete box.dataset.loading;
+    };
+
+    const ask = async (query: string) => {
+      asking?.abort();
+      const mine = (asking = new AbortController());
+      const giveUp = window.setTimeout(() => mine.abort(), 12_000);
+      box.dataset.loading = '';
+      try {
+        const res = await fetch(`/api/search/suggest?q=${encodeURIComponent(query)}`, { headers: { Accept: 'application/json' }, signal: mine.signal });
+        if (!res.ok) throw new Error(String(res.status));
+        const data = (await res.json()) as Suggestions;
+        // Only the answer to what the field says now is shown.
+        if (mine.signal.aborted || suggestQuery(input.value) !== query) return;
+        shown = query;
+        show(data);
+      } catch {
+        // No answer. Results for an earlier text would now sit beside a different one, so they go; Enter still
+        // opens the results page. (A newer question that took over shows its own.)
+        if (asking === mine) clear();
+      } finally {
+        window.clearTimeout(giveUp);
+        if (asking === mine) {
+          asking = null;
+          delete box.dataset.loading;
+        }
+      }
+    };
+
+    input.addEventListener('input', () => {
+      window.clearTimeout(timer);
+      const query = suggestQuery(input.value);
+      if (!query) return clear();
+      if (query === shown) {
+        // Back at the text whose results are on screen: a question still out for another text is dropped.
+        asking?.abort();
+        asking = null;
+        delete box.dataset.loading;
+        return;
+      }
+      timer = window.setTimeout(() => void ask(query), WAIT_MS);
+    });
+    // The field keeps its text when the sheet is reopened: show its results again.
+    input.addEventListener('focus', () => {
+      const query = suggestQuery(input.value);
+      if (query && query !== shown && input.value.trim().length >= SUGGEST_MIN_LENGTH) void ask(query);
+    });
+  }
+</script>

@@ -1,18 +1,12 @@
 import type { APIRoute } from 'astro';
 import { getProductsByIds } from '../../lib/woo';
-import { productImage } from '../../lib/img';
-import { cardFillOf } from '../../lib/photoBgServer';
-import { decodeEntities } from '../../lib/decode';
-import { cardPriceText, salePercent } from '../../lib/price';
-import { formatISK } from '../../lib/format';
 import { loadCatalogTerms } from '../../lib/catalogTerms';
-import { cardCategories } from '../../lib/categoryTree';
 import { WISHLIST_MAX_IDS } from '../../lib/wishlist';
 import { jsonResponse, tooManyRequests } from '../../lib/http';
 import { createLimiter } from '../../lib/rateLimit';
 import { visitorKey } from '../../lib/visitor';
 import { isPosInt } from '../../lib/validate';
-import { productPath } from '../../lib/paths';
+import { productSummary } from '../../lib/productSummary';
 import type { ProductSummary } from '../../lib/types';
 
 export const prerender = false;
@@ -46,27 +40,6 @@ export const GET: APIRoute = async (ctx) => {
   } catch {
     return jsonResponse({ message: 'Vörulistinn er ekki í boði í augnablikinu.' }, 502);
   }
-  const items: ProductSummary[] = products.map((p) => {
-    // Match ProductCard's rules (only 'outofstock' is sold out; backorder isn't; no discount on a sold-out card).
-    const outOfStock = p.stock_status === 'outofstock';
-    const percent = !outOfStock && p.on_sale ? salePercent(p.price_html) : null;
-    const { src: image, srcset } = productImage(p);
-    const subtitle = cardCategories((p.categories ?? []).map((c) => ({ id: c.id, name: decodeEntities(c.name) })), terms.categories, 1)[0]?.name;
-    return {
-      id: p.id,
-      slug: p.slug,
-      path: productPath(p.permalink, p.slug),
-      name: decodeEntities(p.name),
-      image,
-      srcset: srcset || undefined,
-      photoFill: cardFillOf(image, srcset) ?? undefined,
-      priceText: cardPriceText(p),
-      onSale: Boolean(p.on_sale),
-      outOfStock,
-      subtitle,
-      wasText: percent !== null && p.regular_price && p.sale_price ? formatISK(p.regular_price) : undefined,
-      percent: percent ?? undefined,
-    };
-  });
+  const items: ProductSummary[] = products.map((p) => productSummary(p, terms.categories));
   return jsonResponse(items, 200);
 };
