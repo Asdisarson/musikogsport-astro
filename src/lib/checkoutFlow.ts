@@ -47,6 +47,8 @@ export interface CheckoutInput {
   /** The chosen Pósturinn locker id, when the shipping rate needs one. */
   postbox: string | null;
   attempt: string;
+  /** The shopper asked for an account on the order's e-mail (only offered when not signed in). */
+  createAccount?: boolean;
 }
 
 /** The /api/checkout body. The server forwards only these fields (lib/checkoutPayload, LM-03). */
@@ -61,6 +63,8 @@ export function checkoutBody(f: CheckoutInput) {
     payment_data: [] as { key: string; value: string }[],
     extensions: { mos: { kennitala: f.kennitala.replace(/\D/g, '') || null, skiptimidi: f.skiptimidi, attempt: f.attempt } },
     // Pósturinn's own Store API hook reads the locker off the top level of the request.
+    // For /api/checkout alone: it is dropped before the order goes to WooCommerce (lib/checkoutPayload).
+    ...(f.createAccount ? { mos_create_account: true as const } : {}),
     ...(f.postbox ? { postis_dpo_postbox: f.postbox, postis_dpo_phonenumber: f.billing.phone.trim() } : {}),
   };
 }

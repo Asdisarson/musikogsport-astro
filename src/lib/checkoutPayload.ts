@@ -54,3 +54,9 @@ export function checkoutPayload(raw: unknown): CheckoutPayload | null {
   }
   return payload;
 }
+
+/** Whether the shopper ticked "Stofna aðgang" (lib/checkoutFlow.checkoutBody). Read by /api/checkout only: the flag
+ *  is not part of the forwarded body, and the account is made after the order exists (lib/account). */
+export function wantsAccount(raw: unknown): boolean {
+  return isPlainObject(raw) && raw.mos_create_account === true;
+}

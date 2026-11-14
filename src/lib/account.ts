@@ -1,5 +1,6 @@
 // /min-sida/ data — SERVER-ONLY. Every call takes the customer id from the verified session
 // (lib/auth currentUser), never from the request, so one customer can't read or edit another's data.
+import { WP_INTERNAL_URL } from 'astro:env/server';
 import { wooGet, wooSend, WooHttpError } from './woo';
 import type { Address } from './accountFormat';
 import { orderAmounts, type RawOrderMoney } from './orderAmounts';
@@ -190,4 +191,26 @@ export async function getOwnOrder(customerId: number, orderId: number): Promise<
     billing: (o.billing as Address) ?? {},
     shipping: (o.shipping as Address) ?? {},
   };
+}
+
+/** Make an account for the e-mail of a just-placed guest order (the checkout's "Stofna aðgang" box). WordPress
+ *  checks the order key, creates the customer, puts the order on it and mails a link to choose a password; an
+ *  e-mail that already has an account is left alone, with the same answer. One retry; logs, never throws. Meant
+ *  to run after the checkout response. */
+export async function createAccountFromOrder(orderId: number, orderKey: string): Promise<void> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(`${WP_INTERNAL_URL}/wp-json/mos/v1/account/from-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId, order_key: orderKey }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (res.ok) return;
+      console.warn(`[account] no account made for order ${orderId} (attempt ${attempt}): WordPress answered ${res.status}`);
+      if (res.status < 500) return; // refused: asking again changes nothing
+    } catch (err) {
+      console.warn(`[account] no account made for order ${orderId} (attempt ${attempt}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 }

@@ -116,7 +116,7 @@ const CardLogos = () => (
   </span>
 );
 
-export default function CheckoutForm({ status = '', initialBilling }: { status?: string; initialBilling?: Partial<Record<keyof Address, string>> }) {
+export default function CheckoutForm({ status = '', initialBilling, signedIn = false }: { status?: string; initialBilling?: Partial<Record<keyof Address, string>>; signedIn?: boolean }) {
   const $cart = useStore(cart);
   const loading = useStore(cartLoading);
   const $droppoint = useStore(droppoint);
@@ -131,6 +131,7 @@ export default function CheckoutForm({ status = '', initialBilling }: { status?:
   const [shipDiff, setShipDiff] = useState(false);
   const [kennitala, setKennitala] = useState('');
   const [skiptimidi, setSkiptimidi] = useState(false);
+  const [createAccount, setCreateAccount] = useState(false);
   const [notes, setNotes] = useState('');
   const [terms, setTerms] = useState(false);
   const [couponOpen, setCouponOpen] = useState(false);
@@ -259,6 +260,7 @@ export default function CheckoutForm({ status = '', initialBilling }: { status?:
     const attempt = newAttemptId();
     const body = checkoutBody({
       billing, ship, notes, paymentMethod, needsPayment, kennitala, skiptimidi, attempt,
+      createAccount: !signedIn && createAccount,
       postbox: needsPostbox && $droppoint ? $droppoint.id : null,
     });
     const outcome = await submitCheckout(body, attempt, {
@@ -371,6 +373,14 @@ export default function CheckoutForm({ status = '', initialBilling }: { status?:
         </div>
 
         <div className="checkout-fields checkout-extra">
+          {!signedIn && (
+            <p className="form-row form-row-wide form-row-check">
+              <label>
+                <input type="checkbox" checked={createAccount} onChange={(e) => setCreateAccount(e.target.checked)} />
+                <span>Stofna aðgang? Þú færð tölvupóst til að velja lykilorð og sérð pantanirnar þínar á „Mín síða“.</span>
+              </label>
+            </p>
+          )}
           <p className="form-row form-row-wide form-row-check">
             <label>
               <input type="checkbox" checked={skiptimidi} onChange={(e) => setSkiptimidi(e.target.checked)} />

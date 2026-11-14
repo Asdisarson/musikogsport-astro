@@ -49,6 +49,12 @@ describe('checkoutBody', () => {
     expect(b).toMatchObject({ postis_dpo_postbox: 'DPO9552', postis_dpo_phonenumber: '6123456' });
   });
 
+  it('asks for an account only when the shopper ticked the box', () => {
+    expect(checkoutBody({ ...base, createAccount: true }).mos_create_account).toBe(true);
+    expect('mos_create_account' in checkoutBody(base)).toBe(false);
+    expect('mos_create_account' in checkoutBody({ ...base, createAccount: false })).toBe(false);
+  });
+
   it('sends no payment method for an order that needs no payment (CO-21: a free order is not a card or bank order)', () => {
     const b = checkoutBody({ ...base, needsPayment: false, paymentMethod: 'straumur' });
     expect(b).not.toHaveProperty('payment_method');

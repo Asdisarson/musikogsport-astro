@@ -58,7 +58,9 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
 - **mos-account-api.php** — `POST /wp-json/mos/v1/account/lost-password` and `…/reset-password`
   for the headless `/min-sida/` area (generic responses). Per-visitor limits live in the storefront,
   because WordPress only sees the storefront server's address; the WP-side limit (60 per 15 min) is a
-  store-wide safety net. The reset email is WooCommerce's own. Sign-in itself uses the
+  store-wide safety net. The reset email is WooCommerce's own. `POST …/account/from-order {order_id, order_key}` is the
+  checkout's "Stofna aðgang" box: it makes an account on a fresh guest order's e-mail, puts the order on it and
+  mails a link to choose a password (an e-mail that already has an account is left alone, same answer). Sign-in itself uses the
   jwt-authentication-for-wp-rest-api plugin (`jwt-auth/v1/token`); the token lives only in the
   storefront's httpOnly `mos_auth` cookie. `POST …/account/logout` (Bearer) puts that token on a denylist
   until it expires, and tokens carry a keyed fingerprint of the stored password hash, so a password

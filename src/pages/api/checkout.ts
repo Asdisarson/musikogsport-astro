@@ -1,12 +1,12 @@
 import type { APIRoute } from 'astro';
 import { checkout } from '../../lib/storeApi';
 import { badRequest, cartSession, readJson, respondCart, writeOrderCookie } from '../../lib/cartProxy';
-import { checkoutPayload } from '../../lib/checkoutPayload';
+import { checkoutPayload, wantsAccount } from '../../lib/checkoutPayload';
 import { placedDespiteError, respondLostCheckout } from '../../lib/checkoutRecovery';
 import { isLostAnswer } from '../../lib/checkoutFlow';
 import { newAttemptId } from '../../lib/attemptId';
 import { readAuthToken, verifiedUser } from '../../lib/auth';
-import { linkOrderToSignedIn } from '../../lib/account';
+import { createAccountFromOrder, linkOrderToSignedIn } from '../../lib/account';
 import { sameOrigin, tooManyRequests } from '../../lib/http';
 import { createLimiter } from '../../lib/rateLimit';
 import { visitorKey } from '../../lib/visitor';
@@ -31,7 +31,8 @@ export const POST: APIRoute = async (ctx) => {
   if (!attempts.take(visitorKey(ctx))) return tooManyRequests(WINDOW_MS / 1000);
   // Only the fields the checkout form sends go on (LM-03). We localize the one missing field we can (the e-mail);
   // the WooCommerce Store API is the authoritative validator for the rest and refuses bad input itself.
-  const body = checkoutPayload(await readJson(ctx));
+  const raw = await readJson(ctx);
+  const body = checkoutPayload(raw);
   if (!body) return badRequest('Ógild pöntun. Vantar greiðslu- eða afhendingarupplýsingar.');
   // The browser sends the id it will ask about if this answer is lost; without one, recovery here still works.
   const attempt = body.extensions.mos.attempt ?? newAttemptId();
@@ -58,6 +59,8 @@ export const POST: APIRoute = async (ctx) => {
     // After the response: the hand-off to the card page never waits on it, and a failure is logged without
     // failing the placed order. The customer id is WordPress's answer for this session's token.
     if (authToken && shopper) void linkOrderToSignedIn(authToken, result.data.order_id, shopper);
+    // Nobody signed in (as WordPress sees it) and the "Stofna aðgang" box ticked: an account on the order's e-mail, likewise after the response.
+    else if (!shopper && wantsAccount(raw)) void createAccountFromOrder(result.data.order_id, result.data.order_key);
   }
   // A free order goes without a payment method (CO-21); if the cart needs payment after all, WooCommerce says so in
   // English: say it the way the form does.

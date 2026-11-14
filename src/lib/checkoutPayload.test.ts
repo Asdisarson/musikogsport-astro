@@ -1,7 +1,7 @@
 // LM-03: /api/checkout forwards only the fields the storefront's checkout form sends; everything else is dropped
 // before WooCommerce sees it (create_account, customer_password, expected_total, other plugins' extensions, ...).
 import { describe, expect, it } from 'vitest';
-import { CHECKOUT_NOTE_MAX, checkoutPayload } from './checkoutPayload';
+import { CHECKOUT_NOTE_MAX, checkoutPayload, wantsAccount } from './checkoutPayload';
 import { checkoutBody } from './checkoutFlow';
 
 const address = {
@@ -92,5 +92,19 @@ describe('checkoutPayload (LM-03)', () => {
     expect(checkoutPayload([])).toBeNull();
     expect(checkoutPayload({ ...form, billing_address: undefined })).toBeNull();
     expect(checkoutPayload({ ...form, billing_address: { ...address, email: ' ' } })).toBeNull();
+  });
+});
+
+describe('wantsAccount', () => {
+  it('is true only for the exact flag the checkout form sends', () => {
+    expect(wantsAccount({ mos_create_account: true })).toBe(true);
+    for (const raw of [{ mos_create_account: 'true' }, { mos_create_account: 1 }, { create_account: true }, {}, null, 'x', []]) {
+      expect(wantsAccount(raw)).toBe(false);
+    }
+  });
+
+  it('never reaches WooCommerce: the forwarded body has no account field', () => {
+    const body = checkoutPayload({ billing_address: { email: 'a@b.is' }, mos_create_account: true, create_account: true });
+    expect(body && Object.keys(body).some((k) => /account/.test(k))).toBe(false);
   });
 });

@@ -26,6 +26,6 @@ const notice =
 <Base title="Pöntunarferli" noindex distractionFree>
   <div class="checkout-wrap">
     {notice && <p class="checkout-notice" role="alert">{notice}</p>}
-    <CheckoutForm client:load status={status} initialBilling={initialBilling} />
+    <CheckoutForm client:load status={status} initialBilling={initialBilling} signedIn={Boolean(user)} />
   </div>
 </Base>
