@@ -18,6 +18,18 @@ $wp = rtrim($paths[0] ?? (__DIR__ . '/../../../httpdocs'), '/');
 if (!is_file($wp . '/wp-load.php')) { fwrite(STDERR, "No wp-load.php in $wp\n"); exit(1); }
 
 set_time_limit(0);
+// A request-less load: plugins that read the host get the site's own, and a wp_die() during the load prints its
+// message as text instead of WordPress's HTML error page.
+$_SERVER['HTTP_HOST'] = $_SERVER['HTTP_HOST'] ?? (string) (getenv('MOS_WP_HOST') ?: 'localhost');
+$_SERVER['REQUEST_URI'] = $_SERVER['REQUEST_URI'] ?? '/';
+$_SERVER['REQUEST_METHOD'] = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+function mos_cli_die($message, $title = '', $args = []) {
+    if (is_object($message) && method_exists($message, 'get_error_message')) { $message = $message->get_error_message(); }
+    fwrite(STDERR, 'WordPress stopped: ' . trim(html_entity_decode(strip_tags((string) $message))) . "\n");
+    exit(1);
+}
+$GLOBALS['wp_filter']['wp_die_handler'][10]['mos_cli_die'] = ['function' => static fn () => 'mos_cli_die', 'accepted_args' => 1];
+define('WP_USE_THEMES', false);
 require $wp . '/wp-load.php';
 if (!function_exists('mos_size_compute') || !function_exists('mos_size_apply')) {
     fwrite(STDERR, "mos-size-index.php is not installed in wp-content/mu-plugins\n");
