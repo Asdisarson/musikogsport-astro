@@ -44,7 +44,8 @@ services:
     github:
       repo: Asdisarson/musikogsport
       branch: main
-      deploy_on_push: false
+      # Every push to main builds and deploys. A failed build or health check leaves the previous version serving.
+      deploy_on_push: true
     # Node.js buildpack: Node from package.json engines (22.x), `npm ci`, `npm run build`, then devDependencies
     # pruned. sharp's linux-x64 binaries come from the lockfile's optional @img/* packages.
     environment_slug: node-js

@@ -102,7 +102,8 @@ storefront reaches it over HTTPS at `WP_INTERNAL_URL`. The app spec is `.do/app.
 the Node.js buildpack (`npm ci`, `npm run build` = `astro check && astro build`, devDependencies pruned), run with
 `node server.mjs` on port 8080, region `ams`, one `apps-s-1vcpu-1gb-fixed` instance (1 GiB, about
 $10/month; App Platform has no free tier for services), health check `GET /api/healthz` (200 `ok`, no upstream
-calls), `deploy_on_push: false`.
+calls), `deploy_on_push: true` (every push to `main` builds and deploys; a failed build or health check leaves the
+previous version serving).
 
 Why these choices:
 
