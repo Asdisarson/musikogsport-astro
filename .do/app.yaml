@@ -12,11 +12,14 @@ alerts:
   - rule: DEPLOYMENT_FAILED
   - rule: DOMAIN_FAILED
 
-# Custom domains: added at DNS cutover (DEPLOY.md "App Platform" step 6), not at creation, so the default
-# <app>.ondigitalocean.app stays the primary domain (and ${APP_DOMAIN}) while testing. Uncomment then. The zone
-# stays at the current DNS provider (no `zone:`). One canonical host: www redirects to the apex, because the
+# Custom domains. new.musikogsport.is is where the storefront is served until cutover: a CNAME at the current DNS
+# provider (no `zone:`) to the app's <app>.ondigitalocean.app name, DNS-only (not proxied through Cloudflare, or
+# every visitor shares Cloudflare's addresses for the rate limits). At cutover (DEPLOY.md "App Platform" step 6)
+# the apex becomes PRIMARY: swap in the commented lines. One canonical host: www redirects to the apex, because the
 # checkout cookie the thank-you page needs is host-only.
-# domains:
+domains:
+  - domain: new.musikogsport.is
+    type: PRIMARY
 #   - domain: musikogsport.is
 #     type: PRIMARY
 #   - domain: www.musikogsport.is
@@ -24,7 +27,7 @@ alerts:
 
 ingress:
   rules:
-    # Uncomment with the domains above:
+    # Uncomment with the apex domains above:
     # - match:
     #     authority:
     #       exact: www.musikogsport.is
@@ -134,10 +137,9 @@ services:
       - key: MOS_TRUSTED_PROXY_HOPS
         value: "1" # fallback only, if do-connecting-ip were ever missing
         scope: BUILD_TIME
-      # Exact extra host trusted for forwarded Host/Proto (lib/allowedHosts.mjs): the app's primary domain, i.e.
-      # the default <app>.ondigitalocean.app until a custom domain is added, so form POSTs work there. Whether
-      # ${APP_DOMAIN} resolves at build is not spelled out by DO's docs: if POSTs on the default domain get 403,
-      # put that exact hostname here instead and rebuild. Once musikogsport.is is primary this adds nothing.
+      # Exact extra hosts trusted for forwarded Host/Proto (lib/allowedHosts.mjs), comma-separated: the host the
+      # storefront is served on before cutover. Form POSTs from any other host (the default
+      # <app>.ondigitalocean.app included) get 403; add that exact hostname here and rebuild to test there.
       - key: MOS_EXTRA_ALLOWED_HOSTS
-        value: ${APP_DOMAIN}
+        value: new.musikogsport.is
         scope: BUILD_TIME

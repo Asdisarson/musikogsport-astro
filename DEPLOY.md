@@ -147,7 +147,7 @@ rebuild).
 | `MOS_MEDIA_BASE_URL` | RUN_AND_BUILD_TIME | no | WordPress's public origin, where its media is served: `https://wp.musikogsport.is`, the same as `WP_INTERNAL_URL`. `photoBg` samples product photos from this host only. |
 | `MOS_CLIENT_IP_HEADER` | BUILD_TIME | no | `do-connecting-ip` |
 | `MOS_TRUSTED_PROXY_HOPS` | BUILD_TIME | no | `1` (fallback only) |
-| `MOS_EXTRA_ALLOWED_HOSTS` | BUILD_TIME | no | `${APP_DOMAIN}`: the app's primary domain, i.e. the default `<app>.ondigitalocean.app` while no custom domain is added (the spec adds none until cutover), so form POSTs work there. DO's docs don't spell out how it resolves at build; if POSTs there get 403, put the exact default hostname here and rebuild. |
+| `MOS_EXTRA_ALLOWED_HOSTS` | BUILD_TIME | no | `new.musikogsport.is`: the host the storefront is served on before cutover. Form POSTs from any other host get 403, the default `<app>.ondigitalocean.app` included; to test there, add that exact hostname (comma-separated) and rebuild. |
 
 ### Steps for the owner
 
@@ -176,13 +176,23 @@ rebuild).
 4. **Secrets**: in Settings → `storefront` → Environment Variables, enter `WOOCOMMERCE_CONSUMER_KEY` and
    `WOOCOMMERCE_CONSUMER_SECRET`, tick **Encrypt**, keep the scope "Run time", save, and redeploy. The build
    succeeds without them, but until they are set every WooCommerce REST call fails (product pages answer 503).
-5. **Test on the default domain** (`https://<app>.ondigitalocean.app`): `/api/healthz` → `ok`, home page, a
+5. **Point `new.musikogsport.is` at the app**: the spec lists it as the primary domain. At the DNS provider add a
+   CNAME `new` → the `<app>.ondigitalocean.app` name shown in Settings → Domains, **DNS-only** (in Cloudflare: grey
+   cloud). Proxied through Cloudflare, App Platform sees Cloudflare's addresses as the visitor, so the per-visitor
+   rate limits become shared. The certificate is issued once the record resolves. Canonical links, the sitemap and
+   Open Graph URLs keep saying `https://musikogsport.is` (`site` in `astro.config.mjs`), so search engines don't
+   index the `new.` host. For checkout and payment returns to land here, WordPress needs `MOS_STOREFRONT_URL` =
+   `https://new.musikogsport.is` — that also redirects the live WordPress front end, so leave it until cutover and
+   test payments then.
+
+   **Test on `https://new.musikogsport.is`** (in the commands below, use it in place of
+   `https://<app>.ondigitalocean.app`): `/api/healthz` → `ok`, home page, a
    category, a product, cart, sign-in.
    - A home page that answers 503 while `/verslun/` works means the headless mu-plugins of step 1 are not on the
      WordPress host yet (`/wp-json/mos/v1/front-page` and the menu routes answer 404; the log says
      `[cache] load failed: front-page -> 404`).
    - First, one failed sign-in must come back as a redirect to `/min-sida/?login=failed`. A 403 instead means the
-     default host isn't trusted: set `MOS_EXTRA_ALLOWED_HOSTS` to that exact hostname, rebuild, and retry.
+     host you are on isn't trusted: add that exact hostname to `MOS_EXTRA_ALLOWED_HOSTS`, rebuild, and retry.
    - Then check once that DO overwrites a client's own `do-connecting-ip` (its docs don't say): sign in 11 times
      with a made-up e-mail and a wrong password, each request sending a different forged header, e.g.
      `curl -si -X POST -H 'Origin: https://<app>.ondigitalocean.app' -H 'do-connecting-ip: 198.51.100.N' -d 'username=nobody@example.com&password=x' https://<app>.ondigitalocean.app/api/account/login`.
