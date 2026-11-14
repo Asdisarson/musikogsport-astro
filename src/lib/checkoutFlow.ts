@@ -156,6 +156,8 @@ interface SubmitDeps {
   /** Asks whether the attempt's order exists (pollCheckoutStatus). */
   poll: (attempt: string) => Promise<CheckoutState>;
   origin: string;
+  /** WordPress's public origin: where a gateway's pay-for-order page lives when it is not this host. */
+  wpOrigin?: string;
   /** Called once when the answer was lost and the page starts asking. */
   onRecovering?: () => void;
 }
@@ -183,11 +185,11 @@ export async function submitCheckout(body: unknown, attempt: string, deps: Submi
     const msg = typeof d.message === 'string' ? decodeEntities(d.message) : '';
     return { kind: 'error', message: msg || 'Ekki tókst að ganga frá pöntun.' };
   }
-  // Redirect gateways (Straumur hosted checkout) hand back a URL: follow it and keep the cart (a declined card comes
+  // Redirect gateways (Straumur's hosted checkout, Valitor's pay-for-order page) hand back a URL: follow it and keep the cart (a declined card comes
   // back to this checkout with it; the receipt starts a fresh cart). Bank transfer's URL is the receipt.
   const redirect = d.payment_result?.redirect_url;
   if (typeof redirect === 'string' && redirect) {
-    return { kind: 'go', url: paymentRedirectTarget(redirect, deps.origin) ?? FAILED_URL, resetCart: false };
+    return { kind: 'go', url: paymentRedirectTarget(redirect, deps.origin, deps.wpOrigin) ?? FAILED_URL, resetCart: false };
   }
   const key = typeof d.order_key === 'string' && d.order_key ? `?key=${encodeURIComponent(d.order_key)}` : '';
   return { kind: 'go', url: `${receipt(Number(d.order_id))}${key}`, resetCart: true };

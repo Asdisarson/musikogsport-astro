@@ -4,6 +4,7 @@ import { cart, cartLoading, ensureLoaded, resetCart, selectShipping, setCustomer
 import { droppoint, postboxReady, rateNeedsPostbox, verifiedDroppoint } from '../lib/droppointStore';
 import { formatISK, formatStoreMoney } from '../lib/format';
 import { decodeEntities } from '../lib/decode';
+import { MEDIA_BASE_URL } from '../lib/img';
 import { cartSubtotal, cartViewState, lineSubtotal, variationText } from '../lib/cartView';
 import { CHECKING_MESSAGE, addressFor, checkoutBody, pollCheckoutStatus, submitCheckout, type FormAddress } from '../lib/checkoutFlow';
 import { newAttemptId } from '../lib/attemptId';
@@ -266,6 +267,7 @@ export default function CheckoutForm({ status = '', initialBilling }: { status?:
       send: (init) => withCartLock(() => fetch('/api/checkout', { ...init, signal: AbortSignal.timeout(CHECKOUT_CLIENT_TIMEOUT_MS) })),
       poll: (id) => pollCheckoutStatus(id),
       origin: window.location.origin,
+      wpOrigin: MEDIA_BASE_URL,
       onRecovering: () => {
         setErrors([]);
         setChecking(true);

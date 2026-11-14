@@ -49,6 +49,16 @@ foreach ($outcome as [$loc, $want]) {
     $check('outcome ' . ($want ? 'yes ' : 'no ') . $path_query($loc), mos_is_storefront_outcome($loc) === $want);
 }
 
+// --- 3. Valitor return: which requests go on to the storefront receipt, and with what ---
+$sf = 'https://shop.example';
+$valitor = ['ReferenceNumber' => 'WC-55-1', 'key' => 'wc_order_abc', 'CardNumberMasked' => '4111********1111', 'AuthorizationNumber' => '123456'];
+$check('valitor return: receipt with the key only', mos_valitor_return_target('/gera-upp/order-received/55/', $valitor, $sf) === 'https://shop.example/gera-upp/order-received/55/?key=wc_order_abc', (string) mos_valitor_return_target('/gera-upp/order-received/55/', $valitor, $sf));
+$check('valitor return: no key, no query', mos_valitor_return_target('/gera-upp/order-received/55', ['ReferenceNumber' => 'x'], "$sf/") === 'https://shop.example/gera-upp/order-received/55/');
+$check('valitor return: a key that is not a string is dropped', mos_valitor_return_target('/gera-upp/order-received/55/', ['ReferenceNumber' => 'x', 'key' => ['a']], $sf) === 'https://shop.example/gera-upp/order-received/55/');
+$check('valitor return: not without a reference', mos_valitor_return_target('/gera-upp/order-received/55/', ['key' => 'wc_order_abc'], $sf) === null);
+$check('valitor return: not without a storefront', mos_valitor_return_target('/gera-upp/order-received/55/', $valitor, '') === null);
+$check('valitor return: only the order-received page', mos_valitor_return_target('/gera-upp/order-pay/55/', $valitor, $sf) === null && mos_valitor_return_target('/gera-upp/order-received/x/', $valitor, $sf) === null && mos_valitor_return_target('/karfa/', $valitor, $sf) === null);
+
 // --- 2b. wp_redirect rewrite, only inside the Straumur return handler ---
 $saved_get = $_GET;
 $saved_flag = array_key_exists('mos_in_straumur_return', $GLOBALS) ? $GLOBALS['mos_in_straumur_return'] : null;

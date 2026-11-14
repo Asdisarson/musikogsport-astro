@@ -6,6 +6,7 @@
  *    from Straumur returns; the storefront reads it from its checkout cookie)
  *  - sends Straumur fail/cancel returns to the checkout, /gera-upp/?straumurStatus=failed
  *  - sends a return the gateway refuses (nonce) to the checkout notice instead of a raw error page
+ *  - lets Valitor confirm the payment its return carries, then sends the shopper on to the storefront's receipt
  *
  * Author: Músík og Sport
  * Version: 1.1.0
@@ -159,3 +160,42 @@ add_filter('wp_redirect', function ($location) {
     }
     return home_url(add_query_arg($args, '/gera-upp/'));
 });
+
+/* ------------------------------------------------------------------------
+ * 3. Valitor return → confirm, then the storefront's receipt
+ *    Valitor sends the shopper back to the order-received URL on the WordPress host with the payment's reference and
+ *    signature in the query. Its plugin (1.9.41) confirms such a return on `woocommerce_thankyou`, which never fires
+ *    here: headless mode forwards the page to the storefront first (template_redirect, priority 5). So the gateway's
+ *    own check runs here, before that, and the shopper goes on to the storefront with the order key only: the card
+ *    and authorization details Valitor appended stay out of the storefront's URL. The gateway does all the verifying
+ *    (signature, order key, amount); a return it refuses changes nothing and the receipt shows the order as unpaid.
+ *    Valitor's server-side call (wc-api) confirms the same payment on its own; whichever arrives first wins.
+ * --------------------------------------------------------------------- */
+
+/** The storefront receipt a Valitor return on WordPress's order-received page goes on to, or null when this is not one. */
+function mos_valitor_return_target(string $path, array $request, string $storefront_base): ?string {
+    if ($storefront_base === '' || !isset($request['ReferenceNumber'])) { return null; }
+    if (!preg_match('#^/gera-upp/order-received/(\d+)/?$#', $path, $m)) { return null; }
+    $key = is_string($request['key'] ?? null) ? sanitize_text_field(wp_unslash($request['key'])) : '';
+    $url = rtrim($storefront_base, '/') . '/gera-upp/order-received/' . $m[1] . '/';
+    return $key !== '' ? add_query_arg(['key' => rawurlencode($key)], $url) : $url;
+}
+
+add_action('template_redirect', static function () {
+    if (!isset($_REQUEST['ReferenceNumber']) || !function_exists('mos_headless_target_base') || !function_exists('WC')) { return; }
+    $base = mos_headless_target_base();
+    // Shared-host setups serve this path from the storefront already; WordPress only sees it by mistake.
+    if (strcasecmp((string) ($_SERVER['HTTP_HOST'] ?? ''), (string) wp_parse_url($base, PHP_URL_HOST)) === 0) { return; }
+    $path = (string) (wp_parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? '');
+    $target = mos_valitor_return_target($path, $_REQUEST, $base);
+    if ($target === null) { return; }
+
+    $gateway = WC()->payment_gateways()->payment_gateways()['valitor'] ?? null;
+    $order_id = (int) basename(rtrim($path, '/'));
+    // The gateway exits with a blank page while its server-side call is confirming the same order: skip it then.
+    if ($gateway && is_callable([$gateway, 'check_valitor_response']) && !get_transient('valitor_payment_' . $order_id . '_processing')) {
+        $gateway->check_valitor_response();
+    }
+    wp_redirect($target, 302, 'MOS Headless');
+    exit;
+}, 2); // before headless mode (5) forwards the request, query and all, to the storefront

@@ -20,6 +20,11 @@ const META: Record<string, PaymentMeta> = {
 const CARD_GATEWAYS = ['straumur', 'valitor'];
 const ORDER = [...CARD_GATEWAYS, 'bacs'];
 
+/** Whether the gateway takes a card on its own page; the payment is confirmed to WordPress afterwards. */
+export function isCardGateway(method: string): boolean {
+  return CARD_GATEWAYS.includes(method);
+}
+
 /** A gateway's label, description and logos; one the checkout has no copy for shows its id. */
 export function paymentMeta(method: string): PaymentMeta {
   return META[method] ?? { label: method, desc: '' };

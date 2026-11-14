@@ -106,6 +106,13 @@ describe('submitCheckout', () => {
     expect(await submitCheckout({ a: 1 }, 'c'.repeat(32), d)).toEqual({ kind: 'go', url: 'https://pay.straumur.is/s/abc', resetCart: false });
   });
 
+  it("follows WordPress's pay-for-order page (Valitor) when the WordPress host is known", async () => {
+    const url = 'https://wp.musikogsport.is/gera-upp/order-pay/9/?pay_for_order=true&key=wc_order_k';
+    const answer = async () => json(200, { order_id: 9, order_key: 'wc_order_k', payment_result: { redirect_url: url } });
+    expect(await submitCheckout({ a: 1 }, 'c'.repeat(32), { ...deps(answer), wpOrigin: 'https://wp.musikogsport.is' })).toEqual({ kind: 'go', url, resetCart: false });
+    expect(await submitCheckout({ a: 1 }, 'c'.repeat(32), deps(answer))).toEqual({ kind: 'go', url: '/gera-upp/?straumurStatus=failed', resetCart: false });
+  });
+
   it('goes to the receipt of a bank-transfer order', async () => {
     const d = deps(async () => json(200, { order_id: 9, order_key: 'wc_order_k', payment_result: { redirect_url: 'http://localhost:10026/gera-upp/order-received/9/?key=wc_order_k' } }));
     expect(await submitCheckout({}, 'c'.repeat(32), d)).toEqual({ kind: 'go', url: '/gera-upp/order-received/9/?key=wc_order_k', resetCart: false });

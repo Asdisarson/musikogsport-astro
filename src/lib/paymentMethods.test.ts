@@ -1,7 +1,7 @@
 // How the checkout presents the gateways the Store API offers: either card gateway (Straumur, or live's Valitor)
 // reads "Greiðslukort" with the card logos, comes first and is the one chosen for the shopper.
 import { describe, expect, it } from 'vitest';
-import { defaultPaymentMethod, orderPaymentMethods, paymentMeta } from './paymentMethods';
+import { defaultPaymentMethod, isCardGateway, orderPaymentMethods, paymentMeta } from './paymentMethods';
 
 describe('paymentMeta', () => {
   it('presents both card gateways the same way', () => {
@@ -40,5 +40,14 @@ describe('defaultPaymentMethod', () => {
   it('otherwise chooses the first one, and nothing when none is offered', () => {
     expect(defaultPaymentMethod(['bacs', 'cod'])).toBe('bacs');
     expect(defaultPaymentMethod([])).toBe('');
+  });
+});
+
+describe('isCardGateway', () => {
+  it('knows the card gateways: their payment is confirmed after the shopper returns', () => {
+    expect(isCardGateway('valitor')).toBe(true);
+    expect(isCardGateway('straumur')).toBe(true);
+    expect(isCardGateway('bacs')).toBe(false);
+    expect(isCardGateway('')).toBe(false);
   });
 });

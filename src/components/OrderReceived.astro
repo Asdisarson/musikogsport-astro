@@ -3,12 +3,15 @@
 // No email or address: the order key may travel in a shared URL.
 import type { OrderSummary } from '../lib/woo';
 import { formatISK } from '../lib/format';
+import { isCardGateway, paymentMeta } from '../lib/paymentMethods';
 
 interface Props {
   order: OrderSummary;
 }
 const { order } = Astro.props;
-const isCard = order.payment_method === 'straumur';
+const isCard = isCardGateway(order.payment_method);
+// A card gateway reads as at the checkout (Valitor's own title is the bare id "valitor").
+const paymentTitle = isCard ? paymentMeta(order.payment_method).label : order.payment_method_title;
 const isBank = order.payment_method === 'bacs';
 const date = order.date_created
   ? new Intl.DateTimeFormat('is-IS', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(order.date_created))
@@ -19,7 +22,7 @@ const overview = [
   { label: 'Pöntunarnúmer:', value: order.order_number },
   ...(date ? [{ label: 'Dagsetning:', value: date }] : []),
   { label: 'Samtals:', value: formatISK(order.total) },
-  ...(order.payment_method_title ? [{ label: 'Greiðslumáti:', value: order.payment_method_title }] : []),
+  ...(paymentTitle ? [{ label: 'Greiðslumáti:', value: paymentTitle }] : []),
 ];
 // `amount` never wraps; `text` (a shipping title, the payment method) may, so a long bacs label fits a phone.
 const totalRows: { label: string; amount?: string; text?: string }[] = [
@@ -28,7 +31,7 @@ const totalRows: { label: string; amount?: string; text?: string }[] = [
   ...(order.shipping.length
     ? [{ label: 'Vörusendingar:', amount: shippingTotal > 0 ? formatISK(shippingTotal) : undefined, text: order.shipping.map((s) => s.title).join(', ') }]
     : []),
-  ...(order.payment_method_title ? [{ label: 'Greiðslumáti:', text: order.payment_method_title }] : []),
+  ...(paymentTitle ? [{ label: 'Greiðslumáti:', text: paymentTitle }] : []),
 ];
 ---
 

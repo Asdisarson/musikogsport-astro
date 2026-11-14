@@ -6,6 +6,7 @@ import { lookupOrder, type OrderLookup } from '../../../lib/woo';
 import { isPosInt } from '../../../lib/validate';
 import { RECEIPT_NOTICE, receiptKey, receiptStatus } from '../../../lib/orderReceipt';
 import { markUnavailable } from '../../../lib/http';
+import { isCardGateway } from '../../../lib/paymentMethods';
 
 export const prerender = false;
 Astro.response.headers.set('Cache-Control', 'no-store'); // receipt renders order details — never cache
@@ -33,7 +34,7 @@ if (placedHere && cookie && !cookie.seen) {
 }
 
 // On Local the card confirmation webhook can't arrive, so a card order stays pending here — expected.
-const showPoll = Boolean(order && order.payment_method === 'straumur' && !order.paid);
+const showPoll = Boolean(order && isCardGateway(order.payment_method) && !order.paid);
 ---
 
 <Base title="Pöntunarferli" noindex distractionFree>

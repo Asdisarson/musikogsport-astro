@@ -367,6 +367,34 @@ API). `server.mjs` stops accepting connections, lets in-flight requests finish, 
 (`MOS_SHUTDOWN_TIMEOUT_MS`). Nothing in-process needs flushing: every cache (catalog, counts, photo edges, rate-limit
 windows) is disposable and rebuilt on demand.
 
+### Maintenance switch
+
+Two run-time settings on the Node app (no rebuild; restart the app after changing them). Code: `src/lib/maintenance.ts`.
+
+| Variable | Effect |
+|---|---|
+| `MOS_MAINTENANCE=1` | Every page answers 503 (`Retry-After: 600`) with the notice from `/vidhald/`; every `/api/` route answers 503 JSON. `/api/healthz` and static files stay up. |
+| `MOS_MAINTENANCE_KEY=<16+ characters>` | Opening any page once with `?forskodun=<key>` sets a cookie (7 days) that lets that browser use the whole shop, checkout included. Without a key nobody gets in. |
+
+To open the shop: remove `MOS_MAINTENANCE` (or set it to `0`) and restart.
+
+### Valitor
+
+Valitor's plugin (Payment Gateway via Valitor for WooCommerce, read at 1.9.41) does not hand back a hosted-checkout
+URL. It answers with WooCommerce's own pay-for-order page on the WordPress host
+(`/gera-upp/order-pay/<id>/?pay_for_order=true&key=…`), which posts the shopper on to `paymentweb.valitor.is`.
+
+- The storefront follows that page only on WordPress's public origin (`MOS_MEDIA_BASE_URL`) and only at that path
+  (`src/lib/checkoutRedirect.ts`). The page is drawn by the WordPress theme, so it must be reachable by a signed-out
+  shopper: a WordPress maintenance plugin that covers it stops every card payment.
+- Valitor returns the shopper to `/gera-upp/order-received/<id>/?key=…` on the WordPress host. The bridge
+  (`headless-bridge.php`, section 3) lets the gateway confirm the payment there and sends the shopper on to the
+  storefront's receipt. Valitor's server-side call (`?wc-api=WC_Gateway_Valitor`) confirms it as well.
+- The return and callback addresses are built from `WP_HOME` for each payment; nothing is registered at Valitor by
+  this code. Whether Valitor's merchant settings restrict them is not known.
+- If the gateway's "Success Page URL" setting is filled in, the gateway sends the shopper there instead of the receipt.
+- **Not yet proven with a real payment.**
+
 ### Straumur at cutover
 
 The storefront holds no Straumur key and calls no Straumur endpoint: it only follows the hosted-checkout URL the
