@@ -57,7 +57,10 @@ class WP_CLI {
     }
     public static function __callStatic($name, $arguments) { return null; }
 }
-class WP_CLI_Command {}
+/** Other plugins' command classes extend this and call its constructor (Plesk's WP Toolkit does). */
+class WP_CLI_Command {
+    public function __construct() {}
+}
 
 set_time_limit(0);
 @ini_set('memory_limit', '1024M');
