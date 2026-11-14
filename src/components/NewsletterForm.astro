@@ -1,0 +1,72 @@
+---
+// The footer's mailing-list sign-up. Posts to /api/newsletter; works without JS (303 back to the footer with
+// ?postlisti=1 / 0) and enhances with fetch. "website" is a honeypot: off-screen, out of the tab order and hidden
+// from assistive tech, so only a script fills it.
+const answer = Astro.url.searchParams.get('postlisti');
+const status = answer === '1' || answer === '2' ? 'sent' : answer === '0' ? 'error' : '';
+const SENT = 'Takk! Athugaðu pósthólfið til að staðfesta skráninguna.';
+const SENT_DIRECT = 'Takk! Þú ert komin(n) á póstlistann.';   // the audience has no confirmation mail
+const ERROR = 'Ekki tókst að skrá netfangið. Reyndu aftur síðar.';
+---
+
+<section class="newsletter" id="postlisti" aria-labelledby="postlisti-title">
+  <div class="newsletter__inner">
+    <div class="newsletter__intro">
+      <h2 class="newsletter__title" id="postlisti-title">Vertu með á póstlistanum</h2>
+      <p class="newsletter__lead">Nýjar vörur, tilboð og fréttir úr búðinni, beint í pósthólfið.</p>
+    </div>
+    <form class="newsletter__form" method="post" action="/api/newsletter" data-newsletter-form data-sent={SENT} data-sent-direct={SENT_DIRECT} data-error={ERROR}>
+      <label class="visually-hidden" for="newsletter-email">Netfang</label>
+      <div class="newsletter__field">
+        <input id="newsletter-email" name="email" type="email" placeholder="Netfangið þitt" required autocomplete="email" maxlength="200" />
+        <button class="newsletter__submit" type="submit">Skrá mig</button>
+      </div>
+      <div class="newsletter__trap" aria-hidden="true">
+        <label for="newsletter-website">Vefsíða</label>
+        <input id="newsletter-website" name="website" type="text" tabindex="-1" autocomplete="off" />
+      </div>
+      <p class="newsletter__status" role="status" aria-live="polite" data-status={status || undefined}>
+        {status === 'sent' && (answer === '2' ? SENT_DIRECT : SENT)}
+        {status === 'error' && ERROR}
+      </p>
+      <p class="newsletter__note">Þú getur afskráð þig hvenær sem er. Sjá <a href="/personuvernd/">persónuverndarstefnu</a>.</p>
+    </form>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll<HTMLFormElement>('[data-newsletter-form]').forEach((form) => {
+    const out = form.querySelector<HTMLElement>('.newsletter__status')!;
+    const button = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    const show = (status: 'sent' | 'error' | '', text: string) => {
+      out.dataset.status = status;
+      out.textContent = text;
+    };
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!form.reportValidity()) return;
+      button.disabled = true;
+      show('', '');
+      try {
+        const res = await fetch(form.action, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(Object.fromEntries(new FormData(form))),
+          // the route gives WordPress 22 s; past this the button comes back with a message instead of staying dead
+          signal: AbortSignal.timeout(25000),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          form.reset();
+          show('sent', (data.confirm === false ? form.dataset.sentDirect : form.dataset.sent) ?? '');
+        } else {
+          show('error', data.message || form.dataset.error || '');
+        }
+      } catch {
+        show('error', form.dataset.error ?? '');
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+</script>

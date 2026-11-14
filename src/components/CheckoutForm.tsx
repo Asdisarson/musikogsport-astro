@@ -10,6 +10,7 @@ import { newAttemptId } from '../lib/attemptId';
 import { CHECKOUT_CLIENT_TIMEOUT_MS } from '../lib/timeouts';
 import { onPageRestored } from '../lib/pageLifecycle';
 import { CartLoadError, LineImage } from './CartParts';
+import { defaultPaymentMethod, orderPaymentMethods, paymentMeta } from '../lib/paymentMethods';
 import DroppointSelect from './DroppointSelect';
 import CouponField, { CouponRows } from './CouponField';
 
@@ -55,13 +56,6 @@ const SHIPPING_FIELDS: FieldDef[] = [
   { key: 'postcode', label: 'Póstnúmer', width: 'first', required: true, inputMode: 'numeric', autoComplete: 'shipping postal-code' },
   { key: 'city', label: 'Borg / Bær', width: 'last', required: true, autoComplete: 'shipping address-level2' },
 ];
-
-// Copy for the local gateways the Store API offers (live itself runs a single card gateway).
-const PAYMENT_META: Record<string, { label: string; desc: string; cards?: boolean }> = {
-  straumur: { label: 'Greiðslukort', desc: 'Gera upp með kreditkorti', cards: true },
-  bacs: { label: 'Bankamillifærsla', desc: 'Greiðsluupplýsingar fylgja í staðfestingarpósti.' },
-};
-const PAYMENT_ORDER = ['straumur', 'bacs'];
 
 function FloatField({
   id,
@@ -183,9 +177,9 @@ export default function CheckoutForm({ status = '', initialBilling }: { status?:
   const ship = shipDiff ? shipping : billing;
 
   const available = $cart?.payment_methods ?? [];
-  const methods = [...PAYMENT_ORDER.filter((m) => available.includes(m)), ...available.filter((m) => !PAYMENT_ORDER.includes(m))];
+  const methods = orderPaymentMethods(available);
   useEffect(() => {
-    if (methods.length && !methods.includes(paymentMethod)) setPaymentMethod(methods.includes('straumur') ? 'straumur' : methods[0]);
+    if (methods.length && !methods.includes(paymentMethod)) setPaymentMethod(defaultPaymentMethod(methods));
   }, [methods.join(',')]);
 
   // An empty cart can't check out — live bounces to /karfa/ (unless we're showing a payment notice).
@@ -374,14 +368,6 @@ export default function CheckoutForm({ status = '', initialBilling }: { status?:
           )}
         </div>
 
-        {/* the Pósturinn locker sits with the shopper's details (owner, 2026-10-28); the rate itself is still chosen in
-            the summary, which is what makes the picker appear */}
-        {needsPostbox && cartPostcode && (
-          <div className="checkout-droppoint">
-            <DroppointSelect postcode={cartPostcode} />
-          </div>
-        )}
-
         <div className="checkout-fields checkout-extra">
           <p className="form-row form-row-wide form-row-check">
             <label>
@@ -445,6 +431,8 @@ export default function CheckoutForm({ status = '', initialBilling }: { status?:
                                 {Number(r.price) > 0 && <>: <span className="amount">{formatStoreMoney(r.price, r.currency_minor_unit)}</span></>}
                               </span>
                             </label>
+                            {/* the Pósturinn locker is picked right under the rate that needs it (owner, 2026-11-14) */}
+                            {r.selected && needsPostbox && <DroppointSelect postcode={cartPostcode} />}
                           </li>
                         ))}
                       </ul>
@@ -479,7 +467,7 @@ export default function CheckoutForm({ status = '', initialBilling }: { status?:
           {needsPayment && methods.length > 0 && (
             <ul className="pay-methods">
               {methods.map((m) => {
-                const meta = PAYMENT_META[m] ?? { label: m, desc: '' };
+                const meta = paymentMeta(m);
                 return (
                   <li key={m} className="pay-method" data-selected={paymentMethod === m ? 'true' : undefined}>
                     <label>
