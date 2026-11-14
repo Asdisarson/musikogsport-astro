@@ -142,8 +142,8 @@ rebuild).
 | `MOS_HSTS` | RUN_TIME | no | `0`; `1` after cutover once DNS and TLS on `musikogsport.is` are settled |
 | `MOS_LOG_LEVEL` | RUN_TIME | no | `info` |
 | `ASTRO_KEY` | BUILD_TIME | yes | output of `npx astro create-key`, kept across builds (server-island props, see [Environment](#environment)) |
-| `WP_INTERNAL_URL` | BUILD_TIME | no | WordPress origin, e.g. `https://wp.example.is` (placeholder in the spec) |
-| `MOS_MEDIA_BASE_URL` | RUN_AND_BUILD_TIME | no | WordPress's public origin, where its media is served (placeholder in the spec; usually the same as `WP_INTERNAL_URL` when that is the public `https://wp.…` host). `photoBg` samples product photos from this host only. |
+| `WP_INTERNAL_URL` | BUILD_TIME | no | WordPress origin. The spec says `https://musikogsport.is`: the live site, which is WordPress until cutover. At cutover it becomes WordPress's own hostname (e.g. `https://wp.musikogsport.is`), with a rebuild. |
+| `MOS_MEDIA_BASE_URL` | RUN_AND_BUILD_TIME | no | WordPress's public origin, where its media is served. The spec says `https://musikogsport.is`, the same as `WP_INTERNAL_URL`, and it changes with it at cutover. `photoBg` samples product photos from this host only. |
 | `MOS_CLIENT_IP_HEADER` | BUILD_TIME | no | `do-connecting-ip` |
 | `MOS_TRUSTED_PROXY_HOPS` | BUILD_TIME | no | `1` (fallback only) |
 | `MOS_EXTRA_ALLOWED_HOSTS` | BUILD_TIME | no | `${APP_DOMAIN}`: the app's primary domain, i.e. the default `<app>.ondigitalocean.app` while no custom domain is added (the spec adds none until cutover), so form POSTs work there. DO's docs don't spell out how it resolves at build; if POSTs there get 403, put the exact default hostname here and rebuild. |
@@ -164,8 +164,11 @@ rebuild).
      `mos-headless-mode.php` only redirects once `MOS_STOREFRONT_URL` is defined, but the others act on upload.
    - The storefront calls WordPress server-side only, so no CORS change is needed. The storefront's cookies are
      host-only on `musikogsport.is`; WordPress cookies are not shared with it.
-2. **Fill in the spec**: replace the `https://wp.example.invalid` placeholders with the WordPress origin; set
-   `github.branch` to the branch to deploy (the spec says `main`). Check it: `doctl apps spec validate .do/app.yaml`.
+2. **Check the spec**: `WP_INTERNAL_URL` and `MOS_MEDIA_BASE_URL` are `https://musikogsport.is` (the live
+   WordPress site, until cutover); set `github.branch` to the branch to deploy (the spec says `main`). Validate it:
+   `doctl apps spec validate .do/app.yaml`. `musikogsport.is` is behind Cloudflare: if its bot protection
+   challenges App Platform's requests, the build fails or pages answer 503. Then allow `/wp-json/` for server
+   traffic there, or do the WordPress hostname of step 1 first and use it here.
 3. **Create the app**: `doctl apps create --spec .do/app.yaml` (or Apps → Create App → import the spec in the
    control panel). Connect GitHub to DigitalOcean first so it can read `Asdisarson/musikogsport`. The spec has no
    custom domain yet, on purpose (step 6).
@@ -174,6 +177,9 @@ rebuild).
    succeeds without them, but until they are set every WooCommerce REST call fails (product pages answer 503).
 5. **Test on the default domain** (`https://<app>.ondigitalocean.app`): `/api/healthz` → `ok`, home page, a
    category, a product, cart, sign-in.
+   - A home page that answers 503 while `/verslun/` works means the headless mu-plugins of step 1 are not on the
+     WordPress host yet (`/wp-json/mos/v1/front-page` and the menu routes answer 404; the log says
+     `[cache] load failed: front-page -> 404`).
    - First, one failed sign-in must come back as a redirect to `/min-sida/?login=failed`. A 403 instead means the
      default host isn't trusted: set `MOS_EXTRA_ALLOWED_HOSTS` to that exact hostname, rebuild, and retry.
    - Then check once that DO overwrites a client's own `do-connecting-ip` (its docs don't say): sign in 11 times
@@ -192,6 +198,9 @@ rebuild).
      If the domain has a CAA record, add `letsencrypt.org` and `pki.goog`. DNSSEC-signed domains are not
      supported. Propagation can take up to 72 hours, and the certificate is issued once the records resolve.
      ([DO docs](https://docs.digitalocean.com/products/app-platform/how-to/manage-domains/))
+   - In `.do/app.yaml` (or Settings → Environment Variables) set `WP_INTERNAL_URL` and `MOS_MEDIA_BASE_URL` to the
+     WordPress hostname from step 1 and **Force rebuild and deploy**: both are inlined at build, and after the DNS
+     change `https://musikogsport.is` is the storefront itself.
    - WordPress: set `WP_HOME`/`WP_SITEURL` to its own hostname from step 1, and define `MOS_STOREFRONT_URL`
      (`https://musikogsport.is`) and `MOS_HEADLESS_REDIRECT_STATUS` (`301`) in `wp-config.php`. Keep WP-Cron
      running (see WordPress host above).

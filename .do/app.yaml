@@ -114,13 +114,16 @@ services:
         scope: BUILD_TIME
       # The build itself calls WordPress (prerendered pages render the site menus), so it must be reachable.
       - key: WP_INTERNAL_URL
-        value: https://wp.example.invalid # PLACEHOLDER: the WordPress origin (https), no trailing slash
+        # Before cutover: the live site, which is WordPress today. At cutover the apex becomes this storefront, so
+        # change it to WordPress's own hostname (e.g. https://wp.musikogsport.is) and force a rebuild. No trailing slash.
+        value: https://musikogsport.is
         scope: BUILD_TIME
       # The host serving WordPress media (lib/img MEDIA_BASE_URL; photoBg samples photos from it only): WordPress's
       # public origin, i.e. its own hostname once the apex points at the storefront. Inlined into the bundle at build;
       # also read at run time by server.mjs (img-src of the CSP on static files), hence both.
       - key: MOS_MEDIA_BASE_URL
-        value: https://wp.example.invalid # PLACEHOLDER: the WordPress public origin (https), no trailing slash
+        # Same value as WP_INTERNAL_URL, and it changes with it at cutover.
+        value: https://musikogsport.is
         scope: RUN_AND_BUILD_TIME
       # App Platform's X-Forwarded-For carries DO's ingress address; the visitor is in do-connecting-ip.
       # https://docs.digitalocean.com/support/where-can-i-find-the-client-ip-address-of-a-request-connecting-to-my-app/
