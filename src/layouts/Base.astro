@@ -87,7 +87,11 @@ const websiteLd = {
     {pageLinks?.prev && <link rel="prev" href={new URL(pageLinks.prev, siteUrl).href} />}
     {pageLinks?.next && <link rel="next" href={new URL(pageLinks.next, siteUrl).href} />}
     <meta name="theme-color" content="#ffffff" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- the shop's logo, as on the WordPress site icon (public/: favicon.ico answers the bare /favicon.ico request) -->
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
+    <link rel="icon" type="image/png" href="/icon-192.png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
     <!-- Open Graph / Twitter -->
     <meta property="og:type" content={ogType} />
