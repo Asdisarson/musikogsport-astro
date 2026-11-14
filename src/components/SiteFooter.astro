@@ -1,11 +1,13 @@
 ---
 // Black footer: three link columns (shop sections from the main menu, the WordPress footer menu as "Hjálp", and
-// the store's contact details and Instagram with icons), then a full-width orange bottom bar with the company
+// the store's contact details and Instagram with icons) under the mailing-list sign-up band (NewsletterForm), then
+// a full-width orange bottom bar with the company
 // line (companyParts) and the legal links (the inner div keeps its content on the page grid while the
 // bar's background runs edge to edge).
 // On phones each column is a <details> accordion: open by default (so it works without JS), closed by the
 // script below under 992px and kept open above it.
 import Icon from './Icon.astro';
+import NewsletterForm from './NewsletterForm.astro';
 import type { SiteChrome } from '../lib/siteChrome';
 import { companyParts } from '../lib/companyLine';
 import { shopSections } from '../lib/megaMenu';
@@ -31,6 +33,7 @@ const legal = [
 ---
 
 <footer class="site-footer">
+  <NewsletterForm />
   <div class="site-footer__cols">
 
     {

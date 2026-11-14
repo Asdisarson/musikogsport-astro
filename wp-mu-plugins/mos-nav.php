@@ -4,10 +4,13 @@
  * Description: Builds the storefront's main menu from the catalog. `wp mos-nav preview` prints the menu it would
  *  build (with product counts); `wp mos-nav apply` writes it as the menu "Aðalvalmynd 2026" and puts it in the
  *  primary location. The previous menu is kept: switching back is one change in Útlit → Valmyndir. The result is an
- *  ordinary WordPress menu, so the owner can edit it in wp-admin afterwards (a later `apply` rebuilds it).
+ *  ordinary WordPress menu, so the owner can edit it in wp-admin afterwards (a later `apply` rebuilds it). The
+ *  "Endursmíða valmynd" button on the Stillingar page (administrators) does what `apply` does. Each rebuild keeps
+ *  the build it replaces, hand edits included, as "Aðalvalmynd 2026 (afrit)": one backup, in Útlit → Valmyndir.
  *  Konur / Karlar / Börn get the same columns (Fatnaður, Skór, Íþróttir, Félagslið, Vörumerki, Úrval); every
  *  column lists its links by product count, drops links with fewer than MOS_NAV_MIN_PRODUCTS products and empty
- *  columns. Sports and clubs link to the storefront's filters (?ithrott=, ?team=), not to categories.
+ *  columns. Sports and clubs link to the storefront's filters (?ithrott=, ?team=), not to categories. The clubs in
+ *  MOS_NAV_PINNED_TEAMS are listed under Íþróttir › Félagslið whatever their product count, unless they have none.
  *
  * Author: Músík og Sport
  * Version: 1.0.0
@@ -18,11 +21,14 @@ declare(strict_types=1);
 if (!defined('ABSPATH')) { exit; }
 
 const MOS_NAV_MENU_NAME = 'Aðalvalmynd 2026';
+const MOS_NAV_BACKUP_NAME = MOS_NAV_MENU_NAME . ' (afrit)';   // the build a rebuild replaced; one is kept
 const MOS_NAV_LOCATION = 'primary';
 const MOS_NAV_MIN_PRODUCTS = 5;   // a link must lead to at least this many products
 const MOS_NAV_COLUMN_LINKS = 8;   // links per column
 const MOS_NAV_GENDERS = ['konur' => 'Konur', 'karlar' => 'Karlar', 'born' => 'Börn'];   // Kyn category slug → title
 const MOS_NAV_CLUBS_CATEGORY = 'lidafatnadur-fatnadur-2';
+// Félag/Lið slugs listed under Íþróttir › Félagslið after the ranked clubs, however few products they have (not none).
+const MOS_NAV_PINNED_TEAMS = ['island-iceland', 'paris-saint-germain', 'england', 'spann', 'brasilia', 'inter-milan', 'barcelona'];
 
 /* ------------------------------------------------------------------------
  * 1. Pure helpers (no WordPress calls; tests/mos_nav_rules_test.php).
@@ -90,6 +96,29 @@ function mos_nav_top(array $rows, int $max): array {
     $rows = array_filter($rows, static fn ($r) => $r['count'] >= MOS_NAV_MIN_PRODUCTS);
     usort($rows, static fn ($a, $b) => [$b['count'], $a['title']] <=> [$a['count'], $b['title']]);
     return array_slice($rows, 0, $max);
+}
+
+/**
+ * $ranked followed by the terms of $slugs it lacks, in the order of $slugs: no MOS_NAV_MIN_PRODUCTS, no maximum. A
+ * slug the catalog has no term for, or whose term no product carries (the link would list nothing), is skipped.
+ *
+ * @param list<array{title:string,href:string,children:array,count:int}> $ranked
+ * @param list<string> $slugs
+ * @param callable(string):string $href term slug → link (the one $ranked was built with)
+ * @return list<array{title:string,href:string,children:array,count:int}>
+ */
+function mos_nav_with_pinned(array $index, string $key, array $ranked, array $slugs, callable $href): array {
+    $listed = array_flip(array_column($ranked, 'href'));
+    foreach ($slugs as $slug) {
+        $id = mos_nav_id($index['terms'][$key], $slug);
+        $link = $href($slug);
+        if ($id === null || isset($listed[$link])) { continue; }
+        $count = mos_nav_count($index, [$key => [$id]]);
+        if ($count === 0) { continue; }
+        $listed[$link] = true;
+        $ranked[] = ['title' => $index['terms'][$key][$id]['name'], 'href' => $link, 'children' => [], 'count' => $count];
+    }
+    return $ranked;
 }
 
 /** The leaf categories under a root, ranked like mos_nav_ranked(); $query is appended to each path. */
@@ -164,9 +193,10 @@ function mos_nav_tree(array $index): array {
     $items = [];
     foreach (MOS_NAV_GENDERS as $slug => $title) { $items[] = mos_nav_gender_item($index, $slug, $title); }
     $items[] = mos_nav_category_item($index, 'skor', 'Skór', 'Tegundir', true);
+    $team_href = static fn ($s) => "/verslun/?team=$s";
     $items[] = mos_nav_item('Íþróttir', '#', array_filter([
         mos_nav_item('Íþróttir', '/verslun/', mos_nav_ranked($index, 'sport', [], static fn ($s) => "/verslun/?ithrott=$s", 2 * $max)),
-        mos_nav_item('Félagslið', '/verslun/', mos_nav_ranked($index, 'team', [], static fn ($s) => "/verslun/?team=$s", 2 * $max)),
+        mos_nav_item('Félagslið', '/verslun/', mos_nav_with_pinned($index, 'team', mos_nav_ranked($index, 'team', [], $team_href, 2 * $max), MOS_NAV_PINNED_TEAMS, $team_href)),
     ], static fn ($c) => $c['children'] !== []));
     $items[] = mos_nav_category_item($index, 'aefingarvorur', 'Æfingavörur', 'Flokkar', false);
     $brands = mos_nav_ranked($index, 'brand', [], static fn ($s) => "/brand/$s/", 2 * $max);
@@ -209,9 +239,10 @@ function mos_nav_index(): array {
 /**
  * Write the tree as the menu MOS_NAV_MENU_NAME and put it in the primary location. It is built as a new menu and
  * swapped in only once complete, so a failure halfway leaves the menu the storefront shows untouched; an earlier
- * MOS_NAV_MENU_NAME is then deleted and the new one takes its name.
+ * MOS_NAV_MENU_NAME is then kept as MOS_NAV_BACKUP_NAME (with any hand edits; the backup before it goes) and the
+ * new one takes its name. When the owner had switched back to the backup, that one stays the backup instead.
  *
- * @return array{menu_id:int,items:int,previous:string,warnings:list<string>}
+ * @return array{menu_id:int,items:int,previous:string,backup:string,warnings:list<string>}
  */
 function mos_nav_write(array $tree): array {
     $existing = wp_get_nav_menu_object(MOS_NAV_MENU_NAME);
@@ -241,22 +272,131 @@ function mos_nav_write(array $tree): array {
     }
     $locations = get_nav_menu_locations();
     $previous_id = (int) ($locations[MOS_NAV_LOCATION] ?? 0);
-    $replaces_own_build = $existing && $previous_id === (int) $existing->term_id;
+    $old_backup = wp_get_nav_menu_object(MOS_NAV_BACKUP_NAME);
+    $shows_backup = $old_backup && $previous_id === (int) $old_backup->term_id;   // the owner went back to the backup
+    $replaces_own_build = ($existing && $previous_id === (int) $existing->term_id) || $shows_backup;
     $previous = $previous_id && !$replaces_own_build ? (wp_get_nav_menu_object($previous_id)->name ?? (string) $previous_id) : '';
     $locations[MOS_NAV_LOCATION] = $menu_id;
     set_theme_mod('nav_menu_locations', $locations);
     $warnings = [];
-    if ($existing && wp_delete_nav_menu((int) $existing->term_id) !== true) {
-        $warnings[] = "the earlier \"" . MOS_NAV_MENU_NAME . "\" (menu {$existing->term_id}) could not be deleted";
+    $backup = $old_backup ? MOS_NAV_BACKUP_NAME : '';
+    if ($shows_backup) {
+        // The backup is the menu they chose, so the build they left is the one to go.
+        if ($existing && wp_delete_nav_menu((int) $existing->term_id) !== true) {
+            $warnings[] = "the earlier \"" . MOS_NAV_MENU_NAME . "\" (menu {$existing->term_id}) could not be deleted";
+        }
+    } elseif ($existing) {
+        $backup = mos_nav_rotate_backup((int) $existing->term_id, $old_backup ? (int) $old_backup->term_id : 0, $warnings) ? MOS_NAV_BACKUP_NAME : $backup;
     }
     $renamed = wp_update_nav_menu_object($menu_id, ['menu-name' => MOS_NAV_MENU_NAME]);
     if (is_wp_error($renamed)) { $warnings[] = 'the new menu keeps its dated name: ' . $renamed->get_error_message(); }
     foreach ([$menu_id, $previous_id, $existing ? (int) $existing->term_id : 0] as $id) { if ($id) { delete_transient("mos_menu_$id"); } }
-    return ['menu_id' => $menu_id, 'items' => $count, 'previous' => $previous, 'warnings' => $warnings];
+    return ['menu_id' => $menu_id, 'items' => $count, 'previous' => $previous, 'backup' => $backup, 'warnings' => $warnings];
+}
+
+/**
+ * Make menu $replaced the backup in place of $old_backup (0: none). $replaced is moved off its name first, so the
+ * old backup only goes once the new one is safe; a failure is added to $warnings and leaves the old backup.
+ */
+function mos_nav_rotate_backup(int $replaced, int $old_backup, array &$warnings): bool {
+    $parked = wp_update_nav_menu_object($replaced, ['menu-name' => MOS_NAV_BACKUP_NAME . ' ' . gmdate('Y-m-d H:i:s')]);
+    if (is_wp_error($parked)) {
+        $warnings[] = "the earlier menu $replaced was not kept as the backup: " . $parked->get_error_message();
+        return false;
+    }
+    if ($old_backup && wp_delete_nav_menu($old_backup) !== true) {
+        $warnings[] = "the earlier backup (menu $old_backup) could not be deleted; menu $replaced keeps its dated backup name";
+        return false;
+    }
+    $named = wp_update_nav_menu_object($replaced, ['menu-name' => MOS_NAV_BACKUP_NAME]);
+    if (is_wp_error($named)) { $warnings[] = "the backup (menu $replaced) keeps its dated name: " . $named->get_error_message(); }
+    return true;
+}
+
+/** The catalog gave no menu columns: nothing is written. */
+final class MOS_Nav_Empty extends RuntimeException {}
+
+/**
+ * Build the menu from the catalog and write it (`wp mos-nav apply` and the Stillingar button).
+ *
+ * @param null|callable(list<array>):void $before_write gets the tree once it is known to be writable
+ * @return array{menu_id:int,items:int,previous:string,backup:string,warnings:list<string>,tree:list<array>}
+ * @throws MOS_Nav_Empty when the catalog gives no columns; RuntimeException when the write fails (nothing changed).
+ */
+function mos_nav_rebuild(?callable $before_write = null): array {
+    $tree = mos_nav_tree(mos_nav_index());
+    if (!array_filter($tree, static fn ($item) => $item['children'] !== [])) {
+        throw new MOS_Nav_Empty('Nothing to write: the catalog gave no menu columns (no published products or categories?).');
+    }
+    if ($before_write !== null) { $before_write($tree); }
+    return mos_nav_write($tree) + ['tree' => $tree];
 }
 
 /* ------------------------------------------------------------------------
- * 3. WP-CLI: wp mos-nav preview | apply
+ * 3. wp-admin: the "Valmynd" box on the Stillingar page (administrators only)
+ * --------------------------------------------------------------------- */
+
+const MOS_NAV_NOTICES = [
+    'rebuilt' => ['success', 'Valmyndin var endursmíðuð (%d atriði).'],
+    'backup'  => ['success', 'Valmyndin var endursmíðuð (%d atriði). Fyrri útgáfa er geymd sem afrit í Útlit → Valmyndir.'],
+    'empty'   => ['error', 'Ekkert til að smíða úr: engar birtar vörur eða flokkar fundust. Valmyndin er óbreytt.'],
+    'failed'  => ['error', 'Endursmíðin mistókst og valmyndin er óbreytt. Ástæðan er í villuskrá vefþjónsins.'],
+];
+const MOS_NAV_CONFIRM = 'Þetta smíðar aðalvalmyndina upp á nýtt úr vörulistanum. Handvirkar breytingar hverfa; '
+    . 'fyrri valmynd er geymd sem afrit í Útlit → Valmyndir. Halda áfram?';
+
+add_action('mos_stillingar_after', 'mos_nav_admin_box');
+add_action('admin_post_mos_nav_rebuild', 'mos_nav_handle_rebuild');
+
+/** The Stillingar page at the Valmynd box, showing one of MOS_NAV_NOTICES. */
+function mos_nav_admin_url(string $notice, int $items = 0): string {
+    $args = ['page' => defined('MOS_STILLINGAR_SLUG') ? MOS_STILLINGAR_SLUG : 'mos-stillingar', 'mos_nav' => $notice];
+    if ($items > 0) { $args['mos_nav_items'] = $items; }
+    return add_query_arg($args, admin_url('admin.php')) . '#valmynd';
+}
+
+function mos_nav_admin_box(): void {
+    if (!current_user_can('manage_options')) { return; }
+    $notice = isset($_GET['mos_nav']) ? sanitize_key(wp_unslash($_GET['mos_nav'])) : '';
+    echo '<hr style="margin:32px 0 16px"><h2 id="valmynd">Valmynd</h2>';
+    if (isset(MOS_NAV_NOTICES[$notice])) {
+        [$kind, $text] = MOS_NAV_NOTICES[$notice];
+        $text = sprintf($text, absint(wp_unslash($_GET['mos_nav_items'] ?? 0)));
+        echo '<div class="notice notice-' . esc_attr($kind) . ' inline"><p>' . esc_html($text) . '</p></div>';
+    }
+    echo '<p>Aðalvalmyndin er smíðuð úr vörulistanum: flokkar, íþróttir, félagslið og vörumerki raðast eftir vörufjölda. '
+        . 'Endursmíðaðu hana þegar nýir flokkar eða lið hafa bæst við.</p>';
+    echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" '
+        . 'onsubmit="if(!confirm(\'' . esc_js(MOS_NAV_CONFIRM) . '\'))return false;this.querySelector(\'button\').disabled=true">';
+    echo '<input type="hidden" name="action" value="mos_nav_rebuild">';
+    wp_nonce_field('mos_nav_rebuild');
+    echo '<button class="button">Endursmíða valmynd</button></form>';
+}
+
+function mos_nav_handle_rebuild(): void {
+    if (!current_user_can('manage_options')) {
+        wp_die('Aðeins stjórnendur geta endursmíðað valmyndina.', 'Valmynd', ['response' => 403]);
+    }
+    check_admin_referer('mos_nav_rebuild');
+    $user = get_current_user_id();
+    try {
+        $r = mos_nav_rebuild();
+        foreach ($r['warnings'] as $warning) { error_log('[mos-nav] ' . $warning); }
+        error_log(sprintf('[mos-nav] rebuilt by user %d: %d items (menu %d)', $user, $r['items'], $r['menu_id']));
+        $to = mos_nav_admin_url($r['backup'] !== '' ? 'backup' : 'rebuilt', $r['items']);
+    } catch (MOS_Nav_Empty $e) {
+        error_log(sprintf('[mos-nav] rebuild by user %d refused: the catalog gave no menu columns', $user));
+        $to = mos_nav_admin_url('empty');
+    } catch (\Throwable $e) {
+        error_log(sprintf('[mos-nav] rebuild by user %d failed: %s', $user, $e->getMessage()));
+        $to = mos_nav_admin_url('failed');
+    }
+    wp_safe_redirect($to);
+    exit;
+}
+
+/* ------------------------------------------------------------------------
+ * 4. WP-CLI: wp mos-nav preview | apply
  * --------------------------------------------------------------------- */
 
 if (defined('WP_CLI') && WP_CLI) {
@@ -270,19 +410,15 @@ if (defined('WP_CLI') && WP_CLI) {
             WP_CLI::success('Preview done; nothing written.');
         }
 
-        /** Write the menu as "Aðalvalmynd 2026" and put it in the primary location (the previous menu is kept). */
+        /** Write the menu as "Aðalvalmynd 2026" and put it in the primary location (the previous menu is kept, and the build it replaces as one backup). */
         public function apply(array $args, array $assoc): void {
-            $tree = mos_nav_tree(mos_nav_index());
-            if (!array_filter($tree, static fn ($item) => $item['children'] !== [])) {
-                WP_CLI::error('Nothing to write: the catalog gave no menu columns (no published products or categories?).');
-            }
-            $this->print($tree, 0);
             try {
-                $r = mos_nav_write($tree);
+                $r = mos_nav_rebuild(fn (array $tree) => $this->print($tree, 0));
             } catch (\Throwable $e) {
                 WP_CLI::error($e->getMessage());
             }
             foreach ($r['warnings'] as $warning) { WP_CLI::warning($warning); }
+            if ($r['backup'] !== '') { WP_CLI::log("Earlier build kept as \"{$r['backup']}\" (switch back in Útlit → Valmyndir)."); }
             if ($r['previous'] !== '') { WP_CLI::log("Previous menu kept: \"{$r['previous']}\" (switch back in Útlit → Valmyndir)."); }
             WP_CLI::success(sprintf('Wrote %d items to "%s" (menu %d), now in the %s location.', $r['items'], MOS_NAV_MENU_NAME, $r['menu_id'], MOS_NAV_LOCATION));
         }

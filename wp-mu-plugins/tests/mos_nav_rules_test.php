@@ -63,6 +63,24 @@ check('ranked brands for women', array_column($links, 'title'), ['Nike', 'Puma']
 check('ranked brand href', $links[0]['href'], '/brand/nike/?kyn=konur');
 check('ranked drops thin sports', array_column(mos_nav_ranked($index, 'sport', ['cat' => [2]], static fn ($s) => $s, 8), 'title'), ['Hlaup']);
 
+// Pinned links: listed after the ranked ones, however few products; unknown slugs and empty terms are skipped.
+$pin_terms = $terms;
+$pin_terms['team'][61] = ['slug' => 'england', 'name' => 'England', 'parent' => 0];
+$pin_terms['team'][62] = ['slug' => 'island-iceland', 'name' => 'Ísland', 'parent' => 0];
+$pin_terms['team'][63] = ['slug' => 'spann', 'name' => 'Spánn', 'parent' => 0];   // no products
+$pin_index = ['terms' => $pin_terms, 'products' => array_merge($products, [row([3, 21], [50], [61]), row([2, 12], [50], [62]), row([4, 12], [50], [62])])];   // 1 England, 2 Ísland
+$team_href = static fn ($s) => "/verslun/?team=$s";
+$ranked = mos_nav_ranked($pin_index, 'team', [], $team_href, 8);
+check('thin teams are not ranked', array_column($ranked, 'title'), ['FH']);
+$pinned = mos_nav_with_pinned($pin_index, 'team', $ranked, ['island-iceland', 'brasilia', 'spann', 'fh', 'england'], $team_href);
+check('pinned follow the ranked, in the pinned order, once each, unknown and empty skipped', array_column($pinned, 'title'), ['FH', 'Ísland', 'England']);
+check('pinned href and count', [$pinned[2]['href'], $pinned[2]['count'], $pinned[1]['count']], ['/verslun/?team=england', 1, 2]);
+check('pinned push nothing out', array_column(mos_nav_with_pinned($pin_index, 'team', mos_nav_ranked($pin_index, 'team', [], $team_href, 1), ['england'], $team_href), 'title'), ['FH', 'England']);
+$pin_tree = mos_nav_tree(['terms' => $pin_terms, 'products' => $pin_index['products']]);
+check('Íþróttir › Félagslið lists the pinned teams', array_column($pin_tree[4]['children'][1]['children'], 'href'),
+    ['/verslun/?team=fh', '/verslun/?team=island-iceland', '/verslun/?team=england']);
+check('Karlar › Félagslið stays ranked only', array_column($pin_tree[1]['children'][1]['children'], 'title'), ['FH']);
+
 // The tree.
 $tree = mos_nav_tree($index);
 check('top level', array_column($tree, 'title'), ['Konur', 'Karlar', 'Börn', 'Skór', 'Íþróttir', 'Æfingavörur', 'Vörumerki', 'Útsala']);

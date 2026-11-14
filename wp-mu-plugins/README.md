@@ -137,8 +137,23 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
   `wp mos-nav apply` writes it as "Aðalvalmynd 2026" in the primary location (the previous menu is kept for
   rollback). Konur/Karlar/Börn get the same columns (Fatnaður, Skór, Íþróttir, Félagslið, Vörumerki, Úrval); links
   are ranked by product count, at most 8 per column, none under 5 products; sports and clubs link to the filters
-  (`?ithrott=`, `?team=`). An ordinary menu afterwards (editable in wp-admin; a later apply rebuilds it).
-  Tests: `php tests/mos_nav_rules_test.php` (the pure builder).
+  (`?ithrott=`, `?team=`). The clubs in `MOS_NAV_PINNED_TEAMS` (Félag/Lið slugs) are always listed under
+  Íþróttir › Félagslið, after the ranked ones, whatever their product count (unless they have none). An ordinary
+  menu afterwards (editable in wp-admin; a later apply rebuilds it). The "Endursmíða valmynd" button in the
+  "Valmynd" box on the Stillingar page (administrators) does what `apply` does, so the owner needs no WP-CLI. A
+  rebuild replaces the whole menu, hand edits included: the build it replaces is kept as "Aðalvalmynd 2026 (afrit)"
+  (one backup; switch back in Útlit → Valmyndir, and a rebuild after that keeps the menu they switched to).
+  Tests: `php tests/mos_nav_rules_test.php` (the pure builder), `php tests/mos_nav_write_test.php` (the writer,
+  the backup, the button and the box against in-memory menus) and, on a local site,
+  `wp eval-file tests/mos_nav_wp_test.php` (the same against real menus; it rebuilds the menu and puts it back).
+- **mos-newsletter.php** — `POST mos/v1/newsletter {email}`: the storefront footer's mailing-list sign-up
+  (`/api/newsletter` → here → Mailchimp). It needs the Mailchimp for WooCommerce plugin connected: it reads that
+  plugin's API key, audience and double opt-in setting (`mailchimp_get_api_key()`, `mailchimp_get_list_id()`,
+  `mailchimp_list_has_double_optin()`) and makes one PUT on the audience member itself; without the plugin it answers
+  503 and the footer says the sign-up failed. New address: pending (confirmation mail) with double opt-in, else
+  subscribed; already on the list: untouched; left the list earlier: pending again. Same answer in all three cases.
+  Capped per address, per caller and store-wide per hour; failures are logged as `[mos-newsletter]` with Mailchimp's
+  status, never the key or the address. Tests: `php tests/mos_newsletter_test.php`.
 - **mos-stillingar.php** — "Stillingar", the first item of the wp-admin sidebar (for anyone who can edit the front
   page): the front page's pictures on one screen — header and footer logo, the eight banners, each hero slide's
   product and picture — laid out as a small copy of the storefront's front page, computed from the saved values with
@@ -194,7 +209,7 @@ Other tests (all read-only; the `wp eval-file` ones run against the local site's
 
 Deploy: copy `mos-posturinn-droppoints.php`, `headless-bridge.php`, `mos-headless-api.php`,
 `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`, `mos-size-index.php`,
-`mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php` and `mos-instagram.php` to `wp-content/mu-plugins/` on the WP host (never the `-local` shim), then run
+`mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`, `mos-instagram.php` and `mos-newsletter.php` to `wp-content/mu-plugins/` on the WP host (never the `-local` shim), then run
 `wp mos-size reindex` once, and `wp db export` → `wp mos-clean preview` → `wp mos-clean apply` (keep the journal) → `wp mos-nav apply`. Requires ACF (free) for the Forsíða fields. In `wp-config.php` define
 `MOS_STOREFRONT_URL` (the storefront's origin) and `MOS_HEADLESS_REDIRECT_STATUS` (`301`): without
 `MOS_STOREFRONT_URL` headless mode does nothing, and card-payment returns, which WooCommerce builds on
