@@ -14,8 +14,8 @@ if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 $args = array_slice($argv, 1);
 $dry = in_array('--dry-run', $args, true);
 $paths = array_values(array_filter($args, static fn ($a) => $a !== '--dry-run'));
-$wp = rtrim($paths[0] ?? (__DIR__ . '/../../../httpdocs'), '/');
-if (!is_file($wp . '/wp-load.php')) { fwrite(STDERR, "No wp-load.php in $wp\n"); exit(1); }
+$wordpress_dir = rtrim($paths[0] ?? (__DIR__ . '/../../../httpdocs'), '/');
+if (!is_file($wordpress_dir . '/wp-load.php')) { fwrite(STDERR, "No wp-load.php in $wordpress_dir\n"); exit(1); }
 
 set_time_limit(0);
 // A request-less load: plugins that read the host get the site's own, and a wp_die() during the load prints its
@@ -30,7 +30,7 @@ function mos_cli_die($message, $title = '', $args = []) {
 }
 $GLOBALS['wp_filter']['wp_die_handler'][10]['mos_cli_die'] = ['function' => static fn () => 'mos_cli_die', 'accepted_args' => 1];
 define('WP_USE_THEMES', false);
-require $wp . '/wp-load.php';
+require $wordpress_dir . '/wp-load.php';
 if (!function_exists('mos_size_compute') || !function_exists('mos_size_apply')) {
     fwrite(STDERR, "mos-size-index.php is not installed in wp-content/mu-plugins\n");
     exit(1);
