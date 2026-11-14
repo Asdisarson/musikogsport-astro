@@ -42,7 +42,7 @@ ingress:
 services:
   - name: storefront
     github:
-      repo: Asdisarson/musikogsport
+      repo: Asdisarson/musikogsport-astro
       branch: main
       # Every push to main builds and deploys. A failed build or health check leaves the previous version serving.
       deploy_on_push: true

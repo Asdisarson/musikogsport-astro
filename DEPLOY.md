@@ -171,7 +171,7 @@ rebuild).
    challenges App Platform's requests, the build fails or pages answer 503. Then allow `/wp-json/` for server
    traffic there, or do the WordPress hostname of step 1 first and use it here.
 3. **Create the app**: `doctl apps create --spec .do/app.yaml` (or Apps → Create App → import the spec in the
-   control panel). Connect GitHub to DigitalOcean first so it can read `Asdisarson/musikogsport`. The spec has no
+   control panel). Connect GitHub to DigitalOcean first so it can read `Asdisarson/musikogsport-astro`. The spec has no
    custom domain yet, on purpose (step 6).
 4. **Secrets**: in Settings → `storefront` → Environment Variables, enter `WOOCOMMERCE_CONSUMER_KEY` and
    `WOOCOMMERCE_CONSUMER_SECRET`, tick **Encrypt**, keep the scope "Run time", save, and redeploy. The build
