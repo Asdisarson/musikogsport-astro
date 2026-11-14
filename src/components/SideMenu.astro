@@ -7,13 +7,13 @@ import Icon from './Icon.astro';
 import { buildPanels } from '../lib/menuPanels';
 import type { SiteChrome } from '../lib/siteChrome';
 import { linkRel } from '../lib/safeUrl';
+import { INSTAGRAM_URL } from '../lib/site';
 
 interface Props {
   chrome: SiteChrome;
 }
 const { chrome } = Astro.props;
 const panels = buildPanels(chrome.primary);
-const instagram = 'https://www.instagram.com/musikogsport/';
 ---
 
 <div class="side-menu" id="side-menu" data-side-menu aria-hidden="true" inert role="dialog" aria-modal="true" aria-label="Valmynd">
@@ -62,7 +62,7 @@ const instagram = 'https://www.instagram.com/musikogsport/';
         <a class="btn btn--outlined" href="/oskalisti/">Óskalisti</a>
       </div>
       <div class="side-menu__social">
-        <a href={instagram} target="_blank" rel="noopener" aria-label="Instagram"><Icon name="instagram" stroke-width={1.5} /></a>
+        <a href={INSTAGRAM_URL} target="_blank" rel="noopener" aria-label="Instagram"><Icon name="instagram" stroke-width={1.5} /></a>
         <a href={`mailto:${chrome.footer.email}`} aria-label="Tölvupóstur"><Icon name="mail" stroke-width={1.5} /></a>
       </div>
     </div>

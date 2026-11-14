@@ -149,6 +149,28 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
   page (otherwise it says so); when the slides are on top it warns about one the storefront would leave out
   (unpublished product or no picture). If `homeLayout.ts` changes, change `mos_stillingar_layout()` with it. Changes
   reach the storefront within a few minutes (the front-page caches). Test: `wp eval-file tests/mos_stillingar_wp_test.php`.
+  Below the pictures it runs `do_action('mos_stillingar_after')` for other settings boxes (each checks its own rights).
+- **mos-instagram.php** — the home page's "Músík og Sport á Instagram" row: `GET /wp-json/mos/v1/instagram` (public)
+  answers `{handle, profile_href, posts: [{id, href, caption, image: {url, width, height, alt}}]}`, the latest 12
+  posts of @musikogsport (`Cache-Control: public, max-age=60`, as the other public reads). The GET itself never waits
+  on Instagram: when the feed is an hour old (15 minutes after a failure) it queues a refresh for `shutdown`, after the
+  answer is sent (`fastcgi_finish_request`), one at a time (an atomic `mos_instagram_lock` option, expiring after 5
+  minutes). The refresh reads the Instagram Graph API (`graph.facebook.com/v26.0/<instagram-account-id>/media`) and
+  mirrors each picture — only from Instagram's CDNs (`*.cdninstagram.com`, `*.fbcdn.net`), at most 15 MB — into
+  `uploads/mos-instagram/<id>.jpg` (a centred square, ≤ 640 px, re-encoded by the image editor; Instagram's own picture
+  URLs expire), deleting the ones that left the feed. The browser never calls Instagram. On any failure (an error, an
+  answer without a post list, no picture copied) the last good feed and its pictures stay; with no token, or nothing
+  fetched yet, `posts` is empty and the storefront shows a "Fylgdu okkur" banner. Connecting fetches at once, so the
+  row is there before the storefront asks. A Meta system-user access token (it never expires) and the Instagram
+  account ID (digits) are pasted in an "Instagram" box on the Stillingar page (administrators only: `manage_options` +
+  nonce; checked with `GET /<account-id>?fields=username` before they are saved, and refused when the account is not
+  @musikogsport), stored in the `mos_instagram_token` option (`token`, `account_id`, `username`; not autoloaded), and
+  the token is never sent anywhere but Meta (not in the REST answer, the page or the logs). A `MOS_INSTAGRAM_TOKEN` +
+  `MOS_INSTAGRAM_ACCOUNT_ID` pair in `wp-config.php` wins over the option. WP-CLI: `wp mos-instagram status`,
+  `wp mos-instagram refresh` (fails loudly when the refresh did). Logs as `[mos-instagram] …`: problems, plus
+  connect/disconnect (with the user id) and each refresh's post count. Tests: `php tests/mos_instagram_rules_test.php`
+  (normaliser, excerpt, account ID and token shape, redaction, payload) and `wp eval-file
+  tests/mos_instagram_wp_test.php` (Meta stubbed: mirror, fallbacks, prune, the token form).
 
 Other tests (all read-only; the `wp eval-file` ones run against the local site's installed copies, so copy first):
 - `php tests/mos_headless_api_test.php`: link guard, Reply-To header, `mos_and_cat` parser, user-enumeration helpers.
@@ -172,7 +194,7 @@ Other tests (all read-only; the `wp eval-file` ones run against the local site's
 
 Deploy: copy `mos-posturinn-droppoints.php`, `headless-bridge.php`, `mos-headless-api.php`,
 `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`, `mos-size-index.php`,
-`mos-catalog-clean.php`, `mos-nav.php` and `mos-stillingar.php` to `wp-content/mu-plugins/` on the WP host (never the `-local` shim), then run
+`mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php` and `mos-instagram.php` to `wp-content/mu-plugins/` on the WP host (never the `-local` shim), then run
 `wp mos-size reindex` once, and `wp db export` → `wp mos-clean preview` → `wp mos-clean apply` (keep the journal) → `wp mos-nav apply`. Requires ACF (free) for the Forsíða fields. In `wp-config.php` define
 `MOS_STOREFRONT_URL` (the storefront's origin) and `MOS_HEADLESS_REDIRECT_STATUS` (`301`): without
 `MOS_STOREFRONT_URL` headless mode does nothing, and card-payment returns, which WooCommerce builds on
@@ -181,5 +203,7 @@ Deploy: copy `mos-posturinn-droppoints.php`, `headless-bridge.php`, `mos-headles
 Uninstall / leftovers: apart from the size index (above), removing these files leaves `mos_contact` posts
 (Fyrirspurnir: the visitor's name, e-mail and message, kept until deleted by hand; WordPress's personal-data
 export/erase tools don't find them), the `mos_rl_*`, `mos_jwt_rv_*` and `mos_menu_*` transients (they expire),
-the `mos_jwt_rehash` user meta and the `mos_seed_live_clone` option (small). The `seed/` scripts refuse to run on a
+the `mos_jwt_rehash` user meta, the `mos_seed_live_clone` option (small), and Instagram's `mos_instagram_token`
+/ `mos_instagram_feed` / `mos_instagram_lock` options, the `mos_instagram_fresh` transient and `uploads/mos-instagram/`
+("Aftengja" on the Stillingar page removes all of them first). The `seed/` scripts refuse to run on a
 `production` environment unless `MOS_SEED_FORCE=1` is set.

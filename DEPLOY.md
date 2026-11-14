@@ -400,9 +400,9 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    `jwt-authentication-for-wp-rest-api`.
 2. **Upload** to `wp-content/mu-plugins/`: `mos-posturinn-droppoints.php`, `headless-bridge.php`,
    `mos-headless-api.php`, `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`,
-   `mos-size-index.php`, `mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`. **Never
+   `mos-size-index.php`, `mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`, `mos-instagram.php`. **Never
    `headless-bridge-local.php`** (the local-dev shim rewrites redirects to localhost).
-   Check: `wp plugin list --status=must-use` shows exactly those ten, and `ls wp-content/mu-plugins` has no
+   Check: `wp plugin list --status=must-use` shows exactly those eleven, and `ls wp-content/mu-plugins` has no
    `-local` file. `mos-headless-mode.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), so uploading
    it before cutover is safe; the others act at once but only add routes, fields and the wp-admin "Stillingar" page.
 3. **Size index backfill**: `wp mos-size reindex` (seconds; rerunnable). Until it runs, size filters match nothing.
@@ -427,6 +427,27 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    `wp mos-nav apply`: writes the menu "Aðalvalmynd 2026" and puts it in the primary location; the old menu stays.
    Rollback: Útlit → Valmyndir → Stjórna staðsetningum → Aðalvalmynd. Rerun `apply` when the catalog changes a lot
    (it rebuilds the menu, dropping hand edits made to it). Check: every menu link opens a page with products.
+3d. **Instagram row** (the owner; any time, also after cutover; free). Until it is done the home page ends with a
+   "Fylgdu okkur á Instagram" banner instead of the latest posts.
+   Meta now offers new apps only "API setup with Unified login", so the key is a **system-user token** of the
+   "Músík Og Sport" business portfolio. It never expires and needs no App Review for the store's own account.
+   1. @musikogsport is a professional (Business) account in the "Músík Og Sport" portfolio (business.facebook.com →
+      Settings → Accounts → Instagram accounts). Its page there shows its **ID** (digits): note it.
+   2. The portfolio's app is "Musik og Sport vefur" (developers.facebook.com, app 2353329905428084) with the product
+      "Instagram" → "API setup with Unified login".
+   3. business.facebook.com → Settings → Users → System users → Add: name `vefur`, role Employee. Then "Assign assets":
+      the app "Musik og Sport vefur" (Develop app) and @musikogsport (full control is not needed; content access is
+      enough). If Meta also lists the store's Facebook Page, assign it too.
+   4. On the system user: "Generate token" → app "Musik og Sport vefur" → expiry **Never** → permissions
+      `instagram_basic` (plus `pages_show_list` if it is offered) → Generate, and copy the token. Meta shows it once;
+      keep it out of e-mail and chat.
+   5. wp-admin → Stillingar → Instagram (administrators only): paste the token and the ID from step 1 → Tengja. Both
+      are checked with Meta (the account must be @musikogsport) before they are saved. The token stops working only
+      if it is revoked or the system user loses the account; then generate a new one the same way. (Ops may instead
+      set both `MOS_INSTAGRAM_TOKEN` and `MOS_INSTAGRAM_ACCOUNT_ID` in `wp-config.php`; that pair wins over the box.)
+   Check: `wp mos-instagram status` says "Connected as @musikogsport", and within a few minutes
+   `curl -s 'https://<wp-host>/wp-json/mos/v1/instagram' | jq '.posts | length'` is above 0. The pictures are copied
+   to `wp-content/uploads/mos-instagram/`, which must be publicly served like the rest of `uploads/` (no deny rule).
 4. **`wp-config.php` constants** (at cutover, not before): `MOS_STOREFRONT_URL` = `https://musikogsport.is`,
    `MOS_HEADLESS_REDIRECT_STATUS` = `301`.
    Check: `wp eval 'echo MOS_STOREFRONT_URL, " ", MOS_HEADLESS_REDIRECT_STATUS;'`, and
@@ -442,7 +463,8 @@ On the WordPress host, in this order. Each step has its check; stop at the first
 6. **Public endpoints answer.** Check:
    `curl -s 'https://<wp-host>/wp-json/mos/v1/front-page' | jq 'keys'`,
    `curl -s 'https://<wp-host>/wp-json/mos/v1/menu/location/primary' | jq 'length'`, and
-   `curl -s 'https://<wp-host>/wp-json/mos/v1/droppoints?postcode=101&type=postbox' | jq '.ok'` (`true`).
+   `curl -s 'https://<wp-host>/wp-json/mos/v1/droppoints?postcode=101&type=postbox' | jq '.ok'` (`true`), and
+   `curl -s 'https://<wp-host>/wp-json/mos/v1/instagram' | jq '.handle'` (`"musikogsport"`; `posts` is empty until 3d).
 7. **WP-Cron runs** (it clears the sign-out denylist transients). Check: `wp cron event list` shows events due in
    the future, not hours overdue; with `DISABLE_WP_CRON`, a system cron runs `wp cron event run --due-now`.
 8. **IP or WAF limits on public write routes** (`jwt-auth/v1/token`, `mos/v1/contact`,

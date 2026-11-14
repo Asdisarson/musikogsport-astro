@@ -8,8 +8,10 @@ import Base from '../layouts/Base.astro';
 import HeroSlider from '../components/HeroSlider.astro';
 import ProductRow from '../components/ProductRow.astro';
 import BannerRow from '../components/BannerRow.astro';
+import InstagramRow from '../components/InstagramRow.astro';
 import { loadFrontPage, type ProductRowConfig } from '../lib/frontPage';
 import { homeSections, planHome } from '../lib/homeLayout';
+import { loadInstagram } from '../lib/instagram';
 import { storeProducts, type StoreQuery } from '../lib/storeCatalog';
 import type { WooProduct } from '../lib/types';
 import { markUnavailable } from '../lib/http';
@@ -33,9 +35,12 @@ function rowQuery(row: ProductRowConfig): StoreQuery {
 }
 
 const rowConfigs = front?.rows ?? [];
+// the Instagram row (last) loads beside the product rows; it never throws (no posts = its follow banner)
+const instagramPosts = loadInstagram();
 const rowProducts: WooProduct[][] = await Promise.all(
   rowConfigs.map((r) => storeProducts({ ...rowQuery(r), page: 1, per_page: r.count }).then((p) => p.items).catch(() => [])),
 );
+const instagram = await instagramPosts;
 const plan = planHome(front?.hero, front?.banners ?? []);
 const sections = homeSections(rowConfigs.length, plan.stories);
 ---
@@ -52,5 +57,6 @@ const sections = homeSections(rowConfigs.length, plan.stories);
         ),
       )
     }
+    <InstagramRow posts={instagram} />
   </div>
 </Base>
