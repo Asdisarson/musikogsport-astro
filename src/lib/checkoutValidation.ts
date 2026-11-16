@@ -1,5 +1,6 @@
-// What the checkout form still lacks: the messages for the list above the form and the fields to mark.
-// Pure, so the form can ask again on every render after a failed attempt (CheckoutForm.tsx).
+// What the checkout form still lacks. Each message is keyed by the place it is shown: an input's id
+// (`billing_email`), or `shipping_method`, `postbox`, `payment_method`, `terms`. Pure, so the form can ask again
+// on every render after a failed attempt (CheckoutForm.tsx).
 
 interface FieldRule {
   key: string;
@@ -23,38 +24,25 @@ export interface CheckoutFormState {
   terms: boolean;
 }
 
-export interface CheckoutProblems {
-  messages: string[];
-  /** Ids of the inputs to mark, e.g. `billing_email`. */
-  fields: Set<string>;
-}
+/** Where a message goes → the message, in the order the form shows them. */
+export type CheckoutProblems = Map<string, string>;
 
 export function validateCheckout(s: CheckoutFormState): CheckoutProblems {
-  const messages: string[] = [];
-  const fields = new Set<string>();
-  const requireFilled = (prefix: string, address: Record<string, string>, rules: FieldRule[], heading: string) => {
+  const problems: CheckoutProblems = new Map();
+  const requireFilled = (prefix: string, address: Record<string, string>, rules: FieldRule[]) => {
     for (const rule of rules) {
-      if (rule.required && !(address[rule.key] ?? '').trim()) {
-        messages.push(`${heading} ${rule.label} er nauðsynlegur reitur.`);
-        fields.add(`${prefix}_${rule.key}`);
-      }
+      if (rule.required && !(address[rule.key] ?? '').trim()) problems.set(`${prefix}_${rule.key}`, `${rule.label} er nauðsynlegur reitur.`);
     }
   };
-  requireFilled('billing', s.billing, s.billingFields, 'Greiðsluupplýsingar');
-  if (s.shipping) requireFilled('shipping', s.shipping, s.shippingFields, 'Sendingarupplýsingar');
-
+  requireFilled('billing', s.billing, s.billingFields);
+  if (s.kennitala.trim() && s.kennitala.replace(/\D/g, '').length !== 10) problems.set('billing_kennitala', 'Kennitala á að vera 10 tölustafir.');
   const email = (s.billing.email ?? '').trim();
-  if (email && !/^\S+@\S+\.\S+$/.test(email)) {
-    messages.push('Ógilt netfang.');
-    fields.add('billing_email');
-  }
-  if (s.kennitala.trim() && s.kennitala.replace(/\D/g, '').length !== 10) {
-    messages.push('Kennitala á að vera 10 tölustafir.');
-    fields.add('billing_kennitala');
-  }
-  if (s.needsShipping && !s.rateChosen) messages.push('Veldu sendingarmáta.');
-  if (s.needsPostbox && !s.postboxChosen) messages.push('Veldu póstbox fyrir sendinguna.');
-  if (s.needsPayment && !s.paymentChosen) messages.push('Veldu greiðslumáta.');
-  if (!s.terms) messages.push('Vinsamlegast lestu og samþykktu skilmálana til að halda áfram með pöntunina.');
-  return { messages, fields };
+  if (email && !/^\S+@\S+\.\S+$/.test(email)) problems.set('billing_email', 'Ógilt netfang.');
+  if (s.shipping) requireFilled('shipping', s.shipping, s.shippingFields);
+
+  if (s.needsShipping && !s.rateChosen) problems.set('shipping_method', 'Veldu sendingarmáta.');
+  if (s.needsPostbox && !s.postboxChosen) problems.set('postbox', 'Veldu póstbox fyrir sendinguna.');
+  if (s.needsPayment && !s.paymentChosen) problems.set('payment_method', 'Veldu greiðslumáta.');
+  if (!s.terms) problems.set('terms', 'Samþykktu skilmálana til að halda áfram með pöntunina.');
+  return problems;
 }

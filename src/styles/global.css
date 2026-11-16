@@ -1319,6 +1319,10 @@
   :is(.checkout-fields, .account-fields) .form-row.is-invalid .input-text { border-color: var(--invalid); box-shadow: 0 0 0 1px var(--invalid); }
   :is(.checkout-fields, .account-fields) .form-row.is-invalid .input-text:focus { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
   :is(.checkout-fields, .account-fields) .form-row.is-invalid:has(> .input-text) > label { color: var(--invalid-text); }
+  /* A problem shown at the field it belongs to (checkout): small, so it reads as a note on the field. */
+  .field-error { display: block; margin: 6px 0 0; font-size: 13px; line-height: 18px; color: var(--invalid-text); }
+  .checkout-terms + .field-error { margin: 4px 0 12px; }
+  .ship-methods li > .field-error { margin: -6px 0 12px 32px; } /* lines up with the postbox list above it */
   :is(.checkout, .account-fields) .required { border: 0; text-decoration: none; color: inherit; }
   :is(.checkout, .account-fields) input[type='checkbox'] { flex: none; width: 20px; height: 20px; margin: 0; appearance: none; border: 1px solid var(--field-border); border-radius: 2px; background: #fff; cursor: pointer; }
   :is(.checkout, .account-fields) input[type='checkbox']:checked { border-color: var(--ink); background: var(--ink) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpath d='M1 5l3.5 3.5L11 1.5' fill='none' stroke='%23fff' stroke-width='2'/%3E%3C/svg%3E") no-repeat center / 11px 9px; }

@@ -59,22 +59,32 @@ const SHIPPING_FIELDS: FieldDef[] = [
   { key: 'city', label: 'Borg / Bær', width: 'last', required: true, autoComplete: 'shipping address-level2' },
 ];
 
+/** A problem with one part of the form, shown right at that part (small text). */
+function FieldError({ id, message }: { id: string; message: string }) {
+  return (
+    <span className="field-error" id={id}>
+      {message}
+    </span>
+  );
+}
+
 function FloatField({
   id,
   def,
   value,
-  invalid,
+  error,
   onChange,
 }: {
   id: string;
   def: Omit<FieldDef, 'key'>;
   value: string;
-  invalid: boolean;
+  /** What is wrong with the value, shown under the input. */
+  error: string | undefined;
   onChange: (v: string) => void;
 }) {
   return (
     <p
-      className={`form-row form-row-${def.width}${value ? ' has-val' : ''}${invalid ? ' is-invalid' : ''}`}
+      className={`form-row form-row-${def.width}${value ? ' has-val' : ''}${error ? ' is-invalid' : ''}`}
       id={`${id}_field`}
     >
       <input
@@ -85,13 +95,15 @@ function FloatField({
         inputMode={def.inputMode}
         autoComplete={def.autoComplete}
         aria-required={def.required ? 'true' : undefined}
-        aria-invalid={invalid ? 'true' : undefined}
+        aria-invalid={error ? 'true' : undefined}
+        aria-describedby={error ? `${id}_error` : undefined}
         onChange={(e) => onChange(e.target.value)}
       />
       <label htmlFor={id}>
         {def.label}
         {def.required ? <abbr className="required" title="nauðsynlegt"> *</abbr> : <span className="optional"> (valfrjálst)</span>}
       </label>
+      {error && <FieldError id={`${id}_error`} message={error} />}
     </p>
   );
 }
@@ -141,8 +153,8 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
   // Failed re-quotes and shipping-rate changes land in the shared cartError; show them with the
   // order errors (coupon errors stay inline under the coupon field).
   const cartErr = useStore(cartError);
-  // Once an order attempt has been made the form is checked again on every render, so a message and a field's
-  // red frame go away the moment the shopper fixes them, not at the next press of „Panta".
+  // Once an order attempt has been made the form is checked again on every render, so the message under a field
+  // and its red frame go away the moment the shopper fixes it, not at the next press of „Panta".
   const [attempted, setAttempted] = useState(false);
   const [placing, setPlacing] = useState(false);
   // While the page asks whether an order whose answer was lost went through (LM-01).
@@ -242,8 +254,9 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
     }
     setAttempted(true);
     setErrors([]);
-    if (validate().messages.length) {
-      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (validate().size) {
+      // Once the messages are on the page, bring the first one into view.
+      requestAnimationFrame(() => formRef.current?.querySelector('.field-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
       return;
     }
     setPlacing(true);
@@ -289,9 +302,10 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
     );
   }
 
-  const problems: CheckoutProblems = attempted ? validate() : { messages: [], fields: new Set() };
-  const invalid = problems.fields;
-  const shownErrors = [...new Set([...(cartErr ? [cartErr] : []), ...problems.messages, ...errors])];
+  // Each problem is shown where it is (under its field, the shipping list, the terms); the list above the form
+  // holds only what has no place of its own: the cart's and the order's errors.
+  const problems: CheckoutProblems = attempted ? validate() : new Map();
+  const shownErrors = [...new Set([...(cartErr ? [cartErr] : []), ...errors])];
 
   const field = (prefix: 'billing' | 'shipping', a: Address, set: (fn: (a: Address) => Address) => void) => (def: FieldDef) => (
     <FloatField
@@ -299,7 +313,7 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
       id={`${prefix}_${def.key}`}
       def={def}
       value={a[def.key]}
-      invalid={invalid.has(`${prefix}_${def.key}`)}
+      error={problems.get(`${prefix}_${def.key}`)}
       onChange={(v) => set((prev) => ({ ...prev, [def.key]: v }))}
     />
   );
@@ -319,6 +333,11 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
         {checking && (
           <p className="checkout-notice" role="status">
             {CHECKING_MESSAGE}
+          </p>
+        )}
+        {problems.size > 0 && (
+          <p className="visually-hidden" role="alert">
+            {problems.size === 1 ? 'Eitt atriði þarf að laga áður en pöntunin er send.' : `${problems.size} atriði þarf að laga áður en pöntunin er send.`}
           </p>
         )}
         {shownErrors.length > 0 && (
@@ -343,7 +362,7 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
             id="billing_kennitala"
             def={{ label: 'Kennitala', width: 'first', inputMode: 'numeric' }}
             value={kennitala}
-            invalid={invalid.has('billing_kennitala')}
+            error={problems.get('billing_kennitala')}
             onChange={setKennitala}
           />
           {billingField({ key: 'company', label: 'Nafn fyrirtækis', width: 'last', autoComplete: 'organization' })}
@@ -439,12 +458,14 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
                             </label>
                             {/* the Pósturinn locker is picked right under the rate that needs it (owner, 2026-11-14) */}
                             {r.selected && needsPostbox && <DroppointSelect postcode={cartPostcode} />}
+                            {r.selected && problems.has('postbox') && <FieldError id="postbox_error" message={problems.get('postbox')!} />}
                           </li>
                         ))}
                       </ul>
                     ) : (
                       <span className="review-table__hint">Sláðu inn heimilisfang til að sjá sendingarmöguleika.</span>
                     )}
+                    {problems.has('shipping_method') && <FieldError id="shipping_method_error" message={problems.get('shipping_method')!} />}
                   </td>
                 </tr>
               </>
@@ -487,12 +508,20 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
               })}
             </ul>
           )}
+          {problems.has('payment_method') && <FieldError id="payment_method_error" message={problems.get('payment_method')!} />}
           <p className="checkout-privacy">
             Persónulegu gögnin þín munu vera notuð til að ganga frá pöntuninni, fyrir stuðning á notkun þinni á vefsíðunni o.fl sem við
             útskýrum í <a href="/skilmalar/" target="_blank" rel="noopener">persónuverndarstefnu</a>.
           </p>
           <label className="checkout-terms">
-            <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} aria-required="true" />
+            <input
+              type="checkbox"
+              checked={terms}
+              onChange={(e) => setTerms(e.target.checked)}
+              aria-required="true"
+              aria-invalid={problems.has('terms') ? 'true' : undefined}
+              aria-describedby={problems.has('terms') ? 'terms_error' : undefined}
+            />
             <span>
               Ég hef lesið skilmálana og samþykki þá{' '}
               <a href="/skilmalar/" target="_blank" rel="noopener">
@@ -501,6 +530,7 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
               <abbr className="required" title="nauðsynlegt">*</abbr>
             </span>
           </label>
+          {problems.has('terms') && <FieldError id="terms_error" message={problems.get('terms')!} />}
           <button type="submit" className="btn-dark btn-block checkout__place" disabled={placing || loading} aria-busy={placing}>
             Panta
           </button>

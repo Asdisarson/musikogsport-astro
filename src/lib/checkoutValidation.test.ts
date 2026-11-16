@@ -1,5 +1,5 @@
-// checkoutValidation.ts: what the checkout form still lacks. The form asks again on every render once an order
-// attempt has failed, so a field stops being marked the moment it is filled in.
+// checkoutValidation.ts: what the checkout form still lacks, keyed by where the message is shown. The form asks
+// again on every render once an order attempt has failed, so a message goes away the moment its field is fixed.
 import { describe, expect, it } from 'vitest';
 import { validateCheckout, type CheckoutFormState } from './checkoutValidation';
 
@@ -23,47 +23,54 @@ const complete: CheckoutFormState = {
   paymentChosen: true,
   terms: true,
 };
+const problems = (s: CheckoutFormState) => Object.fromEntries(validateCheckout(s));
 
 describe('validateCheckout', () => {
   it('a complete form has nothing to report', () => {
-    expect(validateCheckout(complete)).toEqual({ messages: [], fields: new Set() });
+    expect(validateCheckout(complete).size).toBe(0);
   });
 
-  it('names each empty required billing field and marks it; optional fields are left alone', () => {
-    const r = validateCheckout({ ...complete, billing: { first_name: ' ', company: '', email: '' } });
-    expect(r.messages).toEqual(['Greiðsluupplýsingar Eiginnafn er nauðsynlegur reitur.', 'Greiðsluupplýsingar Netfang er nauðsynlegur reitur.']);
-    expect([...r.fields]).toEqual(['billing_first_name', 'billing_email']);
+  it('each empty required billing field gets its own message under its own id; optional fields are left alone', () => {
+    expect(problems({ ...complete, billing: { first_name: ' ', company: '', email: '' } })).toEqual({
+      billing_first_name: 'Eiginnafn er nauðsynlegur reitur.',
+      billing_email: 'Netfang er nauðsynlegur reitur.',
+    });
   });
 
   it('a field that has been filled in is no longer reported, while the others still are', () => {
-    const r = validateCheckout({ ...complete, billing: { first_name: 'Anna', company: '', email: '' } });
-    expect(r.messages).toEqual(['Greiðsluupplýsingar Netfang er nauðsynlegur reitur.']);
-    expect([...r.fields]).toEqual(['billing_email']);
+    expect(problems({ ...complete, billing: { first_name: 'Anna', company: '', email: '' } })).toEqual({
+      billing_email: 'Netfang er nauðsynlegur reitur.',
+    });
   });
 
   it('checks the shipping address only when the order goes to another address', () => {
-    const empty = { first_name: '', company: '', email: 'x@y.is' };
-    expect(validateCheckout({ ...complete, shipping: null }).messages).toEqual([]);
-    const r = validateCheckout({ ...complete, shipping: empty });
-    expect(r.messages).toEqual(['Sendingarupplýsingar Eiginnafn er nauðsynlegur reitur.']);
-    expect([...r.fields]).toEqual(['shipping_first_name']);
+    expect(validateCheckout({ ...complete, shipping: null }).size).toBe(0);
+    expect(problems({ ...complete, shipping: { first_name: '', company: '', email: 'x@y.is' } })).toEqual({
+      shipping_first_name: 'Eiginnafn er nauðsynlegur reitur.',
+    });
   });
 
-  it('a malformed e-mail address and a kennitala that is not ten digits are marked', () => {
-    const r = validateCheckout({ ...complete, billing: { ...filled, email: 'anna@b' }, kennitala: '010190-123' });
-    expect(r.messages).toEqual(['Ógilt netfang.', 'Kennitala á að vera 10 tölustafir.']);
-    expect([...r.fields]).toEqual(['billing_email', 'billing_kennitala']);
-    expect(validateCheckout({ ...complete, kennitala: '010190-1239' }).messages).toEqual([]);
+  it('a malformed e-mail address and a kennitala that is not ten digits are reported at their fields', () => {
+    expect(problems({ ...complete, billing: { ...filled, email: 'anna@b' }, kennitala: '010190-123' })).toEqual({
+      billing_email: 'Ógilt netfang.',
+      billing_kennitala: 'Kennitala á að vera 10 tölustafir.',
+    });
+    expect(validateCheckout({ ...complete, kennitala: '010190-1239' }).size).toBe(0);
   });
 
   it('asks for a shipping method, a postbox, a payment method and the terms, each only when it applies', () => {
-    expect(validateCheckout({ ...complete, rateChosen: false, needsPostbox: true, paymentChosen: false, terms: false }).messages).toEqual([
-      'Veldu sendingarmáta.',
-      'Veldu póstbox fyrir sendinguna.',
-      'Veldu greiðslumáta.',
-      'Vinsamlegast lestu og samþykktu skilmálana til að halda áfram með pöntunina.',
-    ]);
-    expect(validateCheckout({ ...complete, needsShipping: false, rateChosen: false, needsPayment: false, paymentChosen: false }).messages).toEqual([]);
-    expect(validateCheckout({ ...complete, needsPostbox: true, postboxChosen: true }).messages).toEqual([]);
+    expect(problems({ ...complete, rateChosen: false, needsPostbox: true, paymentChosen: false, terms: false })).toEqual({
+      shipping_method: 'Veldu sendingarmáta.',
+      postbox: 'Veldu póstbox fyrir sendinguna.',
+      payment_method: 'Veldu greiðslumáta.',
+      terms: 'Samþykktu skilmálana til að halda áfram með pöntunina.',
+    });
+    expect(validateCheckout({ ...complete, needsShipping: false, rateChosen: false, needsPayment: false, paymentChosen: false }).size).toBe(0);
+    expect(validateCheckout({ ...complete, needsPostbox: true, postboxChosen: true }).size).toBe(0);
+  });
+
+  it('lists the problems in the order the form shows them (the first one is scrolled to)', () => {
+    const order = [...validateCheckout({ ...complete, billing: { first_name: '', company: '', email: '' }, terms: false, rateChosen: false }).keys()];
+    expect(order).toEqual(['billing_first_name', 'billing_email', 'shipping_method', 'terms']);
   });
 });
