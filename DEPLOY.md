@@ -326,7 +326,10 @@ in the spec.
   throws (Astro then renders `500.astro`), `unhandled rejection`, and shutdown. Fields are the method, the
   **pathname only** (queries carry order and reset keys), status and ms. Every string is passed through
   `redactSecrets`, which blanks `consumer_key`, `consumer_secret`, `key`, `password`, `token` and similar values; the
-  WooCommerce REST key travels as a query param, and `lib/woo` also scrubs it from errors it rethrows.
+  WooCommerce REST key travels in the `Authorization` header, and `lib/woo` also scrubs it from errors it rethrows.
+  An error line `[woo] … 401 with the keys in the Authorization header, 200 with the same keys in the URL` means the web
+  server in front of WordPress drops that header: the shop keeps working with the key in the URL (so it is back in
+  the WordPress access log) until the header is let through (the app tries the header again every 15 minutes).
 - Unhandled promise rejections are logged and the process keeps serving (this replaces the node adapter's own
   listener, which logged the raw request URL). Uncaught exceptions are logged and then crash as usual; App Platform
   restarts the container (`RESTART_COUNT` alert in the spec).
@@ -486,7 +489,7 @@ On the WordPress host, in this order. Each step has its check; stop at the first
      `yes`.
    - `woocommerce_price_num_decimals` = `0`. Check: `wp option get woocommerce_price_num_decimals` is `0`.
    - A **Read/Write** REST key for the storefront. Check: WooCommerce → Settings → Advanced → REST API lists it with
-     "Read/Write"; `curl -s -o /dev/null -w '%{http_code}' 'https://<wp-host>/wp-json/wc/v3/products?per_page=1&consumer_key=…&consumer_secret=…'`
+     "Read/Write"; `curl -s -o /dev/null -w '%{http_code}' -u 'ck_…:cs_…' 'https://<wp-host>/wp-json/wc/v3/products?per_page=1'`
      is 200 (run it from your machine, never paste the key into logs or tickets).
 6. **Public endpoints answer.** Check:
    `curl -s 'https://<wp-host>/wp-json/mos/v1/front-page' | jq 'keys'`,

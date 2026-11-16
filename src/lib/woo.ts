@@ -3,8 +3,9 @@
 //  - always send status=publish; trim list payloads with _fields.
 //  - pagination via X-WP-Total / X-WP-TotalPages headers.
 // The key pair is read when a request is made (getSecret), not at import, so `astro build` needs neither secret: the
-// prerendered pages share chunks with this module. It travels as query params, so nothing here logs or rethrows a
-// URL unredacted (lib/logger redactSecrets).
+// prerendered pages share chunks with this module. It travels in the Authorization header, which stays out of the
+// web server's access log. Only a server that drops that header gets it as query params (see wooFetch), so nothing
+// here logs or rethrows a URL unredacted (lib/logger redactSecrets).
 import { WP_INTERNAL_URL, getSecret } from 'astro:env/server';
 import { log, redactSecrets } from './logger';
 import type { WooProduct, WooVariation } from './types';
@@ -23,10 +24,12 @@ type Params = Record<string, string | number | boolean | number[] | undefined | 
 
 let lastMissingLog = -Infinity;
 
-/** The REST key pair as query params. Throws (no request is made) when either secret is unset, and says so in the
- *  log (at most once a minute): callers degrade quietly to the 503 outage page, which would otherwise look exactly
- *  like a WordPress outage. */
-function authParams(): URLSearchParams {
+type Credentials = { key: string; secret: string };
+
+/** The REST key pair. Throws (no request is made) when either secret is unset, and says so in the log (at most once
+ *  a minute): callers degrade quietly to the 503 outage page, which would otherwise look exactly like a WordPress
+ *  outage. */
+function credentials(): Credentials {
   const key = getSecret('WOOCOMMERCE_CONSUMER_KEY');
   const secret = getSecret('WOOCOMMERCE_CONSUMER_SECRET');
   if (!key || !secret) {
@@ -37,7 +40,46 @@ function authParams(): URLSearchParams {
     }
     throw new Error(msg);
   }
-  return new URLSearchParams({ consumer_key: key, consumer_secret: secret });
+  return { key, secret };
+}
+
+/** How long the key pair keeps travelling in the URL after the header was refused and the URL accepted. Then the
+ *  header is tried again: a refusal that was not about the header (a firewall's 403) does not last. */
+const QUERY_AUTH_MS = 15 * 60 * 1000;
+/** Until when the key pair travels in the URL (0: in the header). */
+let queryAuthUntil = 0;
+
+/**
+ * One WooCommerce REST request with the key pair attached. The pair goes in the Authorization header. A web server
+ * that drops that header before PHP makes WooCommerce answer 401 (never 403: that is a firewall, or a key without
+ * the permission) to everything, so a 401 is asked once more with the pair in the URL. If that one succeeds, the
+ * process keeps to the URL (one request per call) for QUERY_AUTH_MS and says so. Keys refused both ways are simply
+ * refused: the answer is returned and the header is tried next time. Both attempts share the one time budget.
+ */
+async function wooFetch({ key, secret }: Credentials, path: string, params: URLSearchParams, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const signal = AbortSignal.timeout(timeoutMs);
+  const send = (mode: 'header' | 'query'): Promise<Response> => {
+    const usp = new URLSearchParams(params);
+    const headers = new Headers(init.headers);
+    if (mode === 'query') {
+      usp.set('consumer_key', key);
+      usp.set('consumer_secret', secret);
+    } else {
+      headers.set('Authorization', `Basic ${btoa(`${key}:${secret}`)}`);
+    }
+    const query = usp.toString();
+    return fetch(`${BASE}${path}${query ? `?${query}` : ''}`, { ...init, headers, signal });
+  };
+  if (Date.now() < queryAuthUntil) return send('query');
+  const res = await send('header');
+  if (res.status !== 401) return res;
+  void res.body?.cancel().catch(() => {}); // the refused answer is not read; a failed cancel changes nothing
+  const retry = await send('query');
+  if (retry.ok && Date.now() >= queryAuthUntil) {
+    queryAuthUntil = Date.now() + QUERY_AUTH_MS;
+    log.error(`[woo] ${init.method ?? 'GET'} ${path}: 401 with the keys in the Authorization header, ${retry.status} with the same keys in the URL: sending them in the URL for ${QUERY_AUTH_MS / 60_000} min (is the web server dropping the header?)`);
+  }
+  return retry;
 }
 
 /** `err` with any credential in its message blanked (a fetch TypeError can quote the whole URL), for rethrowing. */
@@ -67,7 +109,8 @@ export class WooHttpError extends Error {
 }
 
 export async function wooGet<T>(path: string, params: Params = {}): Promise<{ data: T; total: number; totalPages: number }> {
-  const usp = authParams();
+  const keys = credentials();
+  const usp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v === undefined || v === null || v === '') continue;
     usp.set(k, Array.isArray(v) ? v.join(',') : String(v));
@@ -77,10 +120,7 @@ export async function wooGet<T>(path: string, params: Params = {}): Promise<{ da
   // degrades every SSR page silently.
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}?${usp.toString()}`, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(WOO_REST_TIMEOUT_MS),
-    });
+    res = await wooFetch(keys, path, usp, { headers: { Accept: 'application/json' } }, WOO_REST_TIMEOUT_MS);
   } catch (err) {
     const timedOut = err instanceof Error && err.name === 'TimeoutError';
     log.warn(`[woo] GET ${path} ${timedOut ? `timed out (${WOO_REST_TIMEOUT_MS / 1000}s)` : 'failed'}`, { err });
@@ -104,14 +144,11 @@ export async function wooGet<T>(path: string, params: Params = {}): Promise<{ da
 /** Write to WC REST v3 (PUT/POST) with the server-side keys. Throws with Woo's message on failure.
  *  `fields` trims the response (`_fields`), which also spares WooCommerce serialising a whole order. */
 export async function wooSend<T>(method: 'POST' | 'PUT', path: string, body: unknown, fields?: string): Promise<T> {
-  const usp = authParams();
+  const keys = credentials();
+  const usp = new URLSearchParams();
   if (fields) usp.set('_fields', fields);
-  const res = await fetch(`${BASE}${path}?${usp.toString()}`, {
-    method,
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10000),
-  }).catch((err: unknown) => {
+  const init = { method, headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  const res = await wooFetch(keys, path, usp, init, 10000).catch((err: unknown) => {
     log.warn(`[woo] ${method} ${path} failed`, { err });
     throw scrubbed(err);
   });

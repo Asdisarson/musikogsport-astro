@@ -1,5 +1,5 @@
-// woo.ts: the REST key pair is read lazily (a build without it succeeds) and never reaches a log line, although it
-// travels as query params on every request.
+// woo.ts: the REST key pair is read lazily (a build without it succeeds), travels in the Authorization header (in the
+// URL only as a fallback) and never reaches a log line.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const secrets: Record<string, string | undefined> = {};
@@ -50,14 +50,21 @@ describe('woo.ts', () => {
     expect(missing()).toBe(1);
   });
 
-  it('sends the key pair on the request', async () => {
-    const fetchMock = vi.fn(async () => new Response('[]', { status: 200 }));
+  it('sends the key pair in the Authorization header, never in the URL (GET and PUT)', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('[]', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
-    const { wooGet } = await import('./woo');
+    const { wooGet, wooSend } = await import('./woo');
     await wooGet('/products', { slug: 'x' });
-    const url = new URL(String((fetchMock.mock.calls[0] as unknown[])[0]));
-    expect(url.searchParams.get('consumer_key')).toBe(KEY);
-    expect(url.searchParams.get('consumer_secret')).toBe(SECRET);
+    await wooSend('PUT', '/orders/1', {}, 'id');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [rawUrl, init] of fetchMock.mock.calls) {
+      const url = new URL(String(rawUrl));
+      expect(url.searchParams.has('consumer_key')).toBe(false);
+      expect(url.searchParams.has('consumer_secret')).toBe(false);
+      expect(new Headers(init?.headers).get('Authorization')).toBe(`Basic ${btoa(`${KEY}:${SECRET}`)}`);
+    }
+    expect(new URL(String(fetchMock.mock.calls[0][0])).searchParams.get('slug')).toBe('x');
+    expect(new URL(String(fetchMock.mock.calls[1][0])).searchParams.get('_fields')).toBe('id');
   });
 
   it('keeps the key pair out of logs and out of the rethrown error when fetch fails with the URL in its message', async () => {
@@ -94,6 +101,138 @@ describe('woo.ts', () => {
     const { wooGet, WooHttpError } = await import('./woo');
     const err = await wooGet('/customers/9').catch((e: unknown) => e);
     expect(err).not.toBeInstanceOf(WooHttpError);
+  });
+});
+
+// A server that drops the Authorization header before PHP answers every REST call 401. The client then sends the
+// key pair as query params instead (what it did before) and stays there, so the shop keeps working and WordPress is
+// not asked twice per call. After a quarter of an hour the header is tried again.
+describe('woo.ts: query-string fallback when the Authorization header is refused', () => {
+  let out: string[];
+  beforeEach(() => {
+    vi.resetModules();
+    out = [];
+    const sink = (...args: unknown[]) => void out.push(args.map(String).join(' '));
+    vi.spyOn(console, 'warn').mockImplementation(sink);
+    vi.spyOn(console, 'error').mockImplementation(sink);
+    vi.spyOn(console, 'log').mockImplementation(sink);
+    secrets.WOOCOMMERCE_CONSUMER_KEY = KEY;
+    secrets.WOOCOMMERCE_CONSUMER_SECRET = SECRET;
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  const hasQueryKeys = (rawUrl: unknown) => new URL(String(rawUrl)).searchParams.get('consumer_key') === KEY && new URL(String(rawUrl)).searchParams.get('consumer_secret') === SECRET;
+  const hasHeader = (init?: RequestInit) => new Headers(init?.headers).has('Authorization');
+  /** Answers like a server whose PHP never sees the header: 401 unless the keys are in the URL. */
+  const headerBlind = () =>
+    vi.fn(async (url: string, _init?: RequestInit) =>
+      hasQueryKeys(url) ? new Response('[{"id":1}]', { status: 200 }) : new Response('{}', { status: 401, statusText: 'Unauthorized' }),
+    );
+
+  it('retries once with the keys in the URL, then stays on the URL for 15 minutes before trying the header again', async () => {
+    const fetchMock = headerBlind();
+    vi.stubGlobal('fetch', fetchMock);
+    const { wooGet, wooSend } = await import('./woo');
+    expect((await wooGet<{ id: number }[]>('/products', { slug: 'x' })).data).toEqual([{ id: 1 }]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(hasHeader(fetchMock.mock.calls[0][1])).toBe(true);
+    expect(hasQueryKeys(fetchMock.mock.calls[0][0])).toBe(false);
+    expect(hasQueryKeys(fetchMock.mock.calls[1][0])).toBe(true);
+    expect(hasHeader(fetchMock.mock.calls[1][1])).toBe(false);
+    expect(new URL(String(fetchMock.mock.calls[1][0])).searchParams.get('slug')).toBe('x');
+    // from here on: one request per call, keys in the URL
+    await wooGet('/products');
+    await wooSend('PUT', '/orders/1', {});
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(hasQueryKeys(fetchMock.mock.calls[2][0])).toBe(true);
+    expect(hasQueryKeys(fetchMock.mock.calls[3][0])).toBe(true);
+    // said once, at error level, without the keys
+    const said = out.filter((l) => l.includes('Authorization header'));
+    expect(said).toHaveLength(1);
+    expect(JSON.parse(said[0]).level).toBe('error');
+    expect(out.join('\n')).not.toContain(KEY);
+    expect(out.join('\n')).not.toContain(SECRET);
+    // 15 minutes on, the header gets another chance (and is refused again by this server)
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(now + 15 * 60 * 1000 + 1);
+    await wooGet('/products');
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(hasHeader(fetchMock.mock.calls[4][1])).toBe(true);
+    expect(hasQueryKeys(fetchMock.mock.calls[4][0])).toBe(false);
+    expect(out.filter((l) => l.includes('Authorization header'))).toHaveLength(2);
+  });
+
+  it('keeps the key pair out of logs and errors when the retry with the keys in the URL fails with that URL in its message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, _init?: RequestInit) => {
+      if (hasQueryKeys(url)) throw new TypeError(`Failed to parse URL from ${url}`);
+      return new Response('{}', { status: 401, statusText: 'Unauthorized' });
+    }));
+    const { wooGet, wooSend } = await import('./woo');
+    const getErr = await wooGet('/orders/5').catch((e: unknown) => e);
+    const sendErr = await wooSend('PUT', '/orders/5', {}).catch((e: unknown) => e);
+    expect(getErr).toBeInstanceOf(Error);
+    expect(sendErr).toBeInstanceOf(Error);
+    expect(out.join('\n')).toContain('/orders/5');
+    for (const text of [out.join('\n'), String(getErr), String(sendErr), (getErr as Error).message, (sendErr as Error).message]) {
+      expect(text).not.toContain(KEY);
+      expect(text).not.toContain(SECRET);
+    }
+  });
+
+  it('stays on the header when the retry with the keys in the URL fails for another reason (a 500 is not "accepted")', async () => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => new Response('{}', hasQueryKeys(url) ? { status: 500 } : { status: 401 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { wooGet } = await import('./woo');
+    await wooGet('/products').catch(() => {});
+    await wooGet('/products').catch(() => {});
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(hasHeader(fetchMock.mock.calls[2][1])).toBe(true);
+    expect(out.filter((l) => l.includes('Authorization header'))).toHaveLength(0);
+  });
+
+  it('gives both attempts one time budget (the same abort signal)', async () => {
+    const fetchMock = headerBlind();
+    vi.stubGlobal('fetch', fetchMock);
+    const { wooGet } = await import('./woo');
+    await wooGet('/products');
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(fetchMock.mock.calls[1][1]?.signal).toBe(fetchMock.mock.calls[0][1]?.signal);
+  });
+
+  it('a write falls back the same way', async () => {
+    const fetchMock = headerBlind();
+    vi.stubGlobal('fetch', fetchMock);
+    const { wooSend } = await import('./woo');
+    expect(await wooSend('PUT', '/orders/1', { customer_id: 2 })).toEqual([{ id: 1 }]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][1]?.method).toBe('PUT');
+    expect(fetchMock.mock.calls[1][1]?.body).toBe(JSON.stringify({ customer_id: 2 }));
+  });
+
+  it('keys refused both ways are just refused: the error is the same and the next call tries the header again', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('{}', { status: 401, statusText: 'Unauthorized' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { wooGet, WooHttpError } = await import('./woo');
+    const err = await wooGet('/products').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(WooHttpError);
+    expect((err as InstanceType<typeof WooHttpError>).status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await wooGet('/products').catch(() => {});
+    expect(hasHeader(fetchMock.mock.calls[2][1])).toBe(true);
+    expect(hasQueryKeys(fetchMock.mock.calls[2][0])).toBe(false);
+    expect(out.filter((l) => l.includes('Authorization header'))).toHaveLength(0);
+  });
+
+  it('does not retry an answer that is not a missing key pair (403 from a firewall or a key without the permission, 404, 500)', async () => {
+    for (const status of [403, 404, 500]) {
+      const fetchMock = vi.fn(async () => new Response('{}', { status }));
+      vi.stubGlobal('fetch', fetchMock);
+      const { wooGet } = await import('./woo');
+      await wooGet('/products').catch(() => {});
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
   });
 });
 

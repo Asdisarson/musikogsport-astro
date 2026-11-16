@@ -1,6 +1,6 @@
 // Structured logs for App Platform's runtime log viewer — SERVER-ONLY. One JSON object per line
 // ({time, level, msg, ...fields}), never PII: callers pass a pathname, never a query string, and every string that
-// reaches a line goes through redactSecrets anyway (the WooCommerce REST key travels as a query param, lib/woo).
+// reaches a line goes through redactSecrets anyway (the WooCommerce REST key can travel as a query param, lib/woo's fallback).
 // Level from MOS_LOG_LEVEL at run time (debug | info | warn | error; default info).
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
