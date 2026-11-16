@@ -299,17 +299,27 @@ hash), and keep `frame-ancestors`, `form-action` and the rest in the middleware 
 
 ### Caching
 
-App Platform puts a Cloudflare CDN in front of the service. Service responses are cached only when their
-`Cache-Control` allows it, and a cached response stays until the next deployment
-([DO: cache content](https://docs.digitalocean.com/products/app-platform/how-to/cache-content/)); Cloudflare ignores
-`Vary: Cookie`. So the rules (`src/lib/cachePolicy.ts`, applied by the middleware) never rely on `Vary`:
+Cloudflare is in front of the app and ignores `Vary: Cookie`, so the rules (`src/lib/cachePolicy.ts`, applied by the
+middleware) never rely on `Vary`. Public pages are the same for every visitor (no public page reads a cookie; cart
+count, wishlist and consent are drawn in the browser), so they may be held at the CDN for a minute.
+
+Cloudflare only stores HTML once a rule makes it eligible. In the Cloudflare dashboard: **Caching → Cache Rules →
+Create rule**: *Hostname equals* `musikogsport.is` → **Eligible for cache**, Edge TTL **Use cache-control header if
+present, bypass cache if not**. Leave Browser TTL on "Respect origin". Without the rule every page answers
+`cf-cache-status: DYNAMIC` as before; with it a public page answers `HIT`, and `private, no-store` / `no-store`
+responses are never stored. To turn page caching off again, disable the rule.
+
+The storefront also holds product grids, product details and variations for a minute itself (`lib/storeCatalog`,
+`lib/woo`), so a price or stock change shows on listing and product pages within about two minutes where people are
+browsing, and within about seven on a page nobody has opened for a while. Cart and checkout read WooCommerce live.
+A page rendered with content missing (a failed lookup) is sent `no-store` and never held.
 
 | Response | Cache-Control |
 |---|---|
 | Cart, checkout and thank-you, `/min-sida/`, wishlist, sign-out, `/api/cart*`, `/api/checkout`, `/api/order`, `/api/account/*` | `private, no-store` (whatever the route set) |
 | Any response that sets a cookie | `private, no-store` |
 | Errors (4xx/5xx), including the outage answer (503 + `Retry-After: 30`) | `no-store` |
-| Public HTML pages | `no-cache` (revalidate every time). Not a short `s-maxage`: a page held at the CDN until the next deploy would freeze prices, stock and partial-outage renders, and how DO's CDN treats `s-maxage` is unverified. Revisit with the `cf-cache-status` header on the default domain if WordPress load needs it. |
+| Public HTML pages (200) | `public, max-age=0, s-maxage=60, stale-while-revalidate=300`: browsers revalidate every time, the CDN holds the page for a minute. `no-cache` while `MOS_MAINTENANCE` is on (the owner's preview must not reach the CDN). |
 | `/sitemap.xml` | `public, max-age=21600, stale-while-revalidate=86400` (its own) |
 | `/api/posturinn/droppoints` (200) | `public, max-age=600` (its own: public locker lists) |
 | `/api/products`, `/api/healthz`, other JSON | `no-store` |

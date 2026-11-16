@@ -68,6 +68,7 @@ const many = slides.length > 1;
                 sizes={SIZES}
                 alt={im.alt}
                 loading={i === 0 ? 'eager' : 'lazy'}
+                fetchpriority={i === 0 ? 'high' : undefined}
               />
             </a>
           </figure>

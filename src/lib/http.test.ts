@@ -110,3 +110,14 @@ describe('authStatus', () => {
     expect(authStatus(403)).toBe('unavailable'); // a WAF page, not WordPress
   });
 });
+
+describe('markDegraded', () => {
+  it('keeps a 200 with content missing out of every cache, and cachePolicy leaves that choice alone', async () => {
+    const { markDegraded } = await import('./http');
+    const { cacheControlFor } = await import('./cachePolicy');
+    const response = { headers: new Headers() };
+    markDegraded(response);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(cacheControlFor({ path: '/', method: 'GET', status: 200, current: 'no-store', setsCookie: false, isHtml: true, cdn: true })).toBe('no-store');
+  });
+});

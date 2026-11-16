@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createCachedLoader, createTtlMap } from './cache';
+import { createCachedLoader, createKeyedLoader, createTtlMap } from './cache';
 
 describe('createCachedLoader', () => {
   const setup = (results: (() => Promise<string>)[]) => {
@@ -130,5 +130,115 @@ describe('createTtlMap', () => {
     expect(m.get('a')?.value).toBe(1);
     expect(m.get('b')).toBeUndefined();
     expect(m.get('c')?.value).toBe(3);
+  });
+});
+
+describe('createKeyedLoader', () => {
+  const setup = (impl: (key: string, call: number) => Promise<string>, maxEntries = 10) => {
+    let now = 0;
+    const calls: string[] = [];
+    const get = createKeyedLoader<string>({
+      load: (key) => {
+        calls.push(key);
+        return impl(key, calls.length);
+      },
+      ttlMs: 1000,
+      maxStaleMs: 5000,
+      failMemoMs: 100,
+      maxEntries,
+      now: () => now,
+    });
+    return { get, calls, tick: (ms: number) => (now += ms) };
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  it('loads a key once and serves it within the TTL', async () => {
+    const s = setup(async (k) => `${k}!`);
+    expect(await s.get('a')).toBe('a!');
+    expect(await s.get('a')).toBe('a!');
+    expect(s.calls).toEqual(['a']);
+  });
+
+  it('keeps keys apart', async () => {
+    const s = setup(async (k) => `${k}!`);
+    expect(await s.get('a')).toBe('a!');
+    expect(await s.get('b')).toBe('b!');
+    expect(s.calls).toEqual(['a', 'b']);
+  });
+
+  it('shares one load between concurrent cold callers of a key', async () => {
+    const s = setup(async (k) => `${k}!`);
+    expect(await Promise.all([s.get('a'), s.get('a')])).toEqual(['a!', 'a!']);
+    expect(s.calls).toEqual(['a']);
+  });
+
+  it('serves a stale value at once and refreshes it once in the background', async () => {
+    const s = setup(async (k, n) => `${k}${n}`);
+    expect(await s.get('a')).toBe('a1');
+    s.tick(1000);
+    expect(await Promise.all([s.get('a'), s.get('a')])).toEqual(['a1', 'a1']);
+    await settle();
+    expect(s.calls).toEqual(['a', 'a']);
+    expect(await s.get('a')).toBe('a2');
+  });
+
+  it('throws a cold failure to the caller and remembers it for failMemoMs', async () => {
+    const boom = new Error('down');
+    const s = setup(async (_k, n) => {
+      if (n === 1) throw boom;
+      return 'ok';
+    });
+    await expect(s.get('a')).rejects.toBe(boom);
+    await expect(s.get('a')).rejects.toBe(boom);
+    expect(s.calls).toEqual(['a']);
+    s.tick(100);
+    expect(await s.get('a')).toBe('ok');
+  });
+
+  it('keeps serving the stale value when a refresh fails, without retrying inside failMemoMs', async () => {
+    const s = setup(async (_k, n) => {
+      if (n === 1) return 'good';
+      throw new Error('down');
+    });
+    expect(await s.get('a')).toBe('good');
+    s.tick(1000);
+    expect(await s.get('a')).toBe('good');
+    await settle();
+    expect(await s.get('a')).toBe('good');
+    await settle();
+    expect(s.calls).toEqual(['a', 'a']);
+    s.tick(100);
+    expect(await s.get('a')).toBe('good');
+    await settle();
+    expect(s.calls).toEqual(['a', 'a', 'a']);
+  });
+
+  it('does not show a value older than maxStaleMs past its TTL: the caller waits for a load', async () => {
+    const s = setup(async (k, n) => `${k}${n}`);
+    expect(await s.get('a')).toBe('a1');
+    s.tick(6000);
+    expect(await s.get('a')).toBe('a2');
+    expect(s.calls).toEqual(['a', 'a']);
+  });
+
+  it('falls back to a too-old value when that load fails', async () => {
+    const s = setup(async (_k, n) => {
+      if (n === 1) return 'good';
+      throw new Error('down');
+    });
+    expect(await s.get('a')).toBe('good');
+    s.tick(6000);
+    expect(await s.get('a')).toBe('good');
+    expect(await s.get('a')).toBe('good'); // inside the failure memo: no second attempt
+    expect(s.calls).toEqual(['a', 'a']);
+  });
+
+  it('drops the least recently used key past maxEntries', async () => {
+    const s = setup(async (k) => k, 2);
+    await s.get('a');
+    await s.get('b');
+    await s.get('c');
+    await s.get('a');
+    expect(s.calls).toEqual(['a', 'b', 'c', 'a']);
   });
 });

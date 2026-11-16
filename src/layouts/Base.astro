@@ -14,6 +14,10 @@ import { loadSiteChrome } from '../lib/siteChrome';
 import { loadFrontPage } from '../lib/frontPage';
 import { ld } from '../lib/jsonld';
 import { pageTitle, SITE_NAME } from '../lib/seo';
+import { MEDIA_BASE_URL } from '../lib/img';
+// The two faces drawn above the fold (body text, display headings): the same files global.css's @font-face rules name.
+import interUrl from '@fontsource/inter/files/inter-latin-400-normal.woff2?url';
+import archivoUrl from '@fontsource-variable/archivo/files/archivo-latin-wdth-normal.woff2?url';
 
 interface Props {
   title?: string;
@@ -42,6 +46,11 @@ const desc =
 const [chrome, front] = await Promise.all([loadSiteChrome(), image ? null : loadFrontPage()]);
 const headerLogo = chrome.logos.header ?? { url: '/logo-header.webp', width: 262, height: 80, alt: SITE_NAME };
 const miniCartBar = chrome.shippingBar?.locations.includes('minicart') ? chrome.shippingBar : null;
+
+// Every photo comes from the media host: open that connection while the HTML is still arriving. Not when it is this
+// site's own origin (nothing to gain) or unset.
+const mediaOrigin = MEDIA_BASE_URL && URL.canParse(MEDIA_BASE_URL) ? new URL(MEDIA_BASE_URL).origin : '';
+const preconnectTo = mediaOrigin && mediaOrigin !== Astro.url.origin ? mediaOrigin : null;
 
 // Absolute URLs for canonical + social tags (Astro.site = https://musikogsport.is).
 const siteUrl = Astro.site?.href ?? 'https://musikogsport.is/';
@@ -88,6 +97,10 @@ const websiteLd = {
     {pageLinks?.prev && <link rel="prev" href={new URL(pageLinks.prev, siteUrl).href} />}
     {pageLinks?.next && <link rel="next" href={new URL(pageLinks.next, siteUrl).href} />}
     <meta name="theme-color" content="#ffffff" />
+    {preconnectTo && <link rel="preconnect" href={preconnectTo} />}
+    <!-- fonts are fetched in CORS mode, so the preload must be too or the file is downloaded twice -->
+    <link rel="preload" as="font" type="font/woff2" href={interUrl} crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href={archivoUrl} crossorigin />
     <!-- the shop's logo, as on the WordPress site icon (public/: favicon.ico answers the bare /favicon.ico request) -->
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />

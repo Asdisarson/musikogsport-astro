@@ -5,6 +5,17 @@
 import type { Banner, FrontPage, WpImage } from './frontPage';
 
 export const HERO_FALLBACK_CTA = { label: 'Skoða nýjungar', href: '/verslun/' } as const;
+/** `sizes` for the banner hero's photo (`.hero__img`, object-fit: cover): the width it is drawn at before the crop,
+ *  which on a phone is wider than the screen because the hero is taller than the photo's shape. The heights are
+ *  global.css `.hero`'s: min(585px, 150vw) up to 991px, min(800px, 56vw) above (its 440px floor never applies there). '100vw' when the size is unknown. */
+export function heroBannerSizes(width: number, height: number): string {
+  if (!(width > 0 && height > 0)) return '100vw';
+  const ratio = width / height;
+  const px = (h: number) => `${Math.round(h * ratio)}px`;
+  const vw = (h: number) => `${Math.round(h * ratio)}vw`;
+  return `(max-width: 991px) max(100vw, min(${px(585)}, ${vw(150)})), max(100vw, min(${px(800)}, ${vw(56)}))`;
+}
+
 /** The last resort for a heading, so the hero never renders an empty h1/h2. */
 export const HERO_FALLBACK_HEADLINE = 'Nýjungar';
 

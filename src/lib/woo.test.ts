@@ -520,3 +520,56 @@ describe('listAllProductSlugs', () => {
     expect((await listAllProductSlugs()).map((p) => p.slug)).toEqual(['a']);
   });
 });
+
+describe('product page lookups are held for a minute', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    secrets.WOOCOMMERCE_CONSUMER_KEY = KEY;
+    secrets.WOOCOMMERCE_CONSUMER_SECRET = SECRET;
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+
+  it('asks WooCommerce once for a slug, and once more for another', async () => {
+    const f = vi.fn(async (url: string) => json([{ id: 1, slug: new URL(url).searchParams.get('slug') }]));
+    vi.stubGlobal('fetch', f);
+    const { getProductBySlug } = await import('./woo');
+    expect((await getProductBySlug('a'))?.slug).toBe('a');
+    expect((await getProductBySlug('a'))?.slug).toBe('a');
+    expect(f).toHaveBeenCalledTimes(1);
+    expect((await getProductBySlug('b'))?.slug).toBe('b');
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+
+  it('holds a missing slug as null', async () => {
+    const f = vi.fn(async () => json([]));
+    vi.stubGlobal('fetch', f);
+    const { getProductBySlug } = await import('./woo');
+    expect(await getProductBySlug('gone')).toBeNull();
+    expect(await getProductBySlug('gone')).toBeNull();
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws an outage and does not hold it as a product', async () => {
+    const f = vi.fn(async () => new Response('down', { status: 502, statusText: 'Bad Gateway' }));
+    vi.stubGlobal('fetch', f);
+    const { getProductBySlug } = await import('./woo');
+    await expect(getProductBySlug('a')).rejects.toThrow(/502/);
+    await expect(getProductBySlug('a')).rejects.toThrow(/502/);
+    expect(f).toHaveBeenCalledTimes(1); // remembered for a few seconds, not re-asked by every render
+  });
+
+  it('asks once for a product\'s variations and sorts them by menu_order, then id', async () => {
+    const f = vi.fn(async () => json([{ id: 9, menu_order: 1 }, { id: 7, menu_order: 0 }, { id: 5, menu_order: 1 }]));
+    vi.stubGlobal('fetch', f);
+    const { getVariations } = await import('./woo');
+    expect((await getVariations(42)).map((v) => v.id)).toEqual([7, 5, 9]);
+    await getVariations(42);
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+});

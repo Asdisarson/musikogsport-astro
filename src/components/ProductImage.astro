@@ -7,13 +7,15 @@ interface Props {
   width?: number;
   height?: number;
   loading?: 'lazy' | 'eager';
+  /** 'high' for the one photo that is the page's main content (the product page's first). */
+  fetchpriority?: 'high';
   class?: string;
   id?: string;
   /** Already rewritten to the media host (mediaSrcset); with `sizes`. */
   srcset?: string;
   sizes?: string;
 }
-const { src, alt = '', width, height, loading = 'lazy', class: className, id, srcset, sizes } = Astro.props;
+const { src, alt = '', width, height, loading = 'lazy', fetchpriority, class: className, id, srcset, sizes } = Astro.props;
 const finalSrc = mediaUrl(src) || PLACEHOLDER;
 // Most local media files 404: `data-fallback` opts the image into /img-fallback.js (loaded by Base.astro), which drops
 // a failed srcset, then swaps a failed src for the placeholder, once. No inline onerror: an enforced CSP blocks it.
@@ -27,6 +29,7 @@ const finalSrc = mediaUrl(src) || PLACEHOLDER;
   width={width}
   height={height}
   loading={loading}
+  fetchpriority={fetchpriority}
   decoding="async"
   class={className}
   id={id}

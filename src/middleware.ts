@@ -61,7 +61,7 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
   // On any host but the site's own (new.musikogsport.is before the move) the pages are duplicates: keep them out of
   // search engines. On the real host nothing is added.
   const headers = isCanonicalHost(ctx.url.host, ctx.site) ? HEADERS : [...HEADERS, NOINDEX];
-  const out = finishResponse(res, { path, method, cookiesPending: !ctx.cookies.headers().next().done, headers });
+  const out = finishResponse(res, { path, method, cookiesPending: !ctx.cookies.headers().next().done, cdn: !MAINTENANCE.enabled, headers });
   const fields = { method, path, status: out.status, ms: Math.round(performance.now() - started) };
   // The shop closed on purpose is not an outage: keep it out of the warnings.
   if (door === 'closed') log.debug('closed for maintenance', fields);

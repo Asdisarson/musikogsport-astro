@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { cacheControlFor, isPersonalPath } from './cachePolicy';
+import { PUBLIC_HTML, cacheControlFor, isPersonalPath } from './cachePolicy';
 
-const base = { method: 'GET', status: 200, current: null, setsCookie: false, isHtml: true };
+const base = { method: 'GET', status: 200, current: null, setsCookie: false, isHtml: true, cdn: true };
 
 describe('isPersonalPath', () => {
   it('covers every per-shopper page and API', () => {
@@ -54,9 +54,28 @@ describe('cacheControlFor', () => {
     expect(cacheControlFor({ ...base, path: '/api/posturinn/droppoints', isHtml: false, current: 'public, max-age=600' })).toBe('public, max-age=600');
   });
 
-  it('gives public HTML no-cache (revalidate every time; never held at the CDN)', () => {
-    expect(cacheControlFor({ ...base, path: '/' })).toBe('no-cache');
-    expect(cacheControlFor({ ...base, path: '/verslun/skor/vara-1/' })).toBe('no-cache');
+  it('lets the CDN hold public HTML for a minute while browsers revalidate every time', () => {
+    expect(PUBLIC_HTML).toBe('public, max-age=0, s-maxage=60, stale-while-revalidate=300');
+    expect(cacheControlFor({ ...base, path: '/' })).toBe(PUBLIC_HTML);
+    expect(cacheControlFor({ ...base, path: '/verslun/skor/vara-1/' })).toBe(PUBLIC_HTML);
+    expect(cacheControlFor({ ...base, path: '/voruflokkur/skor/', method: 'HEAD' })).toBe(PUBLIC_HTML);
+  });
+
+  it('keeps public HTML out of the CDN while the shop is closed for maintenance, and for any status but 200', () => {
+    expect(cacheControlFor({ ...base, path: '/', cdn: false })).toBe('no-cache');
+    expect(cacheControlFor({ ...base, path: '/', status: 206 })).toBe('no-cache');
+  });
+
+  it('never lets the CDN hold a personal page, a cookie-setting page or a non-GET, whatever else is true', () => {
+    for (const input of [
+      { ...base, path: '/min-sida/' },
+      { ...base, path: '/karfa/' },
+      { ...base, path: '/', setsCookie: true },
+      { ...base, path: '/', method: 'POST' },
+      { ...base, path: '/x/', status: 404 },
+      { ...base, path: '/', status: 503 },
+    ])
+      expect(cacheControlFor(input), JSON.stringify(input)).not.toContain('public');
   });
 
   it('gives other un-labelled responses and every non-GET no-store', () => {

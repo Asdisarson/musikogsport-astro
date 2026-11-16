@@ -3,7 +3,7 @@
 // a white pill CTA. The image is the first WP banner with an image; without one, the "Forsíða" product
 // slides on #F5F5F5 (ink text, no gradient), stepped by two round arrows when there are several.
 // planHome() (lib/homeLayout) decides which.
-import type { HeroPlan } from '../lib/homeLayout';
+import { heroBannerSizes, type HeroPlan } from '../lib/homeLayout';
 import { mediaUrl } from '../lib/img';
 import { photoBgFor } from '../lib/photoBgServer';
 
@@ -13,12 +13,14 @@ interface Props {
 const { plan } = Astro.props;
 const slides = plan.kind === 'product' ? plan.slides : [];
 const many = slides.length > 1;
+// the product photo fills the right half on a desktop, the full width below 992px (global.css .hero__media)
+const SLIDE_SIZES = '(min-width: 992px) 50vw, 100vw';
 ---
 
 {
   plan.kind === 'banner' ? (
     <section class="hero hero--banner" data-hero>
-      <img class="hero__img" src={plan.image.url} alt="" width={plan.image.width} height={plan.image.height} loading="eager" fetchpriority="high" decoding="async" />
+      <img class="hero__img" src={plan.image.url} srcset={plan.image.srcset || undefined} sizes={plan.image.srcset ? heroBannerSizes(plan.image.width, plan.image.height) : undefined} alt="" width={plan.image.width} height={plan.image.height} loading="eager" fetchpriority="high" decoding="async" />
       <div class="hero__copy">
         <h1 class="hero__title">{plan.headline}</h1>
         {plan.text && <p class="hero__text">{plan.text}</p>}
@@ -43,7 +45,7 @@ const many = slides.length > 1;
           {...photoBgFor(mediaUrl(s.image.url))}
         >
           <a class="hero__media" href={s.href} tabindex="-1" aria-hidden="true">
-            <img src={s.image.url} alt="" width={s.image.width} height={s.image.height} loading={i === 0 ? 'eager' : 'lazy'} fetchpriority={i === 0 ? 'high' : undefined} decoding="async" />
+            <img src={s.image.url} srcset={s.image.srcset || undefined} sizes={s.image.srcset ? SLIDE_SIZES : undefined} alt="" width={s.image.width} height={s.image.height} loading={i === 0 ? 'eager' : 'lazy'} fetchpriority={i === 0 ? 'high' : undefined} decoding="async" />
           </a>
           {!plan.headline && (
             <div class="hero__copy">

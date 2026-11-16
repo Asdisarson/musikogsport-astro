@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { homeSections, planHome, HERO_FALLBACK_CTA } from './homeLayout';
+import { heroBannerSizes, homeSections, planHome, HERO_FALLBACK_CTA } from './homeLayout';
 import type { Banner, FrontPage, HeroSlide, WpImage } from './frontPage';
 
-const img = (name: string): WpImage => ({ url: `http://localhost:10025/${name}.jpg`, width: 2000, height: 1000, alt: '' });
+const img = (name: string): WpImage => ({ url: `http://localhost:10025/${name}.jpg`, width: 2000, height: 1000, alt: '', srcset: '' });
 const banner = (title: string, withImage = true): Banner => ({ image: withImage ? img(title) : null, title, href: `/${title}/` });
 const slide = (id: number, name: string, withImage = true): HeroSlide => ({
   id, name, href: `/vara/${id}/`, price: '', regular_price: '', sale_price: '', on_sale: false, price_html: '', image: withImage ? img(`p${id}`) : null,
@@ -98,5 +98,21 @@ describe('homeSections', () => {
     expect(names(homeSections(2, rows(4)))).toEqual(['row0', 'story:s0a', 'row1', 'story:s1a', 'story:s2a', 'story:s3a']);
     expect(names(homeSections(3, rows(1)))).toEqual(['row0', 'story:s0a', 'row1', 'row2']);
     expect(homeSections(0, [])).toEqual([]);
+  });
+});
+
+describe('heroBannerSizes', () => {
+  it('asks for the width the cropped photo is really drawn at: wider than the screen on a phone', () => {
+    // 16:9 photo. Phone/tablet: the hero is min(585px, 150vw) tall, so the photo is that × 16/9 wide.
+    // Desktop: the hero is min(800px, 56vw) tall.
+    expect(heroBannerSizes(1600, 900)).toBe('(max-width: 991px) max(100vw, min(1040px, 267vw)), max(100vw, min(1422px, 100vw))');
+  });
+
+  it('follows the photo\'s own shape', () => {
+    expect(heroBannerSizes(1000, 1000)).toBe('(max-width: 991px) max(100vw, min(585px, 150vw)), max(100vw, min(800px, 56vw))');
+  });
+
+  it('falls back to the screen width when the photo\'s size is unknown', () => {
+    expect(heroBannerSizes(0, 0)).toBe('100vw');
   });
 });

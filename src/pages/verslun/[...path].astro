@@ -25,7 +25,7 @@ import { loadCatalogTerms } from '../../lib/catalogTerms';
 import { cardCategories, categoryChain, categoryHref, productCrumbTrail, relatedScope } from '../../lib/categoryTree';
 import { categoryPath, movedCategoryTarget, productPath } from '../../lib/paths';
 import { isShoe, sizeChartFor, wantAttr } from '../../lib/sizeGuide';
-import { markUnavailable } from '../../lib/http';
+import { markDegraded, markUnavailable } from '../../lib/http';
 import type { PdpVariation } from '../../lib/types';
 
 export const prerender = false;
@@ -37,13 +37,14 @@ const segments = (Astro.params.path ?? '').split('/').filter(Boolean);
 const slug = segments[segments.length - 1] ?? '';
 // A failed lookup is an outage (a missing slug is an empty 200 list), so it answers 503, not 404.
 let down = false;
+const termsLoading = loadCatalogTerms(); // beside the product lookup: neither needs the other
 const product = slug
   ? await getProductBySlug(slug).catch(() => {
       down = true;
       return null;
     })
   : null;
-const terms = await loadCatalogTerms();
+const terms = await termsLoading;
 if (!product && terms.degraded) down = true; // the old /verslun/<category> lookup couldn't run
 const legacyCategory = !product && segments.length === 1 ? terms.categories.find((c) => c.slug === slug) : undefined;
 const canonicalPath = product ? productPath(product.permalink, product.slug) : '';
@@ -70,6 +71,7 @@ if (product && product.type === 'variable') {
     .map((a) => ({ name: a.name, options: isSizeAttribute(a.name) ? sortSizeOptions(a.options) : a.options }));
   const raw = await getVariations(product.id).catch(() => {
     variationsFailed = true;
+    markDegraded(Astro.response); // a product page without its sizes must not be held at the CDN
     return [];
   });
   variations = raw.map((v) => ({

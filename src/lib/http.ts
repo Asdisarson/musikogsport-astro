@@ -71,6 +71,13 @@ export function markUnavailable(response: { status?: number; headers: Headers })
   response.headers.set('Cache-Control', 'no-store');
 }
 
+/** The page is being sent with part of its content missing (a lookup failed) or left out for this visitor only (a
+ *  rate limit): still a 200, but it must not be held at the CDN for everyone (lib/cachePolicy keeps a route's own
+ *  Cache-Control). */
+export function markDegraded(response: { headers: Headers }): void {
+  response.headers.set('Cache-Control', 'no-store');
+}
+
 /** A same-site path to send the visitor back to — never an absolute, protocol-relative or odd URL. Printable ASCII
  *  only, without a backslash: a non-Latin-1 or control character can't go in a Location header (the redirect would
  *  throw after the sign-in had already set its cookie), so such a value takes the fallback. Browsers send

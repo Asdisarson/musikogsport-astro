@@ -1,5 +1,6 @@
 // LC-03: while WordPress is failing, the catalog must not send (and wait on) the same Store API request for every
 // render. Concurrent identical grid requests share one call; a failed grid or count request is remembered briefly.
+// A grid that loaded is held for a minute (stale-while-revalidate).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('astro:env/server', () => ({ WP_INTERNAL_URL: 'http://wp.test' }));
@@ -53,11 +54,22 @@ describe('storeProducts', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('never caches a success (the grid is always fresh)', async () => {
+  it('holds a grid for a minute: a repeat is served without asking, a stale one at once while it refreshes', async () => {
     fetchMock.mockImplementation(async () => products());
     const q = fresh();
     await storeProducts(q);
     await storeProducts(q);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(1_000_000 + 60_000);
+    await storeProducts(q);
+    await new Promise((r) => setImmediate(r));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps different queries apart', async () => {
+    fetchMock.mockImplementation(async () => products());
+    await storeProducts(fresh());
+    await storeProducts(fresh());
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

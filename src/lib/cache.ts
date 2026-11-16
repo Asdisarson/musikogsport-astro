@@ -84,3 +84,55 @@ export function createTtlMap<K, V>(maxEntries: number, now: () => number = Date.
     size: () => entries.size,
   };
 }
+
+/** `createCachedLoader` per key (stale-while-revalidate), bounded by `maxEntries` (least recently used goes first).
+ *  A fresh value is returned as is; a stale one is returned at once while a single background refresh runs;
+ *  concurrent cold callers of a key share one load. A value more than `maxStaleMs` past its TTL is too old to show
+ *  (a rarely asked key could otherwise answer with a price from hours ago): the caller waits for a load, and gets
+ *  the old value only if that load fails. A failed load is remembered for `failMemoMs` per key: with a value in hand
+ *  that value keeps being served, otherwise the error is thrown to every caller until the memo expires, so an
+ *  outage isn't retried (and waited on) by every request. Values are shared between callers: treat them as
+ *  read-only. */
+export function createKeyedLoader<V>(opts: {
+  load: (key: string) => Promise<V>;
+  ttlMs: number;
+  maxStaleMs: number;
+  failMemoMs: number;
+  maxEntries: number;
+  now?: () => number;
+}): (key: string) => Promise<V> {
+  const now = opts.now ?? (() => Date.now()); // read at call time: tests swap the global Date
+  // The map's own expiry marks "too old to show"; `at` says when to refresh.
+  const values = createTtlMap<string, { value: V; at: number }>(opts.maxEntries, now);
+  const failures = createTtlMap<string, unknown>(opts.maxEntries, now);
+  const inflight = new Map<string, Promise<V>>();
+
+  const refresh = (key: string): Promise<V> => {
+    const pending = inflight.get(key);
+    if (pending) return pending;
+    const load = opts
+      .load(key)
+      .then((value) => {
+        values.set(key, { value, at: now() }, opts.ttlMs + opts.maxStaleMs);
+        return value;
+      })
+      .catch((err: unknown) => {
+        failures.set(key, err, opts.failMemoMs);
+        throw err;
+      })
+      .finally(() => inflight.delete(key));
+    inflight.set(key, load);
+    return load;
+  };
+
+  return (key) => {
+    const hit = values.get(key);
+    const failing = failures.get(key)?.fresh ? failures.get(key) : undefined;
+    if (!hit) return failing ? Promise.reject(failing.value) : refresh(key);
+    const { value, at } = hit.value;
+    if (failing) return Promise.resolve(value); // WordPress is failing: the last good value, however old
+    if (!hit.fresh) return refresh(key).catch(() => value);
+    if (now() - at >= opts.ttlMs) refresh(key).catch(() => undefined); // the failure is memoised above
+    return Promise.resolve(value);
+  };
+}

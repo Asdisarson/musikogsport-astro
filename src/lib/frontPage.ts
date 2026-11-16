@@ -11,6 +11,8 @@ export interface WpImage {
   width: number;
   height: number;
   alt: string;
+  /** The image's smaller sizes as WordPress lists them (`url 768w, …`), or '' when there are none. */
+  srcset: string;
 }
 
 export interface HeroSlide {
@@ -67,7 +69,9 @@ const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 function image(v: unknown): WpImage | null {
   const i = obj(v);
   const url = str(i.url);
-  return url ? { url, width: Number(i.width) || 0, height: Number(i.height) || 0, alt: str(i.alt) } : null;
+  const srcset = str(i.srcset);
+  // a srcset is only a choice with width descriptors (lib/img mediaSrcset has the same rule)
+  return url ? { url, width: Number(i.width) || 0, height: Number(i.height) || 0, alt: str(i.alt), srcset: /\s\d+w\b/.test(srcset) ? srcset : '' } : null;
 }
 
 /** The front-page answer in the shape the site expects whatever arrives: every missing field gets its empty default

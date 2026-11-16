@@ -19,10 +19,18 @@ describe('normaliseFrontPage', () => {
     });
     expect(fp.logos.header?.url).toBe('http://localhost:10025/wp-content/uploads/logo.webp');
     expect(fp.logos.footer).toBeNull();
-    expect(fp.hero.slides[0].image).toEqual({ url: 'http://127.0.0.1:10025/wp-content/uploads/s.jpg', width: 10, height: 20, alt: 'x' });
+    expect(fp.hero.slides[0].image).toEqual({ url: 'http://127.0.0.1:10025/wp-content/uploads/s.jpg', width: 10, height: 20, alt: 'x', srcset: '' });
     expect(fp.banners[0]?.image?.url).toBe('http://localhost:10025/wp-content/uploads/2026/10/H24616.jpg');
     expect(fp.banners[1]).toBeNull();
     expect(fp.banners[2]?.image).toBeNull();
+  });
+
+  it('keeps an image\'s smaller sizes as WordPress listed them, and drops a srcset with nothing to choose from', () => {
+    const sized = 'https://wp.example/a-768x432.jpg 768w, https://wp.example/a.jpg 2048w';
+    const fp = normaliseFrontPage({
+      banners: [{ image: { ...img('https://wp.example/a.jpg'), srcset: sized }, title: '', href: '' }, { image: { ...img('https://wp.example/b.jpg'), srcset: 'https://wp.example/b.jpg' }, title: '', href: '' }, { image: { ...img('https://wp.example/c.jpg'), srcset: false }, title: '', href: '' }],
+    });
+    expect(fp.banners.map((b) => b?.image?.srcset)).toEqual([sized, '', '']);
   });
 
   it('drops an image without a URL', () => {

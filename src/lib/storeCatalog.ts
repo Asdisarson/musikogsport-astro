@@ -8,7 +8,7 @@
 // semantic. It needs no consumer keys. We map its product shape back onto the
 // WooProduct card subset so ProductGrid/ProductCard/PriceTag render unchanged.
 import { WP_INTERNAL_URL } from 'astro:env/server';
-import { createTtlMap } from './cache';
+import { createKeyedLoader, createTtlMap } from './cache';
 import { upstreamGet } from './upstream';
 import { log } from './logger';
 import { createLimiter } from './rateLimit';
@@ -88,14 +88,23 @@ async function catalogFetch(url: string, what: string): Promise<Response> {
   return res;
 }
 
-// The grid is never cached, but while WordPress fails it mustn't be asked (and waited on) by every render: concurrent
-// identical requests share one call, and a failed one is remembered for a few seconds per URL (the caller degrades as
-// it does for any failure). Per process, like the other caches.
+// The grid is held for a minute per request URL (stale-while-revalidate, lib/cache createKeyedLoader): a render never
+// waits on WordPress for a grid it has seen, and a price or stock change shows within about a minute. Cart and
+// checkout don't read this. Concurrent identical requests share one call, and while WordPress fails a URL isn't asked
+// (and waited on) by every render: the failure is remembered for a few seconds (the caller degrades as it does for
+// any failure, or keeps the last good grid). Per process, like the other caches.
+const PRODUCTS_TTL_MS = 60 * 1000;
+const PRODUCTS_MAX_STALE_MS = 5 * 60 * 1000; // a grid nobody asked for in that long is loaded afresh, not shown
 const PRODUCTS_FAIL_MEMO_MS = 10 * 1000;
-const productsInflight = new Map<string, Promise<Paged<WooProduct>>>();
-const productsFailed = createTtlMap<string, unknown>(500, () => Date.now());
+const productsByUrl = createKeyedLoader<Paged<WooProduct>>({
+  load: (url) => fetchProducts(url, Number(new URL(url).searchParams.get('page'))),
+  ttlMs: PRODUCTS_TTL_MS,
+  maxStaleMs: PRODUCTS_MAX_STALE_MS,
+  failMemoMs: PRODUCTS_FAIL_MEMO_MS,
+  maxEntries: 500,
+});
 
-export async function storeProducts(q: StoreQuery = {}): Promise<Paged<WooProduct>> {
+export function storeProducts(q: StoreQuery = {}): Promise<Paged<WooProduct>> {
   const page = q.page && q.page > 0 ? q.page : 1;
   const per_page = q.per_page ?? CATALOG_PER_PAGE;
   const usp = new URLSearchParams();
@@ -104,20 +113,7 @@ export async function storeProducts(q: StoreQuery = {}): Promise<Paged<WooProduc
   usp.set('orderby', q.orderby ?? 'date');
   usp.set('order', q.order ?? 'desc');
   appendFilters(usp, q);
-
-  const url = `${BASE}/products?${usp.toString()}`;
-  const failed = productsFailed.get(url);
-  if (failed?.fresh) throw failed.value;
-  const pending = productsInflight.get(url);
-  if (pending) return pending;
-  const load = fetchProducts(url, page)
-    .catch((err: unknown) => {
-      productsFailed.set(url, err, PRODUCTS_FAIL_MEMO_MS);
-      throw err;
-    })
-    .finally(() => productsInflight.delete(url));
-  productsInflight.set(url, load);
-  return load;
+  return productsByUrl(`${BASE}/products?${usp.toString()}`);
 }
 
 async function fetchProducts(url: string, page: number): Promise<Paged<WooProduct>> {
@@ -183,7 +179,7 @@ const toMap = (rows: { term: number; count: number }[] | null | undefined) => ne
 
 // Facet counts change only when the catalog does, and every filter click asks for a handful of them: a short
 // in-process cache (keyed by the request URL) keeps sorting, paging and back/forward from asking again.
-// The product grid itself is never cached, so a count can trail a stock change by at most this long.
+// The product grid is held for a minute too (PRODUCTS_TTL_MS), so counts and grid can disagree for about that long.
 const COUNTS_TTL_MS = 30 * 1000; // 30 s: a shorter window for a stale dead-end option after a stock change
 const clock = () => Date.now();
 const countsCache = createTtlMap<string, CountsResult>(500, clock);

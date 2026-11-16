@@ -7,6 +7,7 @@
 // web server's access log. Only a server that drops that header gets it as query params (see wooFetch), so nothing
 // here logs or rethrows a URL unredacted (lib/logger redactSecrets).
 import { WP_INTERNAL_URL, getSecret } from 'astro:env/server';
+import { createKeyedLoader } from './cache';
 import { log, redactSecrets } from './logger';
 import type { WooProduct, WooVariation } from './types';
 import { isPosInt } from './validate';
@@ -162,17 +163,43 @@ export async function wooSend<T>(method: 'POST' | 'PUT', path: string, body: unk
   return data as T;
 }
 
-/** Full product object (no _fields) by slug, for the detail page. */
-export async function getProductBySlug(slug: string): Promise<WooProduct | null> {
-  const { data } = await wooGet<WooProduct[]>('/products', { slug, status: 'publish' });
-  return data[0] ?? null;
+// The product page's two lookups are held for a minute each (stale-while-revalidate, lib/cache createKeyedLoader), so
+// a product page that has been seen never waits on WordPress, and a price or stock change shows within about a
+// minute. A slug with no product is held the same way (null). Cart and checkout don't read these: WooCommerce
+// validates every add-to-cart itself. A failed lookup is remembered for a few seconds and thrown, as before.
+const PRODUCT_TTL_MS = 60 * 1000;
+const PRODUCT_MAX_STALE_MS = 5 * 60 * 1000; // a product nobody asked for in that long is loaded afresh, not shown
+const PRODUCT_FAIL_MEMO_MS = 10 * 1000;
+
+const productBySlug = createKeyedLoader<WooProduct | null>({
+  load: async (slug) => (await wooGet<WooProduct[]>('/products', { slug, status: 'publish' })).data[0] ?? null,
+  ttlMs: PRODUCT_TTL_MS,
+  maxStaleMs: PRODUCT_MAX_STALE_MS,
+  failMemoMs: PRODUCT_FAIL_MEMO_MS,
+  maxEntries: 1000,
+});
+
+const variationsByProduct = createKeyedLoader<WooVariation[]>({
+  load: async (productId) => {
+    // The set and order WooCommerce matches in (lib/variations): published only, menu_order then id
+    // (find_matching_product_variation). REST has no id tie-break, so sort here as well.
+    const { data } = await wooGet<WooVariation[]>(`/products/${productId}/variations`, { per_page: 100, status: 'publish', orderby: 'menu_order', order: 'asc' });
+    return [...data].sort((a, b) => (a.menu_order ?? 0) - (b.menu_order ?? 0) || a.id - b.id);
+  },
+  ttlMs: PRODUCT_TTL_MS,
+  maxStaleMs: PRODUCT_MAX_STALE_MS,
+  failMemoMs: PRODUCT_FAIL_MEMO_MS,
+  maxEntries: 1000,
+});
+
+/** Full product object (no _fields) by slug, for the detail page. Shared between callers: read-only. */
+export function getProductBySlug(slug: string): Promise<WooProduct | null> {
+  return productBySlug(slug);
 }
 
-export async function getVariations(productId: number): Promise<WooVariation[]> {
-  // The set and order WooCommerce matches in (lib/variations): published only, menu_order then id
-  // (find_matching_product_variation). REST has no id tie-break, so sort here as well.
-  const { data } = await wooGet<WooVariation[]>(`/products/${productId}/variations`, { per_page: 100, status: 'publish', orderby: 'menu_order', order: 'asc' });
-  return [...data].sort((a, b) => (a.menu_order ?? 0) - (b.menu_order ?? 0) || a.id - b.id);
+/** A variable product's published variations, in WooCommerce's matching order. Shared between callers: read-only. */
+export function getVariations(productId: number): Promise<WooVariation[]> {
+  return variationsByProduct(String(productId));
 }
 
 /**

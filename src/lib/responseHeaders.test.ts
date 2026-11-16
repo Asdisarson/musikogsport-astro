@@ -1,18 +1,23 @@
 import { describe, expect, it } from 'vitest';
+import { PUBLIC_HTML } from './cachePolicy';
 import { finishResponse } from './responseHeaders';
 import { securityHeaders } from './securityHeaders.mjs';
 
 const HEADERS = securityHeaders({ mediaBaseUrl: 'https://musikogsport.is' });
 const html = (status = 200, extra: Record<string, string> = {}) =>
   new Response('<!doctype html>', { status, headers: { 'Content-Type': 'text/html', ...extra } });
-const req = (path: string, method = 'GET', cookiesPending = false) => ({ path, method, cookiesPending, headers: HEADERS });
+const req = (path: string, method = 'GET', cookiesPending = false, cdn = true) => ({ path, method, cookiesPending, cdn, headers: HEADERS });
 
 describe('finishResponse', () => {
-  it('adds every security header and a no-cache policy to a public page', () => {
+  it('adds every security header and the CDN policy to a public page', () => {
     const res = finishResponse(html(), req('/verslun/'));
     for (const [name, value] of HEADERS) expect(res.headers.get(name)).toBe(value);
     expect(res.headers.get('Content-Security-Policy')).toBeNull();
-    expect(res.headers.get('Cache-Control')).toBe('no-cache');
+    expect(res.headers.get('Cache-Control')).toBe(PUBLIC_HTML);
+  });
+
+  it('keeps a public page out of the CDN while the shop is closed for maintenance', () => {
+    expect(finishResponse(html(), req('/verslun/', 'GET', false, false)).headers.get('Cache-Control')).toBe('no-cache');
   });
 
   it('marks a page that sets cookies private, no-store', () => {

@@ -1,13 +1,18 @@
 // Cache-Control for every on-demand response (applied by src/middleware.ts). Pure; SERVER-ONLY by use.
 //
-// App Platform puts a Cloudflare CDN in front of the service. It caches a service response only when the response's
-// Cache-Control allows it, and holds it until the next deployment
-// (https://docs.digitalocean.com/products/app-platform/how-to/cache-content/), and Cloudflare ignores `Vary: Cookie`.
-// So per-shopper responses can't rely on Vary: they are `private, no-store`, by path and whenever cookies are being
-// set. Public HTML is `no-cache` (revalidate each time) rather than a short s-maxage: a cached listing or product
-// page would freeze prices, stock and partial-outage renders at the edge, and the CDN's honouring of s-maxage and
-// purge timing on App Platform is unverified. /_astro/* is served by the node adapter's static handler with
-// `public, max-age=31536000, immutable` and never reaches this.
+// Cloudflare is in front of the app. It ignores `Vary: Cookie`, so per-shopper responses can't rely on Vary: they are
+// `private, no-store`, by path and whenever cookies are being set. Public HTML is the same for every visitor (no
+// public page reads a cookie or a request header; cart count, wishlist and consent are drawn in the browser), so it
+// may be held at the CDN for a minute (PUBLIC_HTML): browsers still revalidate every time (max-age=0), the CDN answers
+// from its copy (s-maxage) and refreshes it in the background (stale-while-revalidate). With the storefront's own
+// minute on product data (lib/storeCatalog, lib/woo) a price or stock change shows within about two minutes on a
+// page people are visiting, and within about seven on one nobody has opened for a while; cart and checkout read
+// WooCommerce live. A page sent with content missing marks itself no-store (lib/http markDegraded), which wins here. Cloudflare only stores HTML once a Cache Rule makes it eligible (DEPLOY.md
+// "Caching"); without the rule this header changes nothing. While the shop is closed for maintenance nothing public
+// is held: what the owner previews must not reach the CDN. /_astro/* is served by the node adapter's static handler
+// with `public, max-age=31536000, immutable` and never reaches this.
+
+export const PUBLIC_HTML = 'public, max-age=0, s-maxage=60, stale-while-revalidate=300';
 
 // Per-shopper pages and APIs: the cart, checkout and thank-you page, the account area, the wishlist, sign-out, and
 // the cart / checkout / order / account APIs.
@@ -26,14 +31,17 @@ export interface CacheInput {
   /** Cookies are being set on this response (Astro adds Set-Cookie after middleware, so callers check ctx.cookies). */
   setsCookie: boolean;
   isHtml: boolean;
+  /** False while public pages must not be held at the CDN (the shop is closed for maintenance). */
+  cdn: boolean;
 }
 
 /** The Cache-Control to send, or null to leave the response's own (a public redirect). */
-export function cacheControlFor({ path, method, status, current, setsCookie, isHtml }: CacheInput): string | null {
+export function cacheControlFor({ path, method, status, current, setsCookie, isHtml, cdn }: CacheInput): string | null {
   if (setsCookie || isPersonalPath(path)) return 'private, no-store';
   if (status >= 300 && status < 400) return current;
   if (status >= 400) return 'no-store';
   if (method !== 'GET' && method !== 'HEAD') return 'no-store';
   if (current) return current;
-  return isHtml ? 'no-cache' : 'no-store';
+  if (!isHtml) return 'no-store';
+  return cdn && status === 200 ? PUBLIC_HTML : 'no-cache';
 }

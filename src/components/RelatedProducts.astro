@@ -7,6 +7,7 @@
 // A server island (`server:defer` on the product page): the uncached product lookups run after the page has been
 // sent, not before it. ProductRow's carousel script comes back with the island HTML, and Astro's island loader
 // inserts it with createContextualFragment, which runs it.
+import { markDegraded } from '../lib/http';
 import { productImage } from '../lib/img';
 import { log } from '../lib/logger';
 import { settlePhotos } from '../lib/photoBgServer';
@@ -31,11 +32,16 @@ const LIMIT = 12;
 
 // Over the visitor's limit the row is simply left out, as when both lookups fail.
 const allowed = relatedRequests.take(visitorKey(Astro));
+// A row left out for this visitor, or short because a lookup failed, must not be held at the CDN for everyone.
+let partial = !allowed;
 // Either lookup failing just leaves its share out; both failing shows no row, as before the island.
 const scoped: WooProduct[] = allowed && categoryId
   ? await storeProducts({ categoryIds: [categoryId], andCategoryIds: audienceIds, stockStatus: ['instock'], orderby: 'popularity', order: 'desc', per_page: LIMIT + 1 })
       .then((r) => r.items.filter((p) => p.id !== productId))
-      .catch(() => [])
+      .catch(() => {
+        partial = true;
+        return [];
+      })
   : [];
 const seen = new Set([productId, ...scoped.map((p) => p.id)]);
 const missing = LIMIT - scoped.length;
@@ -43,9 +49,11 @@ const topUp =
   allowed && missing > 0
     ? await getProductsByIds(ids.filter((id) => !seen.has(id)), missing).catch((err) => {
         log.warn('[related] related_ids top-up failed', { productId, err });
+        partial = true;
         return [];
       })
     : [];
+if (partial) markDegraded(Astro.response);
 const products = [...scoped, ...topUp].slice(0, LIMIT);
 // The tiles fill around each photo as the wall's cards do (lib/photoBg cardFill), which needs the photo read first;
 // renders never wait for that, but this island is already off the critical path, so it waits a moment for them.

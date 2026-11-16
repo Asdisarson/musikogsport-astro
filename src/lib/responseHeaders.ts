@@ -8,12 +8,14 @@ export interface FinishInput {
   method: string;
   /** Astro adds Set-Cookie after middleware, so the caller reports cookies set through ctx.cookies here. */
   cookiesPending: boolean;
+  /** False while public pages must not be held at the CDN (lib/cachePolicy). */
+  cdn: boolean;
   headers: [string, string][];
 }
 
 /** `res` with its headers settled. A Response with immutable headers (Response.redirect, one passed through from
  *  fetch) is copied first. */
-export function finishResponse(res: Response, { path, method, cookiesPending, headers }: FinishInput): Response {
+export function finishResponse(res: Response, { path, method, cookiesPending, cdn, headers }: FinishInput): Response {
   const cache = cacheControlFor({
     path,
     method,
@@ -21,6 +23,7 @@ export function finishResponse(res: Response, { path, method, cookiesPending, he
     current: res.headers.get('Cache-Control'),
     setsCookie: cookiesPending || res.headers.has('Set-Cookie'),
     isHtml: (res.headers.get('Content-Type') ?? '').includes('text/html'),
+    cdn,
   });
   const apply = (r: Response) => {
     for (const [name, value] of headers) r.headers.set(name, value);

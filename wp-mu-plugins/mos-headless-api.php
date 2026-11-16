@@ -218,7 +218,7 @@ function mos_shipping_bar(): ?array {
 }
 
 /**
- * @return array{url: string, width: int, height: int, alt: string}|null
+ * @return array{url: string, width: int, height: int, alt: string, srcset: string}|null
  */
 function mos_image($value): ?array {
     $id = is_array($value) ? (int) ($value['ID'] ?? $value['id'] ?? 0) : (int) $value;
@@ -230,6 +230,8 @@ function mos_image($value): ?array {
         'width'  => (int) $src[1],
         'height' => (int) $src[2],
         'alt'    => mos_plain_text((string) get_post_meta($id, '_wp_attachment_image_alt', true)),
+        // the smaller sizes WordPress made of it ('' when there are none): the storefront lets a phone pick one
+        'srcset' => (string) (wp_get_attachment_image_srcset($id, 'full') ?: ''),
     ];
 }
 
