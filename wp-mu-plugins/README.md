@@ -175,8 +175,8 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
   unused slides folded under "Varaforsíða", empty banners last) beside a panel that counts unsaved changes and holds
   the save button. Saving the front page's fields (here or on the Forsíða screen) pokes the storefront
   (`mos_front_page_poke()` in `mos-headless-api.php` → `POST /api/content-refresh`), so the pictures show at once
-  instead of after the storefront's one-minute cache. The footer logo field is not on the page: it is set on
-  the Forsíða screen, and the storefront draws it at the right of its footer, beside the recognitions. It shows the existing ACF "Forsíða" fields of `mos-headless-api.php` for the front page (`acf_form()`), so
+  instead of after the storefront's one-minute cache. The footer logo field is not on the page: the
+  storefront's footer draws its own small copy from the media library (`src/lib/site.ts`), beside the recognitions. It shows the existing ACF "Forsíða" fields of `mos-headless-api.php` for the front page (`acf_form()`), so
   it stores nothing of its own; texts, product rows and footer stay on the Forsíða edit screen. Needs ACF and a front
   page (otherwise it says so); when the slides are on top it warns about one the storefront would leave out
   (unpublished product or no picture). If `homeLayout.ts` changes, change `mos_stillingar_layout()` with it. Changes

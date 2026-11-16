@@ -1,6 +1,6 @@
 ---
-// Black footer: the footer logo (wp-admin → Forsíða, "Merki í fæti") and the recognitions (lib/site
-// FOOTER_AWARDS) on white chips, since those files have white backgrounds, to the right of three link columns (shop sections from the main menu, the WordPress footer menu as "Hjálp", and
+// Black footer: the footer logo and the recognitions (lib/site FOOTER_LOGO, FOOTER_AWARDS: media-library files)
+// on white chips, since those files have white backgrounds, to the right of three link columns (shop sections from the main menu, the WordPress footer menu as "Hjálp", and
 // the store's contact details and Instagram with icons) under the mailing-list sign-up band (NewsletterForm), then
 // a full-width orange bottom bar with the company
 // line (companyParts) and the legal links (the inner div keeps its content on the page grid while the
@@ -13,7 +13,7 @@ import type { SiteChrome } from '../lib/siteChrome';
 import { companyParts } from '../lib/companyLine';
 import { shopSections } from '../lib/megaMenu';
 import { linkRel } from '../lib/safeUrl';
-import { FOOTER_AWARDS, INSTAGRAM_URL } from '../lib/site';
+import { FOOTER_AWARDS, FOOTER_LOGO, INSTAGRAM_URL } from '../lib/site';
 
 interface Props {
   chrome: SiteChrome;
@@ -27,7 +27,6 @@ const shop = shopSections(chrome.primary);
 // "© 2026 Músík og Sport ehf. · Kt. 710303-2310", or wp-admin's sentence as written when it doesn't read that way
 const company = companyParts(f.companyLine);
 const year = new Date().getFullYear();
-const logo = chrome.logos.footer;
 const legal = [
   { title: 'Skilmálar', href: '/skilmalar/' },
   { title: 'Persónuvernd', href: '/personuvernd/' },
@@ -76,14 +75,10 @@ const legal = [
       </ul>
     </details>
 
-    {
-      (logo || FOOTER_AWARDS.length > 0) && (
-        <ul class="site-footer__awards">
-          {logo && (<li><a class="site-footer__chip" href="/" aria-label="Músík og Sport, forsíða"><img src={logo.url} alt="" width={logo.width} height={logo.height} loading="lazy" decoding="async" /></a></li>)}
-          {FOOTER_AWARDS.map((a) => (<li class="site-footer__chip"><img src={a.src} alt={a.alt} width={a.width} height={a.height} loading="lazy" decoding="async" /></li>))}
-        </ul>
-      )
-    }
+    <ul class="site-footer__awards">
+      <li><a class="site-footer__chip" href="/" aria-label="Músík og Sport, forsíða"><img src={FOOTER_LOGO.src} alt={FOOTER_LOGO.alt} width={FOOTER_LOGO.width} height={FOOTER_LOGO.height} loading="lazy" decoding="async" /></a></li>
+      {FOOTER_AWARDS.map((a) => (<li class="site-footer__chip"><img src={a.src} alt={a.alt} width={a.width} height={a.height} loading="lazy" decoding="async" /></li>))}
+    </ul>
   </div>
 
   <div class="site-footer__bar">
