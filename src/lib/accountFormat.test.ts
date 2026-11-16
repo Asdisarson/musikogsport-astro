@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addressFromForm, addressLines, addressProblems } from './accountFormat';
+import { addressFromForm, addressLines, addressProblems, detailsFromForm, detailsProblems } from './accountFormat';
 
 describe('addressFromForm', () => {
   const form = (o: Record<string, string>) => {
@@ -64,5 +64,57 @@ describe('addressProblems', () => {
 
   it('a malformed e-mail address on the billing address is reported at the e-mail field', () => {
     expect(Object.fromEntries(addressProblems({ ...full, email: 'anna@b' }, 'billing'))).toEqual({ email: 'Ógilt netfang.' });
+  });
+});
+
+describe('detailsProblems', () => {
+  const ok = { first: 'Anna', last: 'Jónsdóttir', email: 'anna@b.is', current: '', next: '', confirm: '' };
+
+  it('name and e-mail alone are enough', () => {
+    expect(detailsProblems(ok).size).toBe(0);
+  });
+
+  it('names each missing or malformed field under that field', () => {
+    expect(Object.fromEntries(detailsProblems({ ...ok, first: '', last: '', email: '' }))).toEqual({
+      account_first_name: 'Eiginnafn er nauðsynlegur reitur.',
+      account_last_name: 'Eftirnafn er nauðsynlegur reitur.',
+      account_email: 'Netfang er nauðsynlegur reitur.',
+    });
+    expect(Object.fromEntries(detailsProblems({ ...ok, email: 'anna@b' }))).toEqual({ account_email: 'Ógilt netfang.' });
+  });
+
+  it('a password change needs the current password, a usable new one and a matching repeat', () => {
+    expect(Object.fromEntries(detailsProblems({ ...ok, next: 'nytt-lykilord', confirm: 'nytt-lykilord' }))).toEqual({
+      password_current: 'Sláðu inn núverandi lykilorð.',
+    });
+    expect(Object.fromEntries(detailsProblems({ ...ok, current: 'gamalt' }))).toEqual({ password_1: 'Sláðu inn nýtt lykilorð.' });
+    expect(Object.fromEntries(detailsProblems({ ...ok, current: 'gamalt', next: 'stutt', confirm: 'stutt' }))).toEqual({
+      password_1: 'Nýja lykilorðið þarf að vera að minnsta kosti 8 stafir.',
+    });
+    expect(Object.fromEntries(detailsProblems({ ...ok, current: 'gamalt', next: 'x'.repeat(201), confirm: 'x'.repeat(201) }))).toEqual({
+      password_1: 'Lykilorðið má mest vera 200 stafir.',
+    });
+    expect(Object.fromEntries(detailsProblems({ ...ok, current: 'gamalt', next: 'nytt-lykilord', confirm: 'annad-lykilord' }))).toEqual({
+      password_2: 'Nýju lykilorðin eru ekki eins.',
+    });
+    expect(detailsProblems({ ...ok, current: 'gamalt', next: 'nytt-lykilord', confirm: 'nytt-lykilord' }).size).toBe(0);
+  });
+
+  it('a current password over WordPress\'s limit cannot be the password', () => {
+    expect(Object.fromEntries(detailsProblems({ ...ok, current: 'x'.repeat(4097), next: 'nytt-lykilord', confirm: 'nytt-lykilord' }))).toEqual({
+      password_current: 'Núverandi lykilorð er rangt.',
+    });
+  });
+});
+
+describe('detailsFromForm', () => {
+  it('trims and caps the name and e-mail, and leaves the passwords as typed', () => {
+    const f = new FormData();
+    f.set('account_first_name', '  Anna ');
+    f.set('account_last_name', 'x'.repeat(300));
+    f.set('account_email', ' anna@b.is ');
+    f.set('password_current', ' gamalt ');
+    f.set('password_1', ' nytt ');
+    expect(detailsFromForm(f)).toEqual({ first: 'Anna', last: 'x'.repeat(200), email: 'anna@b.is', current: ' gamalt ', next: ' nytt ', confirm: '' });
   });
 });

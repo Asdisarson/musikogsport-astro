@@ -2,7 +2,9 @@
 import AccountLayout from '../../components/AccountLayout.astro';
 import { currentUser } from '../../lib/auth';
 import { loadCustomer, UNAVAILABLE_TEXT } from '../../lib/account';
-import { markUnavailable } from '../../lib/http';
+import { saveDetails } from '../../lib/accountDetails';
+import { detailsFromForm, type DetailsField, type DetailsInput } from '../../lib/accountFormat';
+import { markUnavailable, sameOrigin } from '../../lib/http';
 
 export const prerender = false;
 Astro.response.headers.set('Cache-Control', 'no-store');
@@ -10,65 +12,100 @@ Astro.response.headers.set('Cache-Control', 'no-store');
 // WooCommerce's "Aðgangsupplýsingar": name, email, and a password change behind the current password.
 const user = await currentUser(Astro.cookies);
 if (!user) return Astro.redirect('/min-sida/');
-const loaded = await loadCustomer(user.id);
-// WooCommerce down: no form (blank fields a customer could submit), a 503 with the outage notice instead.
-const down = loaded === 'unavailable';
-if (down) markUnavailable(Astro.response);
-const customer = down ? null : loaded;
-const q = Astro.url.searchParams;
-const errors: Record<string, string> = {
-  required: 'Vinsamlegast fylltu út nafn og netfang.',
-  email: 'Ógilt netfang.',
-  password_fields: 'Fylltu út bæði núverandi og nýtt lykilorð.',
-  short: 'Nýja lykilorðið þarf að vera að minnsta kosti 8 stafir.',
-  long: 'Lykilorðið má mest vera 200 stafir.',
-  mismatch: 'Nýju lykilorðin eru ekki eins.',
-  current: 'Núverandi lykilorð er rangt.',
-  limited: 'Of margar tilraunir. Reyndu aftur síðar.',
-  maybe: 'Ekki fékkst staðfesting á vistuninni. Ef þú verður skráð(ur) út skaltu skrá þig inn með nýja lykilorðinu.',
-  unavailable: 'Ekki tókst að staðfesta lykilorðið: þjónustan svaraði ekki. Reyndu aftur eftir smá stund.',
-  save: 'Ekki tókst að vista breytingarnar. Reyndu aftur.',
-};
-const error = q.get('error');
+
+// The form posts to this page, so a submission that cannot be saved comes back with the name and e-mail the
+// customer typed and with each problem at its own field. Passwords are never sent back to the browser.
+let submitted: DetailsInput | null = null;
+let problems = new Map<DetailsField, string>();
+let failure: string | null = null;
+if (Astro.request.method === 'POST') {
+  if (!sameOrigin(Astro.request, Astro.url)) return new Response('Forbidden', { status: 403 });
+  const form = await Astro.request.formData().catch(() => null);
+  if (!form) {
+    failure = 'Ekki tókst að vista breytingarnar. Reyndu aftur.';
+  } else {
+    submitted = detailsFromForm(form);
+    const outcome = await saveDetails(user, Astro.cookies, submitted);
+    if ('redirect' in outcome) return Astro.redirect(outcome.redirect, 303);
+    if ('problems' in outcome) problems = outcome.problems;
+    else failure = outcome.notice;
+  }
+}
+
+let values = { first: '', last: '', email: user.email };
+let down = false;
+if (submitted) {
+  values = submitted;
+} else {
+  const loaded = await loadCustomer(user.id);
+  // WooCommerce down: no form (blank fields a customer could submit), a 503 with the outage notice instead.
+  down = loaded === 'unavailable';
+  if (down) markUnavailable(Astro.response);
+  else if (loaded && loaded !== 'unavailable') values = { first: loaded.first_name ?? '', last: loaded.last_name ?? '', email: loaded.email ?? user.email };
+}
+if (problems.size > 0) Astro.response.status = 422;
+
 const notice = down
   ? { kind: 'error' as const, text: UNAVAILABLE_TEXT }
-  : q.get('saved') === '1'
-  ? { kind: 'success' as const, text: 'Aðgangsupplýsingum breytt.' }
-  : error
-    ? { kind: 'error' as const, text: errors[error] ?? errors.save }
+  : failure
+  ? { kind: 'error' as const, text: failure }
+  : Astro.url.searchParams.get('saved') === '1'
+    ? { kind: 'success' as const, text: 'Aðgangsupplýsingum breytt.' }
     : null;
+
+const keep = '(skildu eftir autt til að halda því óbreyttu)';
+interface Row { name: DetailsField; label: string; width: 'first' | 'last' | 'wide'; type?: 'email' | 'password'; value?: string; autocomplete: string; required?: boolean }
+const fields: Row[] = [
+  { name: 'account_first_name', label: 'Eiginnafn', width: 'first', value: values.first, autocomplete: 'given-name', required: true },
+  { name: 'account_last_name', label: 'Eftirnafn', width: 'last', value: values.last, autocomplete: 'family-name', required: true },
+  { name: 'account_email', label: 'Netfang', width: 'wide', type: 'email', value: values.email, autocomplete: 'email', required: true },
+];
+const passwords: Row[] = [
+  { name: 'password_current', label: `Núverandi lykilorð ${keep}`, width: 'wide', type: 'password', autocomplete: 'current-password' },
+  { name: 'password_1', label: `Nýtt lykilorð ${keep}`, width: 'wide', type: 'password', autocomplete: 'new-password' },
+  { name: 'password_2', label: 'Staðfesta nýtt lykilorð', width: 'wide', type: 'password', autocomplete: 'new-password' },
+];
+// Name and e-mail first, then the password fieldset: one row template for both groups.
+const groups = [{ legend: null, rows: fields }, { legend: 'Breyta lykilorði', rows: passwords }];
 ---
 
 <AccountLayout title="Aðgangsupplýsingar" current="edit-account" notice={notice}>
   {!down && (
-  <form class="account-form account-fields" method="post" action="/api/account/details">
-    <p class="form-row form-row-first">
-      <input class="input-text" id="account_first_name" name="account_first_name" value={customer?.first_name ?? ''} placeholder=" " autocomplete="given-name" aria-required="true" />
-      <label for="account_first_name">Eiginnafn <abbr class="required" title="nauðsynlegt">*</abbr></label>
-    </p>
-    <p class="form-row form-row-last">
-      <input class="input-text" id="account_last_name" name="account_last_name" value={customer?.last_name ?? ''} placeholder=" " autocomplete="family-name" aria-required="true" />
-      <label for="account_last_name">Eftirnafn <abbr class="required" title="nauðsynlegt">*</abbr></label>
-    </p>
-    <p class="form-row form-row-wide">
-      <input class="input-text" id="account_email" name="account_email" type="email" value={customer?.email ?? user.email} placeholder=" " autocomplete="email" aria-required="true" />
-      <label for="account_email">Netfang <abbr class="required" title="nauðsynlegt">*</abbr></label>
-    </p>
-    <fieldset class="account-form__password">
-      <legend>Breyta lykilorði</legend>
-      <p class="form-row form-row-wide">
-        <input class="input-text" id="password_current" name="password_current" type="password" placeholder=" " autocomplete="current-password" />
-        <label for="password_current">Núverandi lykilorð (skildu eftir autt til að halda því óbreyttu)</label>
-      </p>
-      <p class="form-row form-row-wide">
-        <input class="input-text" id="password_1" name="password_1" type="password" placeholder=" " autocomplete="new-password" />
-        <label for="password_1">Nýtt lykilorð (skildu eftir autt til að halda því óbreyttu)</label>
-      </p>
-      <p class="form-row form-row-wide">
-        <input class="input-text" id="password_2" name="password_2" type="password" placeholder=" " autocomplete="new-password" />
-        <label for="password_2">Staðfesta nýtt lykilorð</label>
-      </p>
-    </fieldset>
+  <form class="account-form account-fields" method="post" action="/min-sida/edit-account/" novalidate>
+    {
+      groups.map((g) => {
+        const rows = g.rows.map((f) => {
+          const problem = problems.get(f.name);
+          return (
+            <p class:list={['form-row', `form-row-${f.width}`, { 'is-invalid': problem }]}>
+              <input
+                class="input-text"
+                id={f.name}
+                name={f.name}
+                type={f.type ?? 'text'}
+                value={f.value}
+                placeholder=" "
+                autocomplete={f.autocomplete}
+                aria-required={f.required ? 'true' : undefined}
+                aria-invalid={problem ? 'true' : undefined}
+                aria-describedby={problem ? `${f.name}_error` : undefined}
+              />
+              <label for={f.name}>
+                {f.label}
+                {f.required && <abbr class="required" title="nauðsynlegt"> *</abbr>}
+              </label>
+              {problem && <span class="field-error" id={`${f.name}_error`}>{problem}</span>}
+            </p>
+          );
+        });
+        return g.legend ? (
+          <fieldset class="account-form__password">
+            <legend>{g.legend}</legend>
+            {rows}
+          </fieldset>
+        ) : rows;
+      })
+    }
     <button class="btn-dark" type="submit">Vista breytingar</button>
   </form>
   )}

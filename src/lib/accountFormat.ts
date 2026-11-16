@@ -1,4 +1,5 @@
-// Address helpers for /min-sida/ (client-safe, no WooCommerce access).
+// Address and account-details helpers for /min-sida/ (client-safe, no WooCommerce access).
+import { passwordProblem } from './validate';
 
 export const ADDRESS_FIELDS = ['first_name', 'last_name', 'company', 'address_1', 'address_2', 'postcode', 'city', 'country', 'phone', 'email'] as const;
 export type AddressField = (typeof ADDRESS_FIELDS)[number];
@@ -66,4 +67,58 @@ export function addressLines(a: Address): string[] {
     a.address_2,
     [a.postcode, a.city].filter(Boolean).join(' '),
   ].filter((l): l is string => Boolean(l && l.trim()));
+}
+
+export type DetailsField = 'account_first_name' | 'account_last_name' | 'account_email' | 'password_current' | 'password_1' | 'password_2';
+
+/** What the "Aðgangsupplýsingar" form submitted. */
+export interface DetailsInput {
+  first: string;
+  last: string;
+  email: string;
+  current: string;
+  next: string;
+  confirm: string;
+}
+
+/** Name and e-mail trimmed and capped; the passwords as typed (WordPress hashes them untrimmed). */
+export function detailsFromForm(form: FormData): DetailsInput {
+  const text = (k: DetailsField) => String(form.get(k) ?? '').trim().slice(0, 200);
+  const secret = (k: DetailsField) => String(form.get(k) ?? '');
+  return {
+    first: text('account_first_name'),
+    last: text('account_last_name'),
+    email: text('account_email'),
+    current: secret('password_current'),
+    next: secret('password_1'),
+    confirm: secret('password_2'),
+  };
+}
+
+export const WRONG_CURRENT_PASSWORD = 'Núverandi lykilorð er rangt.';
+const NEW_PASSWORD_PROBLEMS = {
+  short: 'Nýja lykilorðið þarf að vera að minnsta kosti 8 stafir.',
+  long: 'Lykilorðið má mest vera 200 stafir.',
+} as const;
+
+/** What a submitted details form still lacks: field → the message shown under it. The passwords are checked
+ *  only when one of them is filled in; whether the current one is right is WordPress's to say. */
+export function detailsProblems(d: DetailsInput): Map<DetailsField, string> {
+  const problems = new Map<DetailsField, string>();
+  if (!d.first) problems.set('account_first_name', 'Eiginnafn er nauðsynlegur reitur.');
+  if (!d.last) problems.set('account_last_name', 'Eftirnafn er nauðsynlegur reitur.');
+  if (!d.email) problems.set('account_email', 'Netfang er nauðsynlegur reitur.');
+  else if (!/^\S+@\S+\.\S+$/.test(d.email)) problems.set('account_email', 'Ógilt netfang.');
+  if (!d.current && !d.next) return problems;
+
+  if (!d.current) problems.set('password_current', 'Sláðu inn núverandi lykilorð.');
+  else if (d.current.length > 4096) problems.set('password_current', WRONG_CURRENT_PASSWORD); // over WordPress's limit
+  if (!d.next) {
+    problems.set('password_1', 'Sláðu inn nýtt lykilorð.');
+    return problems;
+  }
+  const weak = passwordProblem(d.next);
+  if (weak) problems.set('password_1', NEW_PASSWORD_PROBLEMS[weak]);
+  else if (d.next !== d.confirm) problems.set('password_2', 'Nýju lykilorðin eru ekki eins.');
+  return problems;
 }
