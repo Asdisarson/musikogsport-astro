@@ -1,0 +1,44 @@
+---
+// The cookie banner. The store's own cookies are necessary ones and need no consent; the one thing "Samþykkja"
+// changes is that the visit's source (lib/origin) is remembered for 30 days instead of for this tab only.
+// Hidden until the script finds no stored answer; the footer's "Vefkökur" link opens it again.
+---
+
+<section class="consent" data-consent aria-label="Vefkökur" hidden>
+  <div class="consent__inner">
+    <p class="consent__text">
+      Við notum nauðsynlegar vefkökur til að verslunin virki. Með þínu samþykki munum við líka í 30 daga hvaðan þú
+      komst á vefinn, til að sjá hvaða auglýsingar skila sér. <a href="/personuvernd/#vefkokur">Nánar um vefkökur</a>
+    </p>
+    <div class="consent__actions">
+      <button class="btn-outline consent__btn" type="button" data-consent-choice="no">Hafna</button>
+      <button class="btn-dark consent__btn" type="button" data-consent-choice="yes">Samþykkja</button>
+    </div>
+  </div>
+</section>
+
+<script>
+  import { consent, setConsent } from '../lib/origin';
+
+  const banner = document.querySelector<HTMLElement>('[data-consent]');
+  if (banner) {
+    // The footer link that reopened the banner gets the focus back once it is answered.
+    let opener: HTMLElement | null = null;
+    if (!consent()) banner.hidden = false;
+    banner.querySelectorAll<HTMLButtonElement>('[data-consent-choice]').forEach((button) =>
+      button.addEventListener('click', () => {
+        setConsent(button.dataset.consentChoice === 'yes' ? 'yes' : 'no');
+        banner.hidden = true;
+        opener?.focus();
+        opener = null;
+      }),
+    );
+    document.querySelectorAll<HTMLElement>('[data-consent-open]').forEach((link) =>
+      link.addEventListener('click', () => {
+        opener = link;
+        banner.hidden = false;
+        banner.querySelector<HTMLElement>('[data-consent-choice="yes"]')?.focus();
+      }),
+    );
+  }
+</script>

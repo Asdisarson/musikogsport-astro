@@ -49,6 +49,12 @@ describe('checkoutBody', () => {
     expect(b).toMatchObject({ postis_dpo_postbox: 'DPO9552', postis_dpo_phonenumber: '6123456' });
   });
 
+  it("carries the visit's origin when there is one", () => {
+    const origin = { source_type: 'typein', utm_source: '(direct)' };
+    expect(checkoutBody({ ...base, origin }).extensions).toMatchObject({ 'woocommerce/order-attribution': origin });
+    expect(checkoutBody({ ...base, origin: null }).extensions).not.toHaveProperty('woocommerce/order-attribution');
+  });
+
   it('asks for an account only when the shopper ticked the box', () => {
     expect(checkoutBody({ ...base, createAccount: true }).mos_create_account).toBe(true);
     expect('mos_create_account' in checkoutBody(base)).toBe(false);

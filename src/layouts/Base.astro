@@ -8,6 +8,7 @@ import SearchOverlay from '../components/SearchOverlay.astro';
 import StoreNotice from '../components/StoreNotice.astro';
 import CartDrawer from '../components/CartDrawer.tsx';
 import LoginPopup from '../components/LoginPopup.astro';
+import ConsentBanner from '../components/ConsentBanner.astro';
 import Icon from '../components/Icon.astro';
 import { loadSiteChrome } from '../lib/siteChrome';
 import { loadFrontPage } from '../lib/frontPage';
@@ -157,6 +158,7 @@ const websiteLd = {
           <SearchOverlay />
           <StoreNotice text={chrome.campaign.notice} />
           <LoginPopup />
+          <ConsentBanner />
         </>
       )
     }
@@ -164,7 +166,12 @@ const websiteLd = {
     {!distractionFree && <CartDrawer client:idle shippingBar={miniCartBar} />}
 
     <script>
+      import { trackVisit } from '../lib/origin';
+
       const root = document.documentElement;
+
+      // ── where this visit came from, for the order's "Origin" in WooCommerce (this tab; 30 days after consent) ──
+      trackVisit();
 
       // ── dismissible store notice (remembered per message text) ──
       document.querySelectorAll<HTMLElement>('[data-dismissible="notice"]').forEach((el) => {

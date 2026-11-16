@@ -221,7 +221,11 @@ export interface CheckoutPayload {
   postis_dpo_phonenumber?: string;
   // Live's extra checkout fields, saved by wp-mu-plugins/mos-checkout-fields.php as `_billing_ssn` / `skiptimidi`,
   // and the checkout attempt id it stores as `_mos_checkout_attempt` (LM-01).
-  extensions: { mos: { kennitala: string | null; skiptimidi: boolean; attempt?: string } };
+  extensions: {
+    mos: { kennitala: string | null; skiptimidi: boolean; attempt?: string };
+    /** The visit's origin for WooCommerce's order attribution (lib/origin), plus the server's `user_agent`. */
+    'woocommerce/order-attribution'?: Record<string, string>;
+  };
 }
 
 export interface OrderResult {

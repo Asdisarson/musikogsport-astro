@@ -1,11 +1,12 @@
 // The checkout body /api/checkout forwards to the Store API, built from named fields only (LM-03): the fields the
 // storefront's checkout form sends (lib/checkoutFlow.checkoutBody), and nothing else. Everything WooCommerce would
 // otherwise act on (create_account, customer_password, expected_total, additional_fields, other plugins' extension
-// data, ...) is dropped here. Prices, totals and shipping are never in the body: the Store API computes them from its
-// own cart session. Pure; the Store API stays the validator of the values themselves.
+// data, ...) is dropped here; of WooCommerce's own extensions only the filtered order attribution goes on. Prices,
+// totals and shipping are never in the body: the Store API computes them from its own cart session. Pure; the Store API stays the validator of the values themselves.
 import type { CheckoutAddress, CheckoutPayload } from './types';
 import { isPlainObject } from './validate';
 import { ATTEMPT_ID } from './attemptId';
+import { originExtension } from './origin';
 
 const ADDRESS_KEYS = ['first_name', 'last_name', 'company', 'address_1', 'address_2', 'city', 'state', 'postcode', 'country', 'phone'] as const;
 /** Longest address field kept (as accountFormat does for the account forms). */
@@ -25,7 +26,7 @@ function address(raw: unknown): CheckoutAddress | null {
 
 /** The body to forward, or null when it has no billing address with an e-mail (the one thing the route localizes
  *  itself; WooCommerce answers for the rest). */
-export function checkoutPayload(raw: unknown): CheckoutPayload | null {
+export function checkoutPayload(raw: unknown, request: { userAgent?: string | null } = {}): CheckoutPayload | null {
   if (!isPlainObject(raw)) return null;
   const billing = address(raw.billing_address);
   const email = isPlainObject(raw.billing_address) ? text(raw.billing_address.email) : '';
@@ -43,6 +44,13 @@ export function checkoutPayload(raw: unknown): CheckoutPayload | null {
     payment_data: [],
     extensions: { mos },
   };
+  // The one extension of WooCommerce's own that goes through: where the visit came from, field by field (lib/origin).
+  // The user agent is the request's, not the body's.
+  const origin = isPlainObject(raw.extensions) ? originExtension(raw.extensions['woocommerce/order-attribution']) : null;
+  if (origin) {
+    const userAgent = text(request.userAgent);
+    payload.extensions['woocommerce/order-attribution'] = { ...origin, ...(userAgent ? { user_agent: userAgent } : {}) };
+  }
   const shipping = address(raw.shipping_address);
   if (shipping) payload.shipping_address = shipping;
   // Absent for a free order (CO-21); WooCommerce refuses an order that needs payment without one.

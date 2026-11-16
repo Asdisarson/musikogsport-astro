@@ -107,4 +107,18 @@ describe('wantsAccount', () => {
     const body = checkoutPayload({ billing_address: { email: 'a@b.is' }, mos_create_account: true, create_account: true });
     expect(body && Object.keys(body).some((k) => /account/.test(k))).toBe(false);
   });
+
+  it("passes the visit's origin on to WooCommerce's order attribution, filtered, with the server's user agent", () => {
+    const p = checkoutPayload(
+      { ...form, extensions: { ...form.extensions, 'woocommerce/order-attribution': { source_type: 'organic', utm_source: 'google', user_agent: 'spoofed', evil: 'x' } } },
+      { userAgent: 'Mozilla/5.0 (iPhone)' },
+    )!;
+    expect(p.extensions['woocommerce/order-attribution']).toEqual({ source_type: 'organic', utm_source: 'google', user_agent: 'Mozilla/5.0 (iPhone)' });
+  });
+
+  it('sends no order attribution without a usable origin', () => {
+    expect(checkoutPayload(form, { userAgent: 'Mozilla/5.0' })!.extensions).toEqual(form.extensions);
+    const p = checkoutPayload({ ...form, extensions: { ...form.extensions, 'woocommerce/order-attribution': { evil: 'x' } } }, { userAgent: 'Mozilla/5.0' })!;
+    expect(p.extensions).toEqual(form.extensions);
+  });
 });

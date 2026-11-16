@@ -8,6 +8,7 @@ import { MEDIA_BASE_URL } from '../lib/img';
 import { cartSubtotal, cartViewState, lineSubtotal, variationText } from '../lib/cartView';
 import { CHECKING_MESSAGE, addressFor, checkoutBody, pollCheckoutStatus, submitCheckout, type FormAddress } from '../lib/checkoutFlow';
 import { newAttemptId } from '../lib/attemptId';
+import { storedOrigin } from '../lib/origin';
 import { validateCheckout, type CheckoutProblems } from '../lib/checkoutValidation';
 import { CHECKOUT_CLIENT_TIMEOUT_MS } from '../lib/timeouts';
 import { onPageRestored } from '../lib/pageLifecycle';
@@ -265,6 +266,7 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
       billing, ship, notes, paymentMethod, needsPayment, kennitala, skiptimidi, attempt,
       createAccount: !signedIn && createAccount,
       postbox: needsPostbox && $droppoint ? $droppoint.id : null,
+      origin: storedOrigin(),
     });
     const outcome = await submitCheckout(body, attempt, {
       // In the cart queue: a re-quote or rate change still in flight must not race the order. The wait outlasts the

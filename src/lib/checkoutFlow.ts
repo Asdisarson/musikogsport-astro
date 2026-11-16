@@ -1,6 +1,7 @@
 // The checkout page's side of placing an order: the body it sends (CO-21), and what it does with every answer,
 // including no answer at all (LM-01). Client-safe: no server imports; the server's recovery (lib/checkoutRecovery)
 // shares the state shape and the messages from here.
+import type { Origin } from './origin';
 import { decodeEntities } from './decode';
 import { paymentRedirectTarget } from './checkoutRedirect';
 import { CHECKOUT_RECOVERY_POLL } from './timeouts';
@@ -49,6 +50,8 @@ export interface CheckoutInput {
   attempt: string;
   /** The shopper asked for an account on the order's e-mail (only offered when not signed in). */
   createAccount?: boolean;
+  /** Where this visit came from (lib/origin), for WooCommerce's order attribution. */
+  origin?: Origin | null;
 }
 
 /** The /api/checkout body. The server forwards only these fields (lib/checkoutPayload, LM-03). */
@@ -61,7 +64,10 @@ export function checkoutBody(f: CheckoutInput) {
     // card or bank-transfer order (CO-21). WooCommerce refuses the order if it does need one after all.
     ...(f.needsPayment && f.paymentMethod ? { payment_method: f.paymentMethod } : {}),
     payment_data: [] as { key: string; value: string }[],
-    extensions: { mos: { kennitala: f.kennitala.replace(/\D/g, '') || null, skiptimidi: f.skiptimidi, attempt: f.attempt } },
+    extensions: {
+      mos: { kennitala: f.kennitala.replace(/\D/g, '') || null, skiptimidi: f.skiptimidi, attempt: f.attempt },
+      ...(f.origin ? { 'woocommerce/order-attribution': f.origin } : {}),
+    },
     // Pósturinn's own Store API hook reads the locker off the top level of the request.
     // For /api/checkout alone: it is dropped before the order goes to WooCommerce (lib/checkoutPayload).
     ...(f.createAccount ? { mos_create_account: true as const } : {}),

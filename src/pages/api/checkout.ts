@@ -32,7 +32,7 @@ export const POST: APIRoute = async (ctx) => {
   // Only the fields the checkout form sends go on (LM-03). We localize the one missing field we can (the e-mail);
   // the WooCommerce Store API is the authoritative validator for the rest and refuses bad input itself.
   const raw = await readJson(ctx);
-  const body = checkoutPayload(raw);
+  const body = checkoutPayload(raw, { userAgent: ctx.request.headers.get('user-agent') });
   if (!body) return badRequest('Ógild pöntun. Vantar greiðslu- eða afhendingarupplýsingar.');
   // The browser sends the id it will ask about if this answer is lost; without one, recovery here still works.
   const attempt = body.extensions.mos.attempt ?? newAttemptId();
