@@ -8,6 +8,13 @@ vi.mock('astro:env/server', () => ({
   getSecret: (name: string) => secrets[name],
 }));
 
+// The sitemap sweep's disk snapshot (sweepSnapshot.ts has its own test): none stored unless a test puts one here.
+const snapshot = vi.hoisted(() => ({ stored: null as { at: number; val: unknown } | null, writes: [] as unknown[] }));
+vi.mock('./sweepSnapshot', () => ({
+  readSnapshot: vi.fn(async () => snapshot.stored),
+  writeSnapshot: vi.fn(async (_name: string, val: unknown) => void snapshot.writes.push(val)),
+}));
+
 const KEY = 'ck_live_0123456789abcdef';
 const SECRET = 'cs_live_fedcba9876543210';
 
@@ -247,6 +254,8 @@ describe('listAllProductSlugs', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(0);
     vi.resetModules();
+    snapshot.stored = null;
+    snapshot.writes = [];
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -265,14 +274,110 @@ describe('listAllProductSlugs', () => {
     expect(await listAllProductSlugs()).toHaveLength(1);
     expect(await listAllProductSlugs()).toHaveLength(1);
     expect(down).toHaveBeenCalledTimes(1);
+    await new Promise((r) => setTimeout(r, 0)); // the background refresh has failed by now
+    expect(await listAllProductSlugs()).toHaveLength(1);
+    expect(down).toHaveBeenCalledTimes(1); // not retried within the minute
     vi.setSystemTime(6 * 60 * 60 * 1000 + 61_000);
     expect(await listAllProductSlugs()).toHaveLength(1);
-    expect(down).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(down).toHaveBeenCalledTimes(2));
   });
 
   it('throws on a cold failure (the sitemap degrades to its static part)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 503 })));
     const { listAllProductSlugs } = await import('./woo');
     await expect(listAllProductSlugs()).rejects.toThrow();
+  });
+
+  const page = (slugs: string[], totalPages: number) =>
+    new Response(JSON.stringify(slugs.map((slug) => ({ slug, permalink: `p/${slug}` }))), { status: 200, headers: { 'X-WP-TotalPages': String(totalPages) } });
+  const pageOf = (url: unknown) => Number(new URL(String(url)).searchParams.get('page'));
+
+  it('serves the stale list at once while one refresh runs in the background', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => page(['a'], 1)));
+    const { listAllProductSlugs } = await import('./woo');
+    expect(await listAllProductSlugs()).toHaveLength(1);
+    let release!: (r: Response) => void;
+    const slow = vi.fn(() => new Promise<Response>((resolve) => (release = resolve)));
+    vi.stubGlobal('fetch', slow);
+    vi.setSystemTime(6 * 60 * 60 * 1000 + 1); // stale
+    expect((await listAllProductSlugs()).map((p) => p.slug)).toEqual(['a']); // did not wait for the refresh
+    expect((await listAllProductSlugs()).map((p) => p.slug)).toEqual(['a']);
+    expect(slow).toHaveBeenCalledTimes(1); // one refresh, shared
+    release(page(['a', 'b'], 1));
+    await vi.waitFor(async () => expect(await listAllProductSlugs()).toHaveLength(2));
+  });
+
+  it('fetches the pages after the first a few at a time, and keeps them in page order', async () => {
+    let running = 0;
+    let peak = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: unknown) => {
+      running++;
+      peak = Math.max(peak, running);
+      await new Promise((r) => setTimeout(r, pageOf(url) === 2 ? 15 : 1)); // page 2 answers last
+      running--;
+      return page([`s${pageOf(url)}`], 9);
+    }));
+    const { listAllProductSlugs } = await import('./woo');
+    expect((await listAllProductSlugs()).map((p) => p.slug)).toEqual(['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9']);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+
+  it('a failed page fails the sweep (no partial sitemap) and the pages not yet asked for are left alone', async () => {
+    const fetched = vi.fn(async (url: unknown) => {
+      await new Promise((r) => setTimeout(r, 1));
+      return pageOf(url) === 3 ? new Response('', { status: 502 }) : page([`s${pageOf(url)}`], 30);
+    });
+    vi.stubGlobal('fetch', fetched);
+    const { listAllProductSlugs } = await import('./woo');
+    await expect(listAllProductSlugs()).rejects.toThrow();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fetched.mock.calls.length).toBeLessThan(12); // 30 pages; the sweep stopped after the failure
+    expect(snapshot.writes).toEqual([]);
+  });
+
+  it('a snapshot dated in the future does not stay fresh for ever, and one with a malformed row is ignored', async () => {
+    snapshot.stored = { at: 10 * 60 * 60 * 1000, val: [{ slug: 'old' }] };
+    vi.stubGlobal('fetch', vi.fn(async () => page(['new'], 1)));
+    let woo = await import('./woo');
+    expect((await woo.listAllProductSlugs()).map((p) => p.slug)).toEqual(['old']);
+    vi.setSystemTime(6 * 60 * 60 * 1000 + 1); // six hours after it was read: stale
+    await woo.listAllProductSlugs();
+    await vi.waitFor(async () => expect((await woo.listAllProductSlugs()).map((p) => p.slug)).toEqual(['new']));
+
+    vi.resetModules();
+    snapshot.stored = { at: 6 * 60 * 60 * 1000, val: [{ slug: 'x', permalink: 7 }] };
+    woo = await import('./woo');
+    expect((await woo.listAllProductSlugs()).map((p) => p.slug)).toEqual(['new']);
+  });
+
+  it('a new process starts from the snapshot on disk: answered at once, refreshed in the background', async () => {
+    snapshot.stored = { at: -7 * 60 * 60 * 1000, val: [{ slug: 'old', permalink: 'p/old' }] }; // older than the TTL
+    const fetched = vi.fn(async () => page(['new'], 1));
+    vi.stubGlobal('fetch', fetched);
+    const { listAllProductSlugs } = await import('./woo');
+    expect((await listAllProductSlugs()).map((p) => p.slug)).toEqual(['old']);
+    await vi.waitFor(async () => expect((await listAllProductSlugs()).map((p) => p.slug)).toEqual(['new']));
+    expect(fetched).toHaveBeenCalledTimes(1);
+  });
+
+  it('a fresh snapshot is used without sweeping; a finished sweep is written to disk', async () => {
+    snapshot.stored = { at: 0, val: [{ slug: 'kept', permalink: 'p/kept' }] };
+    const fetched = vi.fn(async () => page(['x'], 1));
+    vi.stubGlobal('fetch', fetched);
+    const { listAllProductSlugs } = await import('./woo');
+    expect((await listAllProductSlugs()).map((p) => p.slug)).toEqual(['kept']);
+    expect(fetched).not.toHaveBeenCalled();
+    vi.setSystemTime(6 * 60 * 60 * 1000 + 1);
+    await listAllProductSlugs();
+    await vi.waitFor(() => expect(snapshot.writes).toHaveLength(1));
+    expect(snapshot.writes[0]).toEqual([{ slug: 'x', permalink: 'p/x', modified: undefined }]);
+  });
+
+  it('a snapshot that is not a list is ignored', async () => {
+    snapshot.stored = { at: 0, val: { nope: true } };
+    vi.stubGlobal('fetch', vi.fn(async () => page(['a'], 1)));
+    const { listAllProductSlugs } = await import('./woo');
+    expect((await listAllProductSlugs()).map((p) => p.slug)).toEqual(['a']);
   });
 });

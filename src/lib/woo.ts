@@ -12,6 +12,7 @@ import { isPosInt } from './validate';
 import { orderAmounts } from './orderAmounts';
 import { WOO_REST_TIMEOUT_MS } from './timeouts';
 import { ATTEMPT_ID } from './attemptId';
+import { readSnapshot, writeSnapshot } from './sweepSnapshot';
 
 const BASE = `${WP_INTERNAL_URL}/wp-json/wc/v3`;
 
@@ -309,15 +310,19 @@ export async function findAttemptOrder(attempt: string): Promise<AttemptOrder | 
   return { id: row.id, status: String(row.status ?? ''), order_key: row.order_key, payment_method: String(row.payment_method ?? '') };
 }
 
-// ---------- sitemap helpers (cached per server process) ----------
+// ---------- sitemap helpers (cached per server process, with a copy on disk) ----------
 
-// 6h: a full sitemap sweep is ~3k URLs / ~7s, far longer than a crawler's re-fetch interval, so a
-// short TTL made nearly every crawl pay the cold cost. The in-flight guards below also collapse a
-// burst of concurrent cold requests into a single sweep instead of N parallel ones.
+// 6h: a full sweep is one request per 100 products (about 40 for this catalog), far longer than a crawler waits,
+// so nobody waits for one unless there is nothing at all to serve:
+//  - a stale list is served at once while one refresh runs in the background;
+//  - a new server process starts from the last sweep's copy on disk (sweepSnapshot.ts);
+//  - concurrent cold callers share one sweep.
 const SITEMAP_TTL = 6 * 60 * 60 * 1000;
 const MAX_PAGES = 200; // safety cap (~20k products at per_page=100)
 /** After a failed sweep with a stale copy in hand, the stale copy is served this long before sweeping again. */
 const SWEEP_RETRY_MS = 60 * 1000;
+/** Pages of a sweep requested at the same time: a few, so a sweep does not crowd shoppers out of WordPress. */
+const SWEEP_CONCURRENCY = 4;
 
 interface ProductSlug {
   slug: string;
@@ -325,60 +330,114 @@ interface ProductSlug {
   modified?: string;
 }
 
-/** Mutable holder for a 6h-cached sitemap sweep with concurrent-request dedup + serve-stale-on-error. */
+/** Mutable holder for a 6h-cached sitemap sweep. */
 interface SweepCache<T> {
+  /** Names the copy on disk. */
+  name: string;
+  /** Whether a value read from disk has the shape this sweep produces. */
+  valid: (val: unknown) => val is T;
   at: number;
   val: T | null;
   inflight: Promise<T> | null;
   /** When the last sweep failed (null after a success). */
   failedAt: number | null;
+  /** The read of the copy on disk, started once per process. */
+  restored: Promise<void> | null;
 }
 
-/** Run a cached sweep: return fresh cache; else share an in-flight sweep across concurrent cold
- *  callers; on sweep failure, serve the stale value if we ever had one (so a transient Woo blip
- *  can't blank the sitemap) and only propagate the error on a truly cold start. */
-function runSweep<T>(c: SweepCache<T>, sweep: () => Promise<T>): Promise<T> {
-  if (c.val !== null && Date.now() - c.at < SITEMAP_TTL) return Promise.resolve(c.val);
-  if (c.val !== null && c.failedAt !== null && Date.now() - c.failedAt < SWEEP_RETRY_MS) return Promise.resolve(c.val);
-  if (c.inflight) return c.inflight;
-  const inflight = sweep()
+/** Take the copy on disk as this process's first value (once). */
+function restoreSweep<T>(c: SweepCache<T>): Promise<void> {
+  return (c.restored ??= readSnapshot(c.name).then((snap) => {
+    if (c.val !== null || !snap) return;
+    if (!c.valid(snap.val)) {
+      log.warn(`[sitemap] the ${c.name} copy on disk has an unexpected shape; sweeping instead`);
+      return;
+    }
+    c.val = snap.val;
+    c.at = Math.min(snap.at, Date.now()); // a date ahead of this clock would keep the copy fresh too long
+  }));
+}
+
+/** Run a cached sweep. Fresh: the cached value. Stale: the cached value at once, with one sweep started in the
+ *  background (after a failed one, not again for SWEEP_RETRY_MS). Nothing cached: wait for the sweep, shared by
+ *  concurrent callers, and throw if it fails. */
+async function runSweep<T>(c: SweepCache<T>, sweep: () => Promise<T>): Promise<T> {
+  if (c.val === null) await restoreSweep(c);
+  const fresh = c.val !== null && Date.now() - c.at < SITEMAP_TTL;
+  const backingOff = c.failedAt !== null && Date.now() - c.failedAt < SWEEP_RETRY_MS;
+  if (c.val !== null && (fresh || backingOff)) return c.val;
+  c.inflight ??= sweep()
     .then((val) => {
       c.at = Date.now();
       c.val = val;
       c.failedAt = null;
+      void writeSnapshot(c.name, val);
       return val;
     })
     .catch((e) => {
       c.failedAt = Date.now();
+      const hours = c.val === null ? null : Math.round((Date.now() - c.at) / 3_600_000);
+      log.warn(`[sitemap] ${c.name} sweep failed; ${hours === null ? 'nothing to serve' : `serving the copy from ${hours} h ago`}`, { err: e });
       if (c.val !== null) return c.val; // serve stale rather than fail/blank
       throw e;
     })
     .finally(() => {
       c.inflight = null;
     });
-  c.inflight = inflight;
-  return inflight;
+  return c.val ?? c.inflight;
 }
 
-const productSlugSweep: SweepCache<ProductSlug[]> = { at: 0, val: null, inflight: null, failedAt: null };
+const productSlugSweep: SweepCache<ProductSlug[]> = {
+  name: 'products',
+  valid: (val): val is ProductSlug[] =>
+    Array.isArray(val) && val.every((p) => typeof p?.slug === 'string' && isOptionalString(p.permalink) && isOptionalString(p.modified)),
+  at: 0,
+  val: null,
+  inflight: null,
+  failedAt: null,
+  restored: null,
+};
 
-/** All published product slugs (+ lastmod) for the sitemap. Cached 6h; concurrent cold calls share one sweep. */
+function isOptionalString(v: unknown): boolean {
+  return v === undefined || typeof v === 'string';
+}
+
+type SlugRow = { slug: string; permalink: string; date_modified_gmt?: string | null };
+
+function productSlugPage(page: number): Promise<{ data: SlugRow[]; totalPages: number }> {
+  return wooGet<SlugRow[]>('/products', {
+    status: 'publish',
+    _fields: 'slug,permalink,date_modified_gmt', // wc/v3 has no `modified`
+    per_page: 100,
+    page,
+    orderby: 'id',
+    order: 'asc',
+  });
+}
+
+/** All published product slugs (+ lastmod) for the sitemap, in id order. See runSweep for how it is cached. */
 export function listAllProductSlugs(): Promise<ProductSlug[]> {
   return runSweep(productSlugSweep, async () => {
-    const entries: ProductSlug[] = [];
-    for (let page = 1; page <= MAX_PAGES; page++) {
-      const { data, totalPages } = await wooGet<{ slug: string; permalink: string; date_modified_gmt?: string | null }[]>('/products', {
-        status: 'publish',
-        _fields: 'slug,permalink,date_modified_gmt', // wc/v3 has no `modified`
-        per_page: 100,
-        page,
-        orderby: 'id',
-        order: 'asc',
-      });
-      for (const p of data) if (p.slug) entries.push({ slug: p.slug, permalink: p.permalink, modified: p.date_modified_gmt ?? undefined });
-      if (page >= totalPages || data.length === 0) break;
-    }
-    return entries;
+    const first = await productSlugPage(1);
+    const pages: SlugRow[][] = [first.data];
+    const last = Math.min(first.totalPages, MAX_PAGES);
+    // The first page says how many there are; the rest are fetched SWEEP_CONCURRENCY at a time.
+    // One failed page fails the sweep, so the pages not yet asked for are skipped.
+    let next = 2;
+    let failed = false;
+    const worker = async (): Promise<void> => {
+      while (next <= last && !failed) {
+        const page = next++;
+        try {
+          pages[page - 1] = (await productSlugPage(page)).data;
+        } catch (err) {
+          failed = true;
+          throw err;
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: SWEEP_CONCURRENCY }, worker));
+    return pages.flatMap((rows) => rows.filter((p) => p.slug).map((p) => ({ slug: p.slug, permalink: p.permalink, modified: p.date_modified_gmt ?? undefined })));
   });
 }
 
