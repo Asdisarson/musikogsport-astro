@@ -16,6 +16,47 @@ export function addressFromForm(form: FormData, type: 'billing' | 'shipping'): A
   return out;
 }
 
+export interface AddressFormField {
+  name: AddressField;
+  label: string;
+  width: 'first' | 'last' | 'wide';
+  required?: boolean;
+  type?: 'text' | 'tel' | 'email';
+  autocomplete?: string;
+}
+
+/** The address form's fields, in order. Widths match the checkout (live's Checkout Field Editor config) except
+ *  billing company: wide here, paired with Kennitala on the checkout. There is no Kennitala field here, and Land
+ *  comes last (the form adds it, read-only). A delivery address has no phone or e-mail. */
+export function addressFormFields(type: 'billing' | 'shipping'): AddressFormField[] {
+  return [
+    { name: 'first_name', label: 'Eiginnafn', width: 'first', required: true, autocomplete: 'given-name' },
+    { name: 'last_name', label: 'Eftirnafn', width: 'last', required: true, autocomplete: 'family-name' },
+    { name: 'company', label: 'Nafn fyrirtækis', width: 'wide', autocomplete: 'organization' },
+    { name: 'address_1', label: 'Heimilisfang', width: 'wide', required: true, autocomplete: 'address-line1' },
+    { name: 'address_2', label: 'Íbúð, hæð o.fl.', width: 'wide', autocomplete: 'address-line2' },
+    { name: 'postcode', label: 'Póstnúmer', width: 'first', required: true, autocomplete: 'postal-code' },
+    { name: 'city', label: 'Borg / Bær', width: 'last', required: true, autocomplete: 'address-level2' },
+    ...(type === 'billing'
+      ? ([
+          { name: 'phone', label: 'Sími', width: 'wide', required: true, type: 'tel', autocomplete: 'tel' },
+          { name: 'email', label: 'Netfang', width: 'wide', required: true, type: 'email', autocomplete: 'email' },
+        ] as const)
+      : []),
+  ];
+}
+
+/** What a submitted address still lacks: field name → the message shown under that field, in the form's order. */
+export function addressProblems(address: Address, type: 'billing' | 'shipping'): Map<AddressField, string> {
+  const problems = new Map<AddressField, string>();
+  for (const f of addressFormFields(type)) {
+    if (f.required && !(address[f.name] ?? '').trim()) problems.set(f.name, `${f.label} er nauðsynlegur reitur.`);
+  }
+  const email = (address.email ?? '').trim();
+  if (type === 'billing' && email && !/^\S+@\S+\.\S+$/.test(email)) problems.set('email', 'Ógilt netfang.');
+  return problems;
+}
+
 /** Address lines for display (WooCommerce's formatted address, Icelandic order). */
 export function addressLines(a: Address): string[] {
   return [
