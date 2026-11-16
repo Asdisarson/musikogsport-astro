@@ -8,6 +8,7 @@ import { MEDIA_BASE_URL } from '../lib/img';
 import { cartSubtotal, cartViewState, lineSubtotal, variationText } from '../lib/cartView';
 import { CHECKING_MESSAGE, addressFor, checkoutBody, pollCheckoutStatus, submitCheckout, type FormAddress } from '../lib/checkoutFlow';
 import { newAttemptId } from '../lib/attemptId';
+import { validateCheckout, type CheckoutProblems } from '../lib/checkoutValidation';
 import { CHECKOUT_CLIENT_TIMEOUT_MS } from '../lib/timeouts';
 import { onPageRestored } from '../lib/pageLifecycle';
 import { CartLoadError, LineImage } from './CartParts';
@@ -140,8 +141,9 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
   // Failed re-quotes and shipping-rate changes land in the shared cartError; show them with the
   // order errors (coupon errors stay inline under the coupon field).
   const cartErr = useStore(cartError);
-  const shownErrors = [...new Set([...(cartErr ? [cartErr] : []), ...errors])];
-  const [invalid, setInvalid] = useState<Set<string>>(new Set());
+  // Once an order attempt has been made the form is checked again on every render, so a message and a field's
+  // red frame go away the moment the shopper fixes them, not at the next press of „Panta".
+  const [attempted, setAttempted] = useState(false);
   const [placing, setPlacing] = useState(false);
   // While the page asks whether an order whose answer was lost went through (LM-01).
   const [checking, setChecking] = useState(false);
@@ -208,32 +210,21 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
     };
   }, [needsShipping, ship.address_1, ship.postcode, ship.city]);
 
-  function validate(): { messages: string[]; fields: Set<string> } {
-    const messages: string[] = [];
-    const fields = new Set<string>();
-    const check = (prefix: 'billing' | 'shipping', a: Address, defs: FieldDef[], heading: string) => {
-      for (const d of defs) {
-        if (d.required && !a[d.key].trim()) {
-          messages.push(`${heading} ${d.label} er nauðsynlegur reitur.`);
-          fields.add(`${prefix}_${d.key}`);
-        }
-      }
-    };
-    check('billing', billing, [...BILLING_BEFORE_COUNTRY, ...BILLING_AFTER_COUNTRY], 'Greiðsluupplýsingar');
-    if (shipDiff) check('shipping', shipping, SHIPPING_FIELDS, 'Sendingarupplýsingar');
-    if (billing.email.trim() && !/^\S+@\S+\.\S+$/.test(billing.email.trim())) {
-      messages.push('Ógilt netfang.');
-      fields.add('billing_email');
-    }
-    if (kennitala.trim() && kennitala.replace(/\D/g, '').length !== 10) {
-      messages.push('Kennitala á að vera 10 tölustafir.');
-      fields.add('billing_kennitala');
-    }
-    if (needsShipping && !selectedRate) messages.push('Veldu sendingarmáta.');
-    if (needsPostbox && !postboxChosen) messages.push('Veldu póstbox fyrir sendinguna.');
-    if (needsPayment && !paymentMethod) messages.push('Veldu greiðslumáta.');
-    if (!terms) messages.push('Vinsamlegast lestu og samþykktu skilmálana til að halda áfram með pöntunina.');
-    return { messages, fields };
+  function validate(): CheckoutProblems {
+    return validateCheckout({
+      billing: { ...billing },
+      billingFields: [...BILLING_BEFORE_COUNTRY, ...BILLING_AFTER_COUNTRY],
+      shipping: shipDiff ? { ...shipping } : null,
+      shippingFields: SHIPPING_FIELDS,
+      kennitala,
+      needsShipping,
+      rateChosen: selectedRate !== null,
+      needsPostbox,
+      postboxChosen,
+      needsPayment,
+      paymentChosen: paymentMethod !== '',
+      terms,
+    });
   }
 
   async function placeOrder() {
@@ -249,10 +240,9 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
       formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
-    const { messages, fields } = validate();
-    setErrors(messages);
-    setInvalid(fields);
-    if (messages.length) {
+    setAttempted(true);
+    setErrors([]);
+    if (validate().messages.length) {
       formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
@@ -298,6 +288,10 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
       </div>
     );
   }
+
+  const problems: CheckoutProblems = attempted ? validate() : { messages: [], fields: new Set() };
+  const invalid = problems.fields;
+  const shownErrors = [...new Set([...(cartErr ? [cartErr] : []), ...problems.messages, ...errors])];
 
   const field = (prefix: 'billing' | 'shipping', a: Address, set: (fn: (a: Address) => Address) => void) => (def: FieldDef) => (
     <FloatField
