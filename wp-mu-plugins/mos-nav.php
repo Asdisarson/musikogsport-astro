@@ -9,8 +9,11 @@
  *  the build it replaces, hand edits included, as "Aðalvalmynd 2026 (afrit)": one backup, in Útlit → Valmyndir.
  *  Konur / Karlar / Börn get the same columns (Fatnaður, Skór, Íþróttir, Félagslið, Vörumerki, Úrval); every
  *  column takes the links with the most products (none with fewer than MOS_NAV_MIN_PRODUCTS), lists them in
- *  alphabetical order (Icelandic), and is dropped when empty. Sports and clubs link to the storefront's filters (?ithrott=, ?team=), not to categories. The clubs in
- *  MOS_NAV_PINNED_TEAMS are listed under Íþróttir › Félagslið whatever their product count, unless they have none.
+ *  alphabetical order (Icelandic), and is dropped when empty. The featured clubs (MOS_NAV_FEATURED_CLUBS) lead every
+ *  Félagslið column they are in, and the featured national teams (MOS_NAV_FEATURED_NATIONAL_TEAMS) lead Landslið, in
+ *  the order of those lists. Sports and clubs link to the storefront's filters (?ithrott=, ?team=), not to
+ *  categories. The clubs in MOS_NAV_FEATURED_CLUBS and MOS_NAV_PINNED_TEAMS are listed under Íþróttir › Félagslið
+ *  whatever their product count, unless they have none.
  *  National teams (MOS_NAV_NATIONAL_TEAMS) are not clubs: under Íþróttir they have their own column, Landslið.
  *
  * Author: Músík og Sport
@@ -28,8 +31,13 @@ const MOS_NAV_MIN_PRODUCTS = 5;   // a link must lead to at least this many prod
 const MOS_NAV_COLUMN_LINKS = 8;   // links per column
 const MOS_NAV_GENDERS = ['konur' => 'Konur', 'karlar' => 'Karlar', 'born' => 'Börn'];   // Kyn category slug → title
 const MOS_NAV_CLUBS_CATEGORY = 'lidafatnadur-fatnadur-2';
-// Félag/Lið slugs listed under Íþróttir › Félagslið after the ranked clubs, however few products they have (not none).
+// Félag/Lið slugs listed under Íþróttir › Félagslið besides the ranked clubs, however few products they have (not none).
 const MOS_NAV_PINNED_TEAMS = ['paris-saint-germain', 'inter-milan', 'barcelona'];
+// Félag/Lið slugs that lead every Félagslið column they are in, in this order (the rest of the column is
+// alphabetical). Under Íþróttir › Félagslið they are also listed however few products they have (not none).
+const MOS_NAV_FEATURED_CLUBS = ['manchester-united', 'barcelona', 'arsenal', 'liverpool'];
+// The same for Íþróttir › Landslið (the spellings of one country the catalog has had).
+const MOS_NAV_FEATURED_NATIONAL_TEAMS = ['island-iceland', 'island', 'iceland'];
 // Félag/Lið slugs that are national teams (and national federations): under Íþróttir they get the column Landslið
 // instead of Félagslið, whatever their product count (not none). Both spellings of a country are here because the catalog has had both; a slug it lacks is skipped.
 const MOS_NAV_NATIONAL_TEAMS = [
@@ -138,9 +146,27 @@ function mos_nav_is_national(string $link, callable $href): bool {
     return false;
 }
 
-/** The national teams with products (the menu lists every column alphabetically: mos_nav_alphabetical). */
+/** The national teams with products, the featured ones marked (mos_nav_alphabetical orders the column). */
 function mos_nav_national_teams(array $index, callable $href): array {
-    return mos_nav_with_pinned($index, 'team', [], MOS_NAV_NATIONAL_TEAMS, $href);
+    return mos_nav_featured(mos_nav_with_pinned($index, 'team', [], MOS_NAV_NATIONAL_TEAMS, $href), MOS_NAV_FEATURED_NATIONAL_TEAMS, $href);
+}
+
+/**
+ * $links with the ones $slugs name marked `featured` => their place in $slugs: mos_nav_alphabetical() lists those
+ * first, in that order. A slug with no link in $links marks nothing.
+ *
+ * @param list<array{title:string,href:string,children:array,count:int}> $links
+ * @param list<string> $slugs
+ * @param callable(string):string $href term slug → link (the one $links was built with)
+ * @return list<array{title:string,href:string,children:array,count:int,featured?:int}>
+ */
+function mos_nav_featured(array $links, array $slugs, callable $href): array {
+    $place = array_flip(array_map($href, $slugs));
+    foreach ($links as &$link) {
+        if (isset($place[$link['href']])) { $link['featured'] = $place[$link['href']]; }
+    }
+    unset($link);
+    return $links;
 }
 
 /** The key a title sorts by in the Icelandic alphabet (a á b d ð e é f g h i í j k l m n o ó p r s t u ú v x y ý þ æ ö),
@@ -165,14 +191,16 @@ function mos_nav_alpha_key(string $title): string {
 /**
  * The tree with every listed column in alphabetical order. A column is "listed" when its links were picked by
  * product count (they carry `count`): which links make a column is still decided by the products, only their order
- * is the alphabet's. Columns written by hand (Úrval, Fyrir) and the order of the columns and of the menu itself stay.
+ * is the alphabet's. Links marked `featured` (mos_nav_featured) come before the others, in the order of their
+ * marks. Columns written by hand (Úrval, Fyrir) and the order of the columns and of the menu itself stay.
  */
 function mos_nav_alphabetical(array $items): array {
     foreach ($items as &$item) {
         foreach ($item['children'] as &$column) {
             $links = $column['children'];
             if ($links === [] || array_filter($links, static fn ($l) => !array_key_exists('count', $l)) !== []) { continue; }
-            usort($links, static fn ($a, $b) => strcmp(mos_nav_alpha_key($a['title']), mos_nav_alpha_key($b['title'])) ?: strcmp($a['title'], $b['title']));
+            usort($links, static fn ($a, $b) => (($a['featured'] ?? PHP_INT_MAX) <=> ($b['featured'] ?? PHP_INT_MAX))
+                ?: strcmp(mos_nav_alpha_key($a['title']), mos_nav_alpha_key($b['title'])) ?: strcmp($a['title'], $b['title']));
             $column['children'] = $links;
         }
         unset($column);
@@ -214,8 +242,9 @@ function mos_nav_gender_item(array $index, string $slug, string $title): ?array 
     }
     $columns[] = mos_nav_item('Íþróttir', "/verslun/$q", mos_nav_ranked($index, 'sport', $within, static fn ($s) => "/verslun/$q&ithrott=$s", $max));
     $clubs = mos_nav_id($cats, MOS_NAV_CLUBS_CATEGORY);
+    $team_href = static fn ($s) => "/verslun/$q&team=$s";
     $columns[] = mos_nav_item('Félagslið', $clubs !== null ? mos_nav_category_path($cats, $clubs) . $q : "/verslun/$q",
-        mos_nav_ranked($index, 'team', $within, static fn ($s) => "/verslun/$q&team=$s", $max));
+        mos_nav_featured(mos_nav_ranked($index, 'team', $within, $team_href, $max), MOS_NAV_FEATURED_CLUBS, $team_href));
     $columns[] = mos_nav_item('Vörumerki', "/verslun/$q", mos_nav_ranked($index, 'brand', $within, static fn ($s) => "/brand/$s/$q", $max));
     $picks = [mos_nav_item('Vinsælt núna', "/verslun/$q&orderby=popularity"), mos_nav_item('Nýjast', "/verslun/$q&orderby=date")];
     $sale = mos_nav_id($cats, 'sale');
@@ -262,7 +291,8 @@ function mos_nav_tree(array $index): array {
     )), 0, 2 * $max);
     $items[] = mos_nav_item('Íþróttir', '#', array_filter([
         mos_nav_item('Íþróttir', '/verslun/', mos_nav_ranked($index, 'sport', [], static fn ($s) => "/verslun/?ithrott=$s", 2 * $max)),
-        mos_nav_item('Félagslið', '/verslun/', mos_nav_with_pinned($index, 'team', $clubs, MOS_NAV_PINNED_TEAMS, $team_href)),
+        mos_nav_item('Félagslið', '/verslun/', mos_nav_featured(
+            mos_nav_with_pinned($index, 'team', $clubs, [...MOS_NAV_FEATURED_CLUBS, ...MOS_NAV_PINNED_TEAMS], $team_href), MOS_NAV_FEATURED_CLUBS, $team_href)),
         mos_nav_item('Landslið', '/verslun/', mos_nav_national_teams($index, $team_href)),
     ], static fn ($c) => $c['children'] !== []));
     $items[] = mos_nav_category_item($index, 'aefingarvorur', 'Æfingavörur', 'Flokkar', false);
@@ -431,7 +461,7 @@ function mos_nav_admin_box(): void {
         $text = sprintf($text, absint(wp_unslash($_GET['mos_nav_items'] ?? 0)));
         echo '<div class="notice notice-' . esc_attr($kind) . ' inline"><p>' . esc_html($text) . '</p></div>';
     }
-    echo '<p>Aðalvalmyndin er smíðuð úr vörulistanum: flokkar, íþróttir, félagslið og vörumerki raðast eftir vörufjölda. '
+    echo '<p>Aðalvalmyndin er smíðuð úr vörulistanum: vörufjöldi ræður hvaða flokkar, íþróttir, félagslið og vörumerki komast í hvern dálk; þau raðast í stafrófsröð, með völdum liðum efst. '
         . 'Endursmíðaðu hana þegar nýir flokkar eða lið hafa bæst við.</p>';
     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" '
         . 'onsubmit="if(!confirm(\'' . esc_js(MOS_NAV_CONFIRM) . '\'))return false;this.querySelector(\'button\').disabled=true">';

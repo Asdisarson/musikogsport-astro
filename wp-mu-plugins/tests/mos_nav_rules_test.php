@@ -87,8 +87,30 @@ $sports_menu = $pin_tree[4]['children'];
 check('Íþróttir has the columns Íþróttir, Félagslið, Landslið', array_column($sports_menu, 'title'), ['Íþróttir', 'Félagslið', 'Landslið']);
 check('Íþróttir › Félagslið lists clubs only (the pinned club too), alphabetically', array_column($sports_menu[1]['children'], 'href'),
     ['/verslun/?team=barcelona', '/verslun/?team=fh']);
-check('Íþróttir › Landslið: alphabetical; a team with no products is left out', array_column($sports_menu[2]['children'], 'href'),
-    ['/verslun/?team=argentina', '/verslun/?team=england', '/verslun/?team=island-iceland']);
+check('Íþróttir › Landslið: Ísland first, the rest alphabetical; a team with no products is left out', array_column($sports_menu[2]['children'], 'href'),
+    ['/verslun/?team=island-iceland', '/verslun/?team=argentina', '/verslun/?team=england']);
+
+// Featured teams lead their column in the order of the list; the rest follow alphabetically.
+$marked = mos_nav_featured(
+    [['title' => 'FH', 'href' => '/verslun/?team=fh', 'children' => [], 'count' => 7], ['title' => 'Arsenal', 'href' => '/verslun/?team=arsenal', 'children' => [], 'count' => 6]],
+    ['manchester-united', 'arsenal'], $team_href);
+check('featured: a listed link gets its place in the list, the others are untouched', $marked,
+    [['title' => 'FH', 'href' => '/verslun/?team=fh', 'children' => [], 'count' => 7], ['title' => 'Arsenal', 'href' => '/verslun/?team=arsenal', 'children' => [], 'count' => 6, 'featured' => 1]]);
+$feat_column = static fn (array $links) => array_column(mos_nav_alphabetical([['title' => 'X', 'href' => '#', 'children' => [['title' => 'Dálkur', 'href' => '#', 'children' => $links]]]])[0]['children'][0]['children'], 'title');
+$link = static fn (string $t, ?int $featured = null) => ['title' => $t, 'href' => '#', 'children' => [], 'count' => 9] + ($featured === null ? [] : ['featured' => $featured]);
+check('featured links come first in list order, then the alphabet', $feat_column([$link('Björk'), $link('Liverpool', 3), $link('Arsenal', 2), $link('Afturelding'), $link('Manchester United', 0)]),
+    ['Manchester United', 'Arsenal', 'Liverpool', 'Afturelding', 'Björk']);
+$feat_terms = $pin_terms;
+$feat_terms['team'][66] = ['slug' => 'arsenal', 'name' => 'Arsenal', 'parent' => 0];
+$feat_terms['team'][67] = ['slug' => 'manchester-united', 'name' => 'Manchester United', 'parent' => 0];
+$feat_terms['team'][68] = ['slug' => 'liverpool', 'name' => 'Liverpool', 'parent' => 0];   // no products
+$feat_terms['team'][69] = ['slug' => 'afturelding', 'name' => 'Afturelding', 'parent' => 0];
+$feat_products = array_merge($nat_products, array_fill(0, 6, row([3, 21], [50], [66])), [row([3, 21], [50], [67])], array_fill(0, 6, row([3, 21], [50], [69])));   // 6 Arsenal, 1 Manchester United, 6 Afturelding (men)
+$feat_tree = mos_nav_tree(['terms' => $feat_terms, 'products' => $feat_products]);
+check('Íþróttir › Félagslið: the featured clubs first in their order (a thin one too, an empty one not), then the alphabet', array_column($feat_tree[4]['children'][1]['children'], 'href'),
+    ['/verslun/?team=manchester-united', '/verslun/?team=barcelona', '/verslun/?team=arsenal', '/verslun/?team=afturelding', '/verslun/?team=fh']);
+check('Karlar › Félagslið: a featured club that made the column leads it; thin featured clubs are not added there', array_column(array_values(array_filter($feat_tree[1]['children'], static fn ($c) => $c['title'] === 'Félagslið'))[0]['children'], 'title'),
+    ['Arsenal', 'Afturelding', 'Argentina', 'FH']);
 
 // Alphabetical order, Icelandic: á after a, ð after d, í after i, þ æ ö last; case and punctuation do not matter.
 $sorted = static function (array $titles): array {
@@ -108,7 +130,9 @@ foreach ($whole as $top) {
     foreach ($top['children'] as $column) {
         $titles = array_column($column['children'], 'title');
         if ($titles === [] || !array_key_exists('count', $column['children'][0])) { continue; }
-        check("listed column {$top['title']} › {$column['title']} is alphabetical", $titles, $sorted($titles));
+        $featured = array_column(array_filter($column['children'], static fn ($l) => isset($l['featured'])), 'title');
+        $rest = array_column(array_filter($column['children'], static fn ($l) => !isset($l['featured'])), 'title');
+        check("listed column {$top['title']} › {$column['title']}: featured first, the rest alphabetical", $titles, array_merge($featured, $sorted($rest)));
     }
 }
 check('national teams are told apart by slug', [mos_nav_is_national('/verslun/?team=england', static fn ($s) => "/verslun/?team=$s"), mos_nav_is_national('/verslun/?team=fh', static fn ($s) => "/verslun/?team=$s")], [true, false]);

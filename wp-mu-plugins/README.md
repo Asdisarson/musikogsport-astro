@@ -149,7 +149,9 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
   order); sports and clubs link to the filters (`?ithrott=`, `?team=`). The clubs in `MOS_NAV_PINNED_TEAMS`
   (Félag/Lið slugs) are always listed under Íþróttir › Félagslið, whatever their product count (unless they have
   none). National teams (`MOS_NAV_NATIONAL_TEAMS`) are not clubs: under Íþróttir they have their own column,
-  Landslið. An ordinary
+  Landslið. The teams in `MOS_NAV_FEATURED_CLUBS` and `MOS_NAV_FEATURED_NATIONAL_TEAMS` lead their columns, in the
+  order of those lists (the featured clubs are also always listed under Íþróttir › Félagslið); the rest of a column
+  stays alphabetical. An ordinary
   menu afterwards (editable in wp-admin; a later apply rebuilds it). The "Endursmíða valmynd" button in the
   "Valmynd" box on the Stillingar page (administrators) does what `apply` does, so the owner needs no WP-CLI. A
   rebuild replaces the whole menu, hand edits included: the build it replaces is kept as "Aðalvalmynd 2026 (afrit)"
