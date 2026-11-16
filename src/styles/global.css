@@ -1308,7 +1308,8 @@
   :is(.checkout-fields, .account-fields) { display: flow-root; }
   :is(.checkout-fields, .account-fields) .form-row { position: relative; display: flex; flex-direction: column; gap: 8px; margin: 0 0 24px; }
   :is(.checkout-fields, .account-fields) .form-row-first, :is(.checkout-fields, .account-fields) .form-row-last { width: calc((100% - 16px) / 2); }
-  :is(.checkout-fields, .account-fields) .form-row-first { float: left; }
+  /* clear: a pair starts on a fresh line, also when one field of the pair above is taller (a message under it) */
+  :is(.checkout-fields, .account-fields) .form-row-first { float: left; clear: both; }
   :is(.checkout-fields, .account-fields) .form-row-last { float: right; }
   :is(.checkout-fields, .account-fields) .form-row-wide { clear: both; }
   :is(.checkout-fields, .account-fields) .form-row > label { order: -1; display: flex; flex-wrap: wrap; column-gap: 0.25em; font-size: 16px; line-height: 24px; color: var(--text); }
