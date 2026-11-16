@@ -339,11 +339,14 @@
   /* footer: black, four 14px text columns, then a full-width logo-orange 12px bottom bar; phones: <details> accordions.
      Columns and bar content sit on the same grid as .container (max-width + gutter inside). */
   .site-footer { margin-top: 80px; background: var(--footer-bg); color: var(--footer-text); font-size: 14px; line-height: 20px; }
-  .site-footer__cols { display: grid; grid-template-columns: repeat(3, minmax(0, 300px)); gap: 48px; max-width: calc(var(--maxw) + 2 * var(--gutter)); margin-inline: auto; padding: 40px var(--gutter) 48px; }
-  /* the recognitions: white chips (the files have white backgrounds), in a row above the link columns */
-  .site-footer__awards { display: flex; flex-wrap: wrap; gap: 12px; list-style: none; max-width: calc(var(--maxw) + 2 * var(--gutter)); margin: 0 auto; padding: 40px var(--gutter) 0; }
-  .site-footer__chip { display: flex; align-items: center; justify-content: center; height: 80px; padding: 8px 12px; border-radius: var(--radius-photo); background: #fff; }
+  .site-footer__cols { display: grid; grid-template-columns: repeat(3, minmax(0, 300px)) minmax(0, 1fr); gap: 48px; max-width: calc(var(--maxw) + 2 * var(--gutter)); margin-inline: auto; padding: 40px var(--gutter) 48px; }
+  /* the footer logo and the recognitions: white chips (the files have white backgrounds) right of the link columns;
+     under them on phones */
+  .site-footer__awards { display: flex; flex-wrap: wrap; align-content: flex-start; justify-content: flex-end; gap: 12px; grid-column: -2 / -1; list-style: none; margin: 0; padding: 0; }
+  @media (max-width: 1279px) { .site-footer__awards { grid-column: 1 / -1; } }   /* no room beside three columns: a row of their own, still right */
+  .site-footer__chip { display: flex; align-items: center; justify-content: center; height: 120px; padding: 4px; border-radius: var(--radius-photo); background: #fff; }
   .site-footer__chip img { display: block; width: auto; max-width: 100%; height: 100%; object-fit: contain; }
+  .site-footer__awards a.site-footer__chip { padding: 12px; }   /* the logo file has no margin of its own */
   .site-footer__contact li { display: flex; align-items: flex-start; gap: 10px; }
   .site-footer__contact svg { flex: none; margin-top: 1px; color: var(--footer-text); }
   .site-footer__cols :focus-visible { outline-color: var(--footer-text); }   /* the ink ring would vanish on black */
@@ -388,8 +391,9 @@
   .site-footer__consent:hover { text-decoration: underline; text-underline-offset: 3px; }
   @media (max-width: 991px) {
     .site-footer__cols { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 8px var(--gutter) 32px; }
-    .site-footer__awards { padding: 32px var(--gutter) 16px; }
-    .site-footer__chip { height: 64px; }
+    .site-footer__awards { justify-content: flex-start; padding-top: 24px; }
+    .site-footer__chip { height: 96px; }
+    @media (max-width: 479px) { .site-footer__chip { height: 76px; } }   /* the three fit one row on a phone */
     .site-footer__group { border-bottom: 1px solid var(--footer-line); }
     .newsletter__inner { grid-template-columns: minmax(0, 1fr); padding: 40px var(--gutter) 32px; }
     .newsletter__title { font-size: 30px; line-height: 34px; }
