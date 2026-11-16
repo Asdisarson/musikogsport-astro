@@ -168,11 +168,15 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
   Capped per address, per caller and store-wide per hour; failures are logged as `[mos-newsletter]` with Mailchimp's
   status, never the key or the address. Tests: `php tests/mos_newsletter_test.php`.
 - **mos-stillingar.php** — "Stillingar", the first item of the wp-admin sidebar (for anyone who can edit the front
-  page): the front page's pictures on one screen — header and footer logo, the eight banners, each hero slide's
+  page): the front page's pictures on one screen — header logo, the eight banners, each hero slide's
   product and picture — laid out as a small copy of the storefront's front page, computed from the saved values with
   the storefront's rules (`src/lib/homeLayout.ts`: the first banner with a picture on top, or the slides when none
-  has one; the other banners paired between the product rows); unused slides and empty banners wait under the
-  footer. It shows the existing ACF "Forsíða" fields of `mos-headless-api.php` for the front page (`acf_form()`), so
+  has one; the other banners paired between the product rows), in sections (Haus, Forsíðumynd, Borðar; the
+  unused slides folded under "Varaforsíða", empty banners last) beside a panel that counts unsaved changes and holds
+  the save button. Saving the front page's fields (here or on the Forsíða screen) pokes the storefront
+  (`mos_front_page_poke()` in `mos-headless-api.php` → `POST /api/content-refresh`), so the pictures show at once
+  instead of after the storefront's one-minute cache. The footer logo field is not on the page: the storefront's
+  footer draws no logo (the field stays on the Forsíða screen, a fallback share picture). It shows the existing ACF "Forsíða" fields of `mos-headless-api.php` for the front page (`acf_form()`), so
   it stores nothing of its own; texts, product rows and footer stay on the Forsíða edit screen. Needs ACF and a front
   page (otherwise it says so); when the slides are on top it warns about one the storefront would leave out
   (unpublished product or no picture). If `homeLayout.ts` changes, change `mos_stillingar_layout()` with it. Changes

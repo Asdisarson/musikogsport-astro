@@ -1,7 +1,7 @@
 <?php
 /**
  * WordPress-level test for ../mos-stillingar.php:
- *  - the page lists exactly the front-page picture fields (logos, each hero slide's product + picture, the banner
+ *  - the page lists exactly the front-page picture fields (header logo, each hero slide's product + picture, the banner
  *    pictures), every one an existing field of the ACF "Forsíða" group, so it writes nothing new;
  *  - the fields are laid out the way the storefront's front page places them (src/lib/homeLayout.ts): the first banner
  *    with a picture on top (or the product slides when no banner has one), the other banners paired in order between
@@ -9,7 +9,7 @@
  *  - "Stillingar" is registered as the first item of the admin sidebar, for those who can edit pages;
  *  - only someone who may edit the front page itself gets the form.
  *
- * Read-only: the admin-menu globals add_menu_page() writes are saved and put back, the users are in-memory WP_User
+ * Read-only apart from a one-minute transient the poke test sets and deletes: the admin-menu globals add_menu_page() writes are saved and put back, the users are in-memory WP_User
  * objects, nothing is saved.
  * Run (local site): wpms eval-file wp-mu-plugins/tests/mos_stillingar_wp_test.php   (prints PASS/FAIL lines)
  */
@@ -27,7 +27,7 @@ if (!function_exists('mos_stillingar_layout')) { echo "1 FAILED\n"; return; }
 
 // Field list.
 $keys = mos_stillingar_field_keys(3, 8);
-$check('field count = 2 logos + 3 slides x (product, picture) + 8 banners', count($keys) === 16, (string) count($keys));
+$check('field count = header logo + 3 slides x (product, picture) + 8 banners', count($keys) === 15, (string) count($keys));
 $check('no duplicates', count(array_unique($keys)) === count($keys));
 $check('site counts used', mos_stillingar_field_keys(MOS_HERO_SLIDES, MOS_BANNER_SLOTS) === $keys);
 
@@ -71,7 +71,7 @@ $a = mos_stillingar_layout($all, $slides_all, 2);
 $check('all banners: banner 1 is the hero', $a['hero'] === 'banner' && $a['hero_banner'] === 1);
 $check('all banners: front-page order', $names($a) === array_merge(
     ['site_logo', 'banner_1_image', '::row1', 'banner_2_image', 'banner_3_image', '::row2', 'banner_4_image',
-     'banner_5_image', 'banner_6_image', 'banner_7_image', 'banner_8_image', 'footer_logo'], $slide_fields), json_encode($names($a)));
+     'banner_5_image', 'banner_6_image', 'banner_7_image', 'banner_8_image', '::footer'], $slide_fields), json_encode($names($a)));
 $check('all banners: pairs are half width, the odd one out full width',
     $item($a, 'banner_2_image')[1] === 3 && $item($a, 'banner_8_image')[1] === 6 && $item($a, 'banner_1_image')[1] === 6);
 $check('all banners: hero label', $item($a, 'banner_1_image')[2] === 'Borði 1 — forsíðumynd');
@@ -93,7 +93,7 @@ $check('title-only banners: slides are the hero, banners still tiles', $d['hero'
 
 $e = mos_stillingar_layout(array_fill(1, 8, 'empty'), [1 => false, 2 => false, 3 => false], 2);
 $check('nothing set: no hero, slides after the footer', $e['hero'] === '' && $e['hero_banner'] === 0
-    && array_slice($names($e), 0, 4) === ['site_logo', '::row1', '::row2', 'footer_logo']);
+    && array_slice($names($e), 0, 4) === ['site_logo', '::row1', '::row2', '::footer']);
 
 $f = mos_stillingar_layout([1 => 'text', 2 => 'image'] + $all, $slides_all, 2);
 $check('title-only banner before the first picture: still a tile, the picture is the hero',
@@ -102,15 +102,59 @@ $check('title-only banner before the first picture: still a tile, the picture is
 $g = mos_stillingar_layout($all, [1 => true, 2 => true], 1);
 $check('one product row: only ::row1', !in_array('::row2', $names($g), true));
 
-$css_a = implode("\n", mos_stillingar_layout_css($a));
-$check('css: hero picture 16:9, banner 8 full width 14:5',
-    strpos($css_a, '[data-name="banner_1_image"] img { aspect-ratio: 16 / 9; }') !== false
-    && strpos($css_a, '[data-name="banner_8_image"] img { aspect-ratio: 14 / 5; }') !== false);
-$check('css: both row stand-ins placed', strpos($css_a, '.acf-fields::before { order: 2;') !== false
-    && strpos($css_a, '.acf-fields::after { order: 5;') !== false && strpos($css_a, 'display: none') === false);
-$check('css: cards under the footer dashed', strpos($css_a, '[data-name="hero_slide_1_image"] { border-style: dashed') !== false);
-$check('css: one product row hides the second stand-in',
-    strpos(implode("\n", mos_stillingar_layout_css($g)), '.acf-fields::after { display: none; }') !== false);
+// Sections: the layout grouped the way the page shows it.
+$ids = static fn(array $layout) => array_column(mos_stillingar_sections($layout), 'id');
+$section = static function (array $layout, string $id): ?array {
+    foreach (mos_stillingar_sections($layout) as $sec) { if ($sec['id'] === $id) { return $sec; } }
+    return null;
+};
+$sec_names = static fn(?array $sec) => $sec === null ? [] : array_column($sec['items'], 0);
+$check('sections, banner hero: haus, forsíðumynd, borðar, varaforsíða',
+    $ids($a) === ['haus', 'forsidumynd', 'bordar', 'varaforsida'], json_encode($ids($a)));
+$check('sections: the hero banner alone is the forsíðumynd', $sec_names($section($a, 'forsidumynd')) === ['banner_1_image']);
+$check('sections: borðar keeps the product rows in place', array_slice($sec_names($section($a, 'bordar')), 0, 4)
+    === ['::row1', 'banner_2_image', 'banner_3_image', '::row2']);
+$check('sections: unused slides folded away', $section($a, 'varaforsida')['folded'] === true
+    && $sec_names($section($a, 'varaforsida')) === $slide_fields);
+$check('sections: the heading replaces the label suffixes', $section($a, 'forsidumynd')['items'][0][2] === 'Borði 1'
+    && $section($a, 'varaforsida')['items'][0][2] === 'Glæra 1 — mynd');
+$check('sections, banner 1 empty: it is listed under tómir borðar', $sec_names($section($b, 'tomir')) === ['banner_1_image']
+    && $section($b, 'tomir')['items'][0][2] === 'Borði 1');
+$check('sections, slides hero: the slides are the forsíðumynd, nothing folded',
+    $sec_names($section($c, 'forsidumynd')) === $slide_fields && $section($c, 'varaforsida') === null);
+$check('sections, nothing set: no forsíðumynd section', !in_array('forsidumynd', $ids($e), true)
+    && $sec_names($section($e, 'bordar')) === ['::row1', '::row2']);
+foreach (['a' => $a, 'b' => $b, 'c' => $c, 'd' => $d, 'e' => $e, 'f' => $f, 'g' => $g] as $case => $layout) {
+    $flat = [];
+    foreach (mos_stillingar_sections($layout) as $sec) { foreach ($sec['items'] as $it) { $flat[] = $it[0]; } }
+    $check("case {$case}: every layout item but the footer mark is in exactly one section",
+        $flat === array_values(array_diff($names($layout), ['::footer'])));
+}
+
+// Saving the front page pokes the storefront; another post, or no storefront address, does not.
+$poked = [];
+$http = static function ($pre, $args, $url) use (&$poked) {
+    $poked[] = $url;
+    return ['response' => ['code' => 204, 'message' => 'No Content'], 'body' => '', 'headers' => [], 'cookies' => []];
+};
+add_filter('pre_http_request', $http, 10, 3);
+$front_id = (int) get_option('page_on_front');
+$base = function_exists('mos_headless_target_base') ? mos_headless_target_base() : '';
+mos_front_page_saved($front_id + 999999);
+$check('poke: not for another post', $poked === []);
+mos_front_page_saved($front_id);
+if ($base !== '') {
+    $check('poke: the storefront is told when the front page is saved', $poked === [$base . '/api/content-refresh'], json_encode($poked));
+    $check('poke: the outcome is kept for the next screen, once', mos_front_page_poke_result() === 'ok' && mos_front_page_poke_result() === '');
+} else {
+    $check('poke: no storefront address, no call', $poked === [] && mos_front_page_poke_result() === 'late');
+}
+remove_filter('pre_http_request', $http, 10);
+$down = static fn() => new WP_Error('http_request_failed', 'down');
+add_filter('pre_http_request', $down);
+mos_front_page_saved($front_id);
+$check('poke: an unreachable storefront reads as late', mos_front_page_poke_result() === 'late');
+remove_filter('pre_http_request', $down);
 
 foreach (['a' => $a, 'b' => $b, 'c' => $c, 'd' => $d, 'e' => $e, 'f' => $f, 'g' => $g] as $case => $layout) {
     $check("case {$case}: every grid row filled exactly", $fills_rows($layout), json_encode(array_column($layout['items'], 1)));

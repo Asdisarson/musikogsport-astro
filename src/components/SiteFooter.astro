@@ -1,5 +1,6 @@
 ---
-// Black footer: three link columns (shop sections from the main menu, the WordPress footer menu as "Hjálp", and
+// Black footer: the recognitions (lib/site FOOTER_AWARDS) on white chips, since those files have white
+// backgrounds; then three link columns (shop sections from the main menu, the WordPress footer menu as "Hjálp", and
 // the store's contact details and Instagram with icons) under the mailing-list sign-up band (NewsletterForm), then
 // a full-width orange bottom bar with the company
 // line (companyParts) and the legal links (the inner div keeps its content on the page grid while the
@@ -12,7 +13,7 @@ import type { SiteChrome } from '../lib/siteChrome';
 import { companyParts } from '../lib/companyLine';
 import { shopSections } from '../lib/megaMenu';
 import { linkRel } from '../lib/safeUrl';
-import { INSTAGRAM_URL } from '../lib/site';
+import { FOOTER_AWARDS, INSTAGRAM_URL } from '../lib/site';
 
 interface Props {
   chrome: SiteChrome;
@@ -34,6 +35,13 @@ const legal = [
 
 <footer class="site-footer">
   <NewsletterForm />
+  {
+    FOOTER_AWARDS.length > 0 && (
+      <ul class="site-footer__awards">
+        {FOOTER_AWARDS.map((a) => (<li class="site-footer__chip"><img src={a.src} alt={a.alt} width={a.width} height={a.height} loading="lazy" decoding="async" /></li>))}
+      </ul>
+    )
+  }
   <div class="site-footer__cols">
 
     {

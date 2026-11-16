@@ -7,16 +7,21 @@ export interface Loaded<T> {
   degraded: boolean;
 }
 
+export type CachedLoader<T> = (() => Promise<Loaded<T>>) & { refresh: () => Promise<boolean> };
+
 /** One cached value with a TTL (stale-while-revalidate). A stale value is served at once while a single
  *  background refresh runs; concurrent cold callers share one load. A failed load, cold or warm, is
  *  remembered for `failMemoMs`, so an outage isn't retried (and waited on) by every request. With nothing
- *  ever loaded the result is `degraded`. */
+ *  ever loaded the result is `degraded`.
+ *  `.refresh()` loads now whatever the value's age (the caller knows the source changed) and resolves to whether
+ *  that load succeeded; a failed one keeps the last good value like any other. A load already running is waited
+ *  out first, since it may have read before the change. */
 export function createCachedLoader<T>(opts: {
   load: () => Promise<T>;
   ttlMs: number;
   failMemoMs: number;
   now?: () => number;
-}): () => Promise<Loaded<T>> {
+}): CachedLoader<T> {
   const now = opts.now ?? Date.now;
   let cached: { at: number; value: T } | null = null;
   let failedAt: number | null = null;
@@ -39,7 +44,7 @@ export function createCachedLoader<T>(opts: {
         inflight = null;
       }));
 
-  return () => {
+  const read = (): Promise<Loaded<T>> => {
     const t = now();
     const backingOff = failedAt !== null && t - failedAt < opts.failMemoMs;
     if (cached) {
@@ -49,6 +54,13 @@ export function createCachedLoader<T>(opts: {
     if (backingOff) return Promise.resolve({ value: null, degraded: true });
     return refresh();
   };
+  return Object.assign(read, {
+    refresh: async () => {
+      await inflight;
+      await refresh();
+      return failedAt === null;
+    },
+  });
 }
 
 /** A size-bounded map whose entries each carry their own TTL. `get` also returns expired entries

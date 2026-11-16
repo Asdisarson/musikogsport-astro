@@ -400,7 +400,7 @@ add_action('mos_stillingar_after', 'mos_instagram_admin_box');
 function mos_instagram_admin_box(): void {
     if (!current_user_can('manage_options')) { return; }
     $notice = isset($_GET['mos_ig']) ? sanitize_key(wp_unslash($_GET['mos_ig'])) : '';
-    echo '<hr style="margin:32px 0 16px"><h2 id="instagram">Instagram</h2>';
+    echo '<section class="mos-st-box"><h2 id="instagram">Instagram</h2>';
     if (isset(MOS_INSTAGRAM_NOTICES[$notice])) {
         [$kind, $text] = MOS_INSTAGRAM_NOTICES[$notice];
         echo '<div class="notice notice-' . esc_attr($kind) . ' inline"><p>' . esc_html($text) . '</p></div>';
@@ -445,6 +445,7 @@ function mos_instagram_admin_box(): void {
         wp_nonce_field('mos_instagram_disconnect');
         echo '<button class="button">Aftengja</button></form>';
     }
+    echo '</section>';
 }
 
 add_action('admin_post_mos_instagram_token', 'mos_instagram_handle_token');

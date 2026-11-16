@@ -111,3 +111,8 @@ const load = createCachedLoader({ load: fetchChrome, ttlMs: TTL_MS, failMemoMs: 
 export async function loadSiteChrome(): Promise<SiteChrome> {
   return (await load()).value ?? FALLBACK;
 }
+
+/** Rebuild the chrome now; call after refreshFrontPage(), whose content it reads. False when a menu fetch failed. */
+export function refreshSiteChrome(): Promise<boolean> {
+  return load.refresh();
+}

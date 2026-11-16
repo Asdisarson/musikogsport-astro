@@ -129,3 +129,9 @@ const load = createCachedLoader({ load: fetchFrontPage, ttlMs: 60 * 1000, failMe
 export async function loadFrontPage(): Promise<FrontPage | null> {
   return (await load()).value;
 }
+
+/** Fetch the content now (it was just saved in WordPress), so the next page view shows it. False when the fetch
+ *  failed (the last good copy stays). */
+export function refreshFrontPage(): Promise<boolean> {
+  return load.refresh();
+}

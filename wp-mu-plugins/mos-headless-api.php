@@ -531,6 +531,36 @@ function mos_rest_front_page() {
 }
 
 /**
+ * Tell the storefront the Forsíða changed, so it refetches it now instead of at the end of its minute's cache
+ * (src/lib/contentRefresh.ts; the poke carries nothing, so it needs no key). False without a storefront address
+ * (mos-headless-mode.php), when it did not answer in time (it may wait up to 2 s to space refetches out) or could
+ * not read WordPress (502); the page then shows within the minute as before.
+ */
+function mos_front_page_poke(): bool {
+    $base = function_exists('mos_headless_target_base') ? mos_headless_target_base() : '';
+    if ($base === '') { return false; }
+    $res = wp_remote_post($base . '/api/content-refresh', ['timeout' => 5, 'redirection' => 0, 'body' => '']);
+    return !is_wp_error($res) && (int) wp_remote_retrieve_response_code($res) === 204;
+}
+
+/** After ACF saved the front page's fields (the Forsíða edit screen or Stillingar): poke, and keep the outcome for
+ *  the screen the save redirects to. */
+function mos_front_page_saved($post_id): void {
+    if ((int) $post_id <= 0 || (int) $post_id !== (int) get_option('page_on_front')) { return; }
+    set_transient('mos_front_poke_' . get_current_user_id(), mos_front_page_poke() ? 'ok' : 'late', MINUTE_IN_SECONDS);
+}
+add_action('acf/save_post', 'mos_front_page_saved', 20);
+
+/** 'ok' / 'late' for the current user's last front-page save, '' when there was none; read once. */
+function mos_front_page_poke_result(): string {
+    $key = 'mos_front_poke_' . get_current_user_id();
+    $result = get_transient($key);
+    if ($result === false) { return ''; }
+    delete_transient($key);
+    return (string) $result;
+}
+
+/**
  * A hero slide is a product (live's Slider Revolution "dynamic" WooCommerce slider):
  * name, storefront path, prices and image — the image may be overridden per slide.
  */

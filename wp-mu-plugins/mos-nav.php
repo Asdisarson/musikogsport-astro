@@ -455,7 +455,7 @@ function mos_nav_admin_url(string $notice, int $items = 0): string {
 function mos_nav_admin_box(): void {
     if (!current_user_can('manage_options')) { return; }
     $notice = isset($_GET['mos_nav']) ? sanitize_key(wp_unslash($_GET['mos_nav'])) : '';
-    echo '<hr style="margin:32px 0 16px"><h2 id="valmynd">Valmynd</h2>';
+    echo '<section class="mos-st-box"><h2 id="valmynd">Valmynd</h2>';
     if (isset(MOS_NAV_NOTICES[$notice])) {
         [$kind, $text] = MOS_NAV_NOTICES[$notice];
         $text = sprintf($text, absint(wp_unslash($_GET['mos_nav_items'] ?? 0)));
@@ -467,7 +467,7 @@ function mos_nav_admin_box(): void {
         . 'onsubmit="if(!confirm(\'' . esc_js(MOS_NAV_CONFIRM) . '\'))return false;this.querySelector(\'button\').disabled=true">';
     echo '<input type="hidden" name="action" value="mos_nav_rebuild">';
     wp_nonce_field('mos_nav_rebuild');
-    echo '<button class="button">Endursmíða valmynd</button></form>';
+    echo '<button class="button">Endursmíða valmynd</button></form></section>';
 }
 
 function mos_nav_handle_rebuild(): void {

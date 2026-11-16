@@ -31,6 +31,29 @@ describe('createCachedLoader', () => {
 
   const flush = () => new Promise((r) => setTimeout(r, 0));
 
+  it('refresh() loads now even when the value is fresh, and the next read gets the new value', async () => {
+    const s = setup([async () => 'a', async () => 'b']);
+    await s.load();
+    expect(await s.load.refresh()).toBe(true);
+    expect(await s.load()).toEqual({ value: 'b', degraded: false });
+    expect(s.calls()).toBe(2);
+  });
+
+  it('refresh() started during a running load loads again after it (that load may have read before the change)', async () => {
+    const s = setup([async () => 'a', async () => 'b']);
+    const [x, ok] = await Promise.all([s.load(), s.load.refresh()]);
+    expect([x.value, ok]).toEqual(['a', true]);
+    expect((await s.load()).value).toBe('b');
+    expect(s.calls()).toBe(2);
+  });
+
+  it('refresh() says so and keeps the last good value when the load fails', async () => {
+    const s = setup([async () => 'a', async () => { throw new Error('down'); }]);
+    await s.load();
+    expect(await s.load.refresh()).toBe(false);
+    expect(await s.load()).toEqual({ value: 'a', degraded: false });
+  });
+
   it('serves the last good value at once when it is stale, refreshing in the background', async () => {
     const s = setup([async () => 'a', async () => 'b']);
     await s.load();
