@@ -17,5 +17,10 @@ Disallow: /*?*ithrott=
 Disallow: /*?*litur=
 Disallow: /*?*brand=
 Disallow: /*?*team=
+# Multi-value category/kyn combinations: every ordering is a distinct URL (single values stay crawlable).
+Disallow: /*product-category=*%2C
+Disallow: /*product-category=*,
+Disallow: /*kyn=*%2C
+Disallow: /*kyn=*,
 
 Sitemap: https://musikogsport.is/sitemap.xml
