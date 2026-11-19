@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_LIST_PARAM, MAX_SEARCH_LENGTH, MAX_SIZE_PARAM, PRICE_PRESETS, clearFilterHref, clearFiltersHref, parseLiveFilters, presetBounds, pricePreset, sizeIndexDecision, toStoreFilter, toggleFilterHref, type CatalogTerms } from './liveFilters';
+import { MAX_LIST_PARAM, MAX_SEARCH_LENGTH, MAX_SIZE_PARAM, PRICE_PRESETS, clearFilterHref, clearFiltersHref, excessiveFilterQuery, parseLiveFilters, unfilteredTarget, presetBounds, pricePreset, sizeIndexDecision, toStoreFilter, toggleFilterHref, type CatalogTerms } from './liveFilters';
 
 const terms: CatalogTerms = {
   categories: [
@@ -340,3 +340,59 @@ describe('parseLiveFilters caps (LC-05)', () => {
   });
 });
 
+
+describe('excessiveFilterQuery', () => {
+  const q = (query: string) => excessiveFilterQuery(new URLSearchParams(query));
+  const teams = (n: number) => Array.from({ length: n }, (_, i) => `lid-${i}`).join(',');
+
+  it('lets ordinary filtering through', () => {
+    expect(q('')).toBe(false);
+    expect(q('kyn=born,konur&staerd=31-33&litur=graenn')).toBe(false);
+    expect(q(`team=${teams(6)}&kyn=born`)).toBe(false);
+    expect(q('s=adidas+firebird&staerd=m,l')).toBe(false);
+  });
+
+  it('flags one list filter with more values than a shopper picks (the scraper pattern, comma or %2C)', () => {
+    expect(q(`team=${teams(7)}`)).toBe(true);
+    expect(q(`team=${teams(13).replaceAll(',', '%2C')}&kyn=born%2Ckonur&staerd=31-33`)).toBe(true);
+    expect(q(`brand=${teams(7)}`)).toBe(true);
+  });
+
+  it('flags many values spread over several filters', () => {
+    expect(q(`team=${teams(5)}&brand=${teams(5)}&ithrott=a,b,c`)).toBe(true);
+    expect(q(`team=${teams(5)}&brand=${teams(5)}&ithrott=a,b`)).toBe(false);
+  });
+
+  it('counts a repeated value once and leaves sizes to their own limit', () => {
+    expect(q('team=fh,fh,fh,fh,fh,fh,fh,fh')).toBe(false);
+    expect(q(`staerd=${Array.from({ length: 30 }, (_, i) => 30 + i).join(',')}`)).toBe(false);
+  });
+});
+
+describe('unfilteredTarget', () => {
+  const over = new URLSearchParams('team=a,b,c,d,e,f,g');
+
+  it('is the same path for an over-filtered page URL, null otherwise', () => {
+    expect(unfilteredTarget('/verslun/', over)).toBe('/verslun/');
+    expect(unfilteredTarget('/verslun/', new URLSearchParams('team=a,b'))).toBeNull();
+  });
+
+  it('leaves API routes and assets alone', () => {
+    expect(unfilteredTarget('/api/products', over)).toBeNull();
+    expect(unfilteredTarget('/_astro/app.js', over)).toBeNull();
+  });
+
+  it('never builds a Location another host could own', () => {
+    expect(unfilteredTarget('//evil.example/', over)).toBeNull();
+    expect(unfilteredTarget('/\\evil.example/', over)).toBeNull();
+  });
+});
+
+describe('list filters', () => {
+  it('are all counted by the guard: a filter the parser reads as a list can trip it on its own', () => {
+    const state = parseLiveFilters(new URLSearchParams());
+    const listKeys = Object.entries(state).filter(([key, value]) => Array.isArray(value) && key !== 'staerd').map(([key]) => (key === 'productCategory' ? 'product-category' : key));
+    expect(listKeys.length).toBeGreaterThan(0);
+    for (const key of listKeys) expect(excessiveFilterQuery(new URLSearchParams(`${key}=a,b,c,d,e,f,g`)), key).toBe(true);
+  });
+});

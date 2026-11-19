@@ -156,6 +156,31 @@ const SIZE_SLUG = /^[a-z0-9-]{1,40}$/;
 /** The most sizes one URL filters by: the size plugin's MOS_SIZE_MAX_PARAM (wp-mu-plugins/mos-size-index.php). */
 export const MAX_SIZE_PARAM = 60;
 
+/** The most values a shopper plausibly picks in one list filter, and across all of them together. */
+export const MAX_PICKED_PER_FILTER = 6;
+export const MAX_PICKED_TOTAL = 12;
+const LIST_PARAMS = ['kyn', 'brand', 'team', 'product-category', 'ithrott', 'litur'] as const;
+
+/** Whether a listing URL picks more filter values than a shopper does (2026-11-19: a scraper walked URLs with 8–14
+ *  teams each, every one a fresh WooCommerce query). The middleware sends these to the unfiltered listing without
+ *  asking WordPress. Sizes keep their own limit (MAX_SIZE_PARAM): a shopper does tick many. */
+export function excessiveFilterQuery(params: URLSearchParams): boolean {
+  let total = 0;
+  for (const key of LIST_PARAMS) {
+    const picked = csv(params.get(key), Infinity).length;
+    if (picked > MAX_PICKED_PER_FILTER) return true;
+    total += picked;
+  }
+  return total > MAX_PICKED_TOTAL;
+}
+
+/** Where an over-filtered page URL is sent: the same path without its query, or null to serve the request as it
+ *  is. Never for API routes or assets (`/_astro/`), and never a path a browser would read as another host (`//host`, `/\\host`). */
+export function unfilteredTarget(pathname: string, params: URLSearchParams): string | null {
+  if (pathname.startsWith('/api/') || pathname.startsWith('/_') || /^\/[/\\]/.test(pathname)) return null;
+  return excessiveFilterQuery(params) ? pathname : null;
+}
+
 export function parseLiveFilters(params: URLSearchParams): LiveFilterState {
   const orderby = params.get('orderby') ?? '';
   const search = Array.from(params.get('s')?.trim() ?? '').slice(0, MAX_SEARCH_LENGTH).join('').trim();

@@ -1,5 +1,6 @@
 import { defineMiddleware } from 'astro:middleware';
 import { slashRedirect } from './lib/paths';
+import { unfilteredTarget } from './lib/liveFilters';
 import { finishResponse } from './lib/responseHeaders';
 import { isCanonicalHost } from './lib/seo';
 import { hstsEnabled, securityHeaders } from './lib/securityHeaders.mjs';
@@ -51,7 +52,15 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
     } else {
       // A direct request for /500/ is a missing page: Astro forces status 500 on that route (it renders it for real
       // errors, with the original path), and a public URL answering 500 would only inflate the error metrics.
-      res = target ? ctx.redirect(target + ctx.url.search, 301) : path === '/500/' ? await ctx.rewrite('/404/') : await next();
+      // A page URL with more filter values than a shopper picks (lib/liveFilters) goes to the same page unfiltered,
+      // before any lookup: each such combination would be a fresh WooCommerce query.
+      const unfiltered = (method === 'GET' || method === 'HEAD') && ctx.url.search !== '' ? unfilteredTarget(path, ctx.url.searchParams) : null;
+      if (unfiltered) {
+        log.debug('filter query refused', { method, path }); // debug: a crawl would write one line per URL
+        res = ctx.redirect(target ?? unfiltered, 302);
+      } else {
+        res = target ? ctx.redirect(target + ctx.url.search, 301) : path === '/500/' ? await ctx.rewrite('/404/') : await next();
+      }
     }
   } catch (err) {
     // Astro renders 500.astro from this; the log line is the trace.
