@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { audienceGroups, chartFromRows, headingKind, isShoe, sectionLabel, sectionSlug, parseWant, pickSections, sizeChartFor, sizeIndex, transpose, wantAttr, type SizeWant } from './sizeGuide';
+import { audienceGroups, chartFromRows, headingKind, isShoe, sectionLabel, sectionSlug, parseWant, pickSections, sizeChartFor, sizeIndex, transpose, wantAttr, type SizeWant, isPlainClick } from './sizeGuide';
 
 // The /staerdir/ WordPress page's headings, in page order (2026-10-30).
 const HEADINGS = [
@@ -274,5 +274,21 @@ describe('audienceGroups: the /staerdir/ page\'s overview (Börn · Karlar · Ko
 
   it('is empty for no charts', () => {
     expect(audienceGroups([])).toEqual([]);
+  });
+});
+
+describe('isPlainClick', () => {
+  const click = { button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false };
+
+  it('is a plain left click: the popup opens', () => {
+    expect(isPlainClick(click)).toBe(true);
+  });
+
+  it('is not a click meant for a new tab or window: the link is left to the browser', () => {
+    expect(isPlainClick({ ...click, metaKey: true })).toBe(false);
+    expect(isPlainClick({ ...click, ctrlKey: true })).toBe(false);
+    expect(isPlainClick({ ...click, shiftKey: true })).toBe(false);
+    expect(isPlainClick({ ...click, altKey: true })).toBe(false);
+    expect(isPlainClick({ ...click, button: 1 })).toBe(false);
   });
 });

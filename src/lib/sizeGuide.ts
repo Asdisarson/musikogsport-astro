@@ -201,3 +201,9 @@ export function audienceGroups(headings: string[]): AudienceGroup[] {
   if (rest) groups.set('annad', rest);
   return [...groups].map(([id, indices]) => ({ id, label: GROUP_LABELS[id], indices }));
 }
+
+/** A plain left click, the kind that opens the popup. A click with a modifier key or another button means "open the
+ *  link in a new tab or window", and is left to the browser. */
+export function isPlainClick(e: { button: number; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }): boolean {
+  return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+}
