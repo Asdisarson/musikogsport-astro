@@ -57,21 +57,64 @@ const adminBase = runtimeEnv('MOS_WP_ADMIN_URL') || MEDIA_BASE_URL;
     document.documentElement.classList.add('has-admin-bar');
   }
 
-  async function init(): Promise<void> {
-    if (hasCookie(document.cookie, 'mos_staff')) return show(bar?.dataset.adminBase ?? '');
-    if (!hasCookie(document.cookie, 'mos_li')) return write(null); // signed out: forget the last account's answer
+  function hide(): void {
+    if (!bar || bar.hidden) return;
+    bar.hidden = true;
+    document.documentElement.classList.remove('has-admin-bar');
+  }
+
+  /** WordPress's origin when this browser is signed in as staff on either path, '' when it is not, and null when
+   *  that couldn't be asked just now (the bar then stays as it is). */
+  async function staffBase(): Promise<string | null> {
+    if (hasCookie(document.cookie, 'mos_staff')) return bar?.dataset.adminBase ?? '';
+    if (!hasCookie(document.cookie, 'mos_li')) {
+      write(null); // signed out: forget the last account's answer
+      return '';
+    }
     const known = read();
-    if (known !== null) return known ? show(known) : undefined;
+    if (known !== null) return known;
     try {
       const res = await fetch('/api/account/editor/', { headers: { Accept: 'application/json' } });
-      if (!res.ok) return;
+      if (!res.ok) return null;
       const data = (await res.json()) as { canEdit?: boolean; adminBase?: string };
       const base = data.canEdit === true && typeof data.adminBase === 'string' ? data.adminBase : '';
       write(base);
-      if (base) show(base);
+      return base;
     } catch {
-      /* offline or the server is away: no bar this time */
+      return null; // offline or the server is away
     }
   }
-  if (bar) void init();
+
+  let checking = false;
+  let again = false;
+  async function refresh(): Promise<void> {
+    if (checking) {
+      again = true; // asked while a check was under way: look once more when it is done
+      return;
+    }
+    checking = true;
+    try {
+      const base = await staffBase();
+      if (base) show(base);
+      else if (base === '') hide();
+    } finally {
+      checking = false;
+      if (again) {
+        again = false;
+        void refresh();
+      }
+    }
+  }
+
+  if (bar) {
+    void refresh();
+    // Signing in or out happens in another tab (wp-admin) or on a page this one is restored over, so the page
+    // looks again when it comes back: to the foreground, or out of the back/forward cache.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void refresh();
+    });
+    window.addEventListener('pageshow', (e) => {
+      if (e.persisted) void refresh();
+    });
+  }
 </script>
