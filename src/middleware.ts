@@ -1,3 +1,4 @@
+import type { APIContext } from 'astro';
 import { defineMiddleware } from 'astro:middleware';
 import { slashRedirect } from './lib/paths';
 import { unfilteredTarget } from './lib/liveFilters';
@@ -7,6 +8,11 @@ import { hstsEnabled, securityHeaders } from './lib/securityHeaders.mjs';
 import { MEDIA_BASE_URL } from './lib/img';
 import { installProcessHandlers, log, runtimeEnv } from './lib/logger';
 import { NOTICE_PATH, PREVIEW_COOKIE, PREVIEW_PARAM, maintenanceDecision, maintenanceSettings, type MaintenanceDecision } from './lib/maintenance';
+import { canStore, filterValuesKnown, freshFor, normalPath, refreshBackoffMs, replayHeaderNames, shellPolicy, shellKey, type ShellPolicy } from './lib/shellPolicy';
+import { loadCatalogTerms } from './lib/catalogTerms';
+import { shellBuildId, shellFreshOverride, getShell } from './lib/shellRuntime';
+import { isIncomplete, shellTierOf } from './lib/shellIncomplete';
+import type { ShellStore } from './lib/shellStore';
 
 // Run-time switch (DEPLOY.md "Security headers"): HSTS only once DNS and TLS on the apex are settled.
 const HSTS = hstsEnabled(runtimeEnv('MOS_HSTS'));
@@ -15,6 +21,172 @@ const HEADERS = securityHeaders({ mediaBaseUrl: MEDIA_BASE_URL, hsts: HSTS });
 const MAINTENANCE = maintenanceSettings(runtimeEnv('MOS_MAINTENANCE'), runtimeEnv('MOS_MAINTENANCE_KEY'));
 const RETRY_AFTER_S = '600';
 const NOINDEX: [string, string] = ['X-Robots-Tag', 'noindex, nofollow'];
+
+/** X-Mos-Shell: miss = rendered and kept; refused = rendered for a planned GET but the store would not keep it (scripts/prebuild_shells.mjs counts it apart). */
+type ShellState = 'hit' | 'stale' | 'miss' | 'refused' | 'skip';
+/** Pages being re-rendered in the background, by key: one refresh per page at a time. */
+const refreshing = new Set<string>();
+/** Pages whose background refreshes keep failing (5xx or an incomplete render): key -> failures, and when to try
+ *  again. The stored copy is served meanwhile, so a WordPress outage does not turn into a render per visitor. */
+const failing = new Map<string, { n: number; until: number }>();
+const FAILING_LIMIT = 1000;
+
+function noteFailure(key: string): void {
+  const n = (failing.get(key)?.n ?? 0) + 1;
+  failing.delete(key);
+  failing.set(key, { n, until: Date.now() + refreshBackoffMs(n) });
+  while (failing.size > FAILING_LIMIT) failing.delete(failing.keys().next().value as string);
+}
+
+const backingOff = (key: string): boolean => (failing.get(key)?.until ?? 0) > Date.now();
+
+interface ShellPlan {
+  store: ShellStore;
+  key: string;
+  policy: ShellPolicy;
+  /** The run-time lifetime override (MOS_SHELL_FRESH_MS), or null. */
+  freshOverride: number | null;
+}
+
+/** The store and this request's key, or null when the request is not one the store may serve or keep. */
+async function shellPlan(ctx: APIContext): Promise<ShellPlan | null> {
+  if (MAINTENANCE.enabled) return null;
+  // `astro dev` answers on loopback, which is not the site's host: there the store is used so it can be checked.
+  // Any host Astro trusts is kept: the page is the same whichever host it was asked on (every URL in it comes from
+  // Astro.site, not the request), so the apex, new.musikogsport.is and a pre-build run through X-Forwarded-Host all
+  // share one store. Astro maps a Host it does not trust to 'localhost' (security.allowedDomains): that is refused.
+  const loopback = import.meta.env.DEV && /^(127\.0\.0\.1|localhost)$/.test(ctx.url.hostname);
+  if (!loopback && ctx.url.hostname === 'localhost') return null;
+  if (ctx.url.searchParams.has(PREVIEW_PARAM) || ctx.cookies.get(PREVIEW_COOKIE)) return null;
+  const base = shellPolicy(ctx.url.pathname, ctx.url.searchParams);
+  if (!base) return null;
+  const store = await getShell();
+  if (!store) return null;
+  const freshOverride = shellFreshOverride();
+  const policy = freshOverride === null ? base : { ...base, freshMs: freshOverride };
+  return { store, key: shellKey(shellBuildId(), ctx.url.pathname, ctx.url.searchParams), policy, freshOverride };
+}
+
+/** Whether a rendered (pre-finish) response is complete and cacheable, then keeps its body when it is. */
+function keepIfStorable(ctx: APIContext, res: Response): boolean {
+  return canStore({
+    method: 'GET',
+    status: res.status,
+    contentType: res.headers.get('Content-Type'),
+    cacheControl: res.headers.get('Cache-Control'),
+    setsCookie: res.headers.has('Set-Cookie') || !ctx.cookies.headers().next().done,
+    incomplete: isIncomplete(ctx.locals),
+    maintenance: MAINTENANCE.enabled,
+    preview: false,
+    canonical: true,
+    hasPolicy: true,
+  });
+}
+
+/** Reads a rendered page to its end and stores it. The read completes only when the stream did, so a page cut off
+ *  mid-way is never stored. `renderAt` is when the render STARTED: a poke or drop that arrived during it wins. Never
+ *  throws. */
+async function keep(ctx: APIContext, plan: ShellPlan, res: Response, path: string, renderAt: number): Promise<void> {
+  try {
+    const body = await res.text();
+    if (isIncomplete(ctx.locals)) return; // a photo or count went missing while rendering: serve it, don't keep it
+    const headers = [...res.headers.entries()].filter(([name]) => replayHeaderNames([name]).length > 0);
+    // The page may say what it is (a product under /verslun/): that tier's lifetime, unless overridden.
+    const tier = shellTierOf(ctx.locals) ?? plan.policy.tier;
+    // A product with a filter in its address is a query variant of a product page: never kept.
+    if (plan.policy.memoryOnly && tier === 'product') return;
+    // A filtered page is kept only when every value in its address is a term the catalogue has (the render has just
+    // loaded the terms, so this is a cache read): a made-up value would be a page held in memory for nothing.
+    if (plan.policy.memoryOnly && !filterValuesKnown(ctx.url.searchParams, await loadCatalogTerms())) return;
+    await plan.store.put({
+      key: plan.key,
+      path: normalPath(path),
+      tier,
+      at: renderAt,
+      freshMs: plan.freshOverride ?? freshFor(tier),
+      status: 200,
+      headers,
+      body,
+      memoryOnly: plan.policy.memoryOnly,
+    });
+  } catch (err) {
+    log.debug('[shell] page not kept', { path, err });
+  }
+}
+
+/** Re-renders a stale page in the background. The visitor already has the stored copy; this request's own render
+ *  (next() continued after the response was chosen) is kept if it is complete, and dropped otherwise. */
+function refreshInBackground(ctx: APIContext, next: () => Promise<Response>, plan: ShellPlan, path: string): void {
+  if (refreshing.has(plan.key) || backingOff(plan.key)) return;
+  refreshing.add(plan.key);
+  void (async () => {
+    const endRender = plan.store.beginRender(path);
+    try {
+      const renderAt = Date.now(); // before the render: a poke that lands during it must win over this copy
+      const res = await next();
+      const status = res.status;
+      // A definite answer that the page is gone or moved (a slug changed, a product unpublished and the poke lost):
+      // the stored copy must not answer 200 any more.
+      if (status === 404 || status === 410 || (status >= 300 && status < 400)) {
+        await res.body?.cancel();
+        failing.delete(plan.key);
+        await plan.store.remove(plan.key);
+      } else if (keepIfStorable(ctx, res)) {
+        failing.delete(plan.key);
+        await keep(ctx, plan, res, path, renderAt);
+      } else {
+        // 5xx or an incomplete render: keep the stale copy (it beats an error) and wait longer before the next try.
+        await res.body?.cancel();
+        noteFailure(plan.key);
+      }
+    } catch (err) {
+      noteFailure(plan.key);
+      log.warn('[shell] refresh failed', { path, err });
+    } finally {
+      endRender();
+      refreshing.delete(plan.key);
+    }
+  })();
+}
+
+/** The page for a GET or HEAD: from the store when it has one (served at once, re-rendered if stale), otherwise
+ *  rendered and kept when complete. Any failure in the store falls back to a plain render. */
+async function serveShell(ctx: APIContext, next: () => Promise<Response>, path: string, method: string): Promise<{ res: Response; state: ShellState }> {
+  let plan: ShellPlan | null = null;
+  try {
+    plan = method === 'GET' || method === 'HEAD' ? await shellPlan(ctx) : null;
+    const found = plan ? await plan.store.get(plan.key) : null;
+    if (plan && found && found.entry.status === 200) {
+      const res = new Response(method === 'HEAD' ? null : found.entry.body, { status: 200, headers: found.entry.headers });
+      if (found.state === 'stale') refreshInBackground(ctx, next, plan, path);
+      return { res, state: found.state === 'fresh' ? 'hit' : 'stale' };
+    }
+  } catch (err) {
+    log.warn('[shell] lookup failed', { path, err });
+    plan = null;
+  }
+  const renderAt = Date.now(); // before the render (see keep)
+  const endRender = plan ? plan.store.beginRender(path) : () => undefined; // a poke during the render is known to the store
+  let res: Response;
+  try {
+    res = await next();
+  } catch (err) {
+    endRender();
+    throw err;
+  }
+  let kept = false;
+  try {
+    if (plan && method === 'GET' && keepIfStorable(ctx, res)) {
+      kept = true;
+      void keep(ctx, plan, res.clone(), path, renderAt).finally(endRender);
+    }
+  } catch (err) {
+    log.warn('[shell] not kept', { path, err });
+  }
+  if (!kept) endRender();
+  if (!plan || method !== 'GET') return { res, state: 'skip' };
+  return { res, state: kept ? 'miss' : 'refused' };
+}
 
 export const onRequest = defineMiddleware(async (ctx, next) => {
   // Prerendered pages run through here at build time only; their headers come from server.mjs.
@@ -26,6 +198,7 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
   const path = ctx.url.pathname; // never the query: it can hold order keys and reset keys
   let res: Response;
   let door: MaintenanceDecision = 'pass';
+  let shell: ShellState | null = null;
   try {
     // Live (WordPress) serves every page with a trailing slash and 301s the slash-less form. Mirror that for page
     // GETs only — API routes, assets and non-GET methods pass through untouched.
@@ -58,8 +231,15 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
       if (unfiltered) {
         log.debug('filter query refused', { method, path }); // debug: a crawl would write one line per URL
         res = ctx.redirect(target ?? unfiltered, 302);
+      } else if (target) {
+        res = ctx.redirect(target + ctx.url.search, 301);
+      } else if (path === '/500/') {
+        res = await ctx.rewrite('/404/');
       } else {
-        res = target ? ctx.redirect(target + ctx.url.search, 301) : path === '/500/' ? await ctx.rewrite('/404/') : await next();
+        // The shell store (lib/shellStore): a stored page is served from here; otherwise the render is kept if complete.
+        const served = await serveShell(ctx, next, path, method);
+        res = served.res;
+        shell = served.state;
       }
     }
   } catch (err) {
@@ -71,6 +251,7 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
   // search engines. On the real host nothing is added.
   const headers = isCanonicalHost(ctx.url.host, ctx.site) ? HEADERS : [...HEADERS, NOINDEX];
   const out = finishResponse(res, { path, method, cookiesPending: !ctx.cookies.headers().next().done, cdn: !MAINTENANCE.enabled, headers });
+  if (shell !== null) out.headers.set('X-Mos-Shell', shell);
   const fields = { method, path, status: out.status, ms: Math.round(performance.now() - started) };
   // The shop closed on purpose is not an outage: keep it out of the warnings.
   if (door === 'closed') log.debug('closed for maintenance', fields);

@@ -3,16 +3,17 @@
 // Cloudflare is in front of the app. It ignores `Vary: Cookie`, so per-shopper responses can't rely on Vary: they are
 // `private, no-store`, by path and whenever cookies are being set. Public HTML is the same for every visitor (no
 // public page reads a cookie or a request header; cart count, wishlist and consent are drawn in the browser), so it
-// may be held at the CDN for a minute (PUBLIC_HTML): browsers still revalidate every time (max-age=0), the CDN answers
-// from its copy (s-maxage) and refreshes it in the background (stale-while-revalidate). With the storefront's own
-// minute on product data (lib/storeCatalog, lib/woo) a price or stock change shows within about two minutes on a
-// page people are visiting, and within about seven on one nobody has opened for a while; cart and checkout read
-// WooCommerce live. A page sent with content missing marks itself no-store (lib/http markDegraded), which wins here. Cloudflare only stores HTML once a Cache Rule makes it eligible (DEPLOY.md
-// "Caching"); without the rule this header changes nothing. While the shop is closed for maintenance nothing public
-// is held: what the owner previews must not reach the CDN. /_astro/* is served by the node adapter's static handler
-// with `public, max-age=31536000, immutable` and never reaches this.
+// may be held at the CDN for five minutes (PUBLIC_HTML): browsers still revalidate every time (max-age=0), the CDN
+// answers from its copy (s-maxage) and refreshes it in the background (stale-while-revalidate). The HTML no longer
+// carries stock or a live price: those are corrected in the browser from /api/live (the price after load, the stock
+// at add-to-cart), so a five-minute-old page is at most a five-minute-old listing order or sale badge. Cart and
+// checkout read WooCommerce live. A page sent with content missing marks itself no-store (lib/http markDegraded),
+// which wins here. Cloudflare only stores HTML once a Cache Rule makes it eligible (DEPLOY.md "Caching"); without the
+// rule this header changes nothing. While the shop is closed for maintenance nothing public is held: what the owner
+// previews must not reach the CDN. /_astro/* is served by the node adapter's static handler with
+// `public, max-age=31536000, immutable` and never reaches this.
 
-export const PUBLIC_HTML = 'public, max-age=0, s-maxage=60, stale-while-revalidate=300';
+export const PUBLIC_HTML = 'public, max-age=0, s-maxage=300, stale-while-revalidate=60';
 
 // Per-shopper pages and APIs: the cart, checkout and thank-you page, the account area, the wishlist, sign-out, and
 // the cart / checkout / order / account APIs.

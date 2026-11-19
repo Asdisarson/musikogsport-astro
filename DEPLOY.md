@@ -44,6 +44,12 @@ proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
 | `MOS_HSTS` | runtime | `1` sends `Strict-Transport-Security: max-age=31536000; includeSubDomains` (no preload). Off by default: turn it on only once DNS and TLS on the apex are settled. |
 | `MOS_LOG_LEVEL` | runtime | `debug` / `info` (default) / `warn` / `error` for the JSON logs; `debug` adds one line per request. |
 | `MOS_SHUTDOWN_TIMEOUT_MS` | runtime | Optional, default `30000`: how long `server.mjs` waits for in-flight requests after SIGTERM before exiting. |
+| `MOS_SHELL` | runtime | Optional. `off` turns the rendered-page store off: every page is rendered on every request, as before. Default: on. |
+| `MOS_SHELL_DIR` | runtime | Optional. The folder the rendered pages are kept in. Default: `mos-shells` in the system temp directory, which a reboot can clear (the pages are then rendered again). Set a durable folder on the server. |
+| `MOS_SHELL_FRESH_MS` | runtime | Optional, milliseconds: overrides every stored page's lifetime. For tests and a quick check of the refresh path; leave unset in production. |
+| `MOS_IMG_CACHE_DIR` | runtime | Optional. The folder the converted `/img/` files (AVIF and WebP) are kept in. Default: `mos-img` in the system temp directory (a reboot clears it; the files are made again on the next request). |
+| `MOS_SHELL_BASE` | `npm run shells` only | Optional, default `http://127.0.0.1:10026`: the origin the pre-build script visits. The server does not read it. On the server, pass `--base` instead (see "Pre-building pages"). |
+| `MOS_SHELL_POKE_KEY` | runtime | Optional. A shared secret for `POST /api/shell-refresh`. Set the same value as the WordPress constant `MOS_SHELL_POKE_KEY` (in `wp-config.php`): WordPress then sends it as `X-Mos-Shell-Key`, and any other caller is refused (403) before it counts against a limit. Unset: the route stays open but bounded to a budget of path actions (see Rate limits). **Set it in production**: until it is set, any address can spend that budget. No secret is shared by WordPress and the storefront today (the only credential both hold is the WooCommerce key pair, which this route does not use), so generate a new one, for example `openssl rand -hex 32`, and put it in both places. Changing it needs a restart only. |
 
 Run the built app with `node server.mjs` (graceful shutdown and headers on static files, see
 [Production hardening](#production-hardening)); `node dist/server/entry.mjs` still works for a quick local preview.
@@ -249,6 +255,35 @@ The storefront on the same server as WordPress, under Plesk's Node.js extension 
   (`WP_INTERNAL_URL`, `MOS_MEDIA_BASE_URL`, `MOS_EXTRA_ALLOWED_HOSTS`, `MOS_CLIENT_IP_HEADER`) and skips
   `astro check`, whose packages are devDependencies that a production install leaves out. Repeat both and
   "Restart App" after every pull.
+- **Pre-building pages (after Restart App):** wait until `/api/healthz` answers 200 and one light page (for example `/`)
+  renders. Only then, and only on the owner's word, run `npm run shells -- <args>` against the storefront. It visits
+  the product and category URLs from `sitemap.xml` one at a time, with a pause (`--delay`, default 500 ms) that
+  doubles on any 5xx, timeout or answer slower than `--slow` (default 3000 ms), and it stops after `--max-failures`
+  (default 5) failures in a row with exit status 2. Run it slowly, for example `--delay=1000`, and start with
+  `--limit=30`. It can be run again later and carries on from the pages already kept. Stop it if WordPress slows
+  down; cold caches are what stalled production WordPress once (see the mu-plugin checklist).
+  **The run on the server.** Passenger takes the port, so there is no fixed local address; run it against the host
+  the storefront answers on, which the app keeps pages for (`MOS_EXTRA_ALLOWED_HOSTS` lists it):
+
+  ```
+  npm run shells -- --base=https://new.musikogsport.is --allow-remote --delay=1000 --limit=30
+  npm run shells -- --base https://new.musikogsport.is --allow-remote --delay=1000
+  ```
+
+  `--base` takes its value either as `--base=https://…` or as `--base https://…`; a missing or bad value prints the usage
+  line and exits with status 1. The script reads each page's `X-Mos-Shell` header: `miss` is a page rendered and kept,
+  `hit` and `stale` are pages the store already held, and `refused` is a page rendered that the store would not keep (a
+  cookie, `no-store`, or an incomplete render). A refused page is rendered again on every visit, so the run counts those
+  apart and warns at the end.
+
+  Do not use the apex (`musikogsport.is`) for the run: it is behind the Cloudflare cache, which may answer from its own
+  copy, so the app never renders and nothing is kept. Where the app listens on a local port (`PORT`), the script can
+  instead take `--base=http://127.0.0.1:<PORT> --host=new.musikogsport.is`, which sends `X-Forwarded-Host` (the app
+  trusts it only for its allowed hosts). The script first checks that the first URL answers 200 with `X-Mos-Shell` (`miss`, `hit`
+  or `stale`) and that its repeat is a hit, the repeats using the same pause and backoff as the run; if not, it stops
+  with exit status 3 and says why (a host the app does not trust, or
+  `MOS_SHELL=off`). Without `--allow-remote` it refuses any host that is not local (`127.0.0.1`, `localhost`, `::1`,
+  `*.localhost`, `*.test`).
 - **Document Root:** `dist/client` under the application root, never the root itself: nginx serves the document
   root as static files, and the root holds the source and any `.env`. Changing it moves the Application Root to its
   parent (`dist`): set the Application Root back to the project folder afterwards.
@@ -302,7 +337,8 @@ hash), and keep `frame-ancestors`, `form-action` and the rest in the middleware 
 
 Cloudflare is in front of the app and ignores `Vary: Cookie`, so the rules (`src/lib/cachePolicy.ts`, applied by the
 middleware) never rely on `Vary`. Public pages are the same for every visitor (no public page reads a cookie; cart
-count, wishlist and consent are drawn in the browser), so they may be held at the CDN for a minute.
+count, wishlist and consent are drawn in the browser), so they may be held at the CDN for five minutes
+(`s-maxage=300`, and `stale-while-revalidate=60` after that).
 
 Cloudflare only stores HTML once a rule makes it eligible. In the Cloudflare dashboard: **Caching → Cache Rules →
 Create rule**: *Hostname equals* `musikogsport.is` → **Eligible for cache**, Edge TTL **Use cache-control header if
@@ -310,17 +346,36 @@ present, bypass cache if not**. Leave Browser TTL on "Respect origin". Without t
 `cf-cache-status: DYNAMIC` as before; with it a public page answers `HIT`, and `private, no-store` / `no-store`
 responses are never stored. To turn page caching off again, disable the rule.
 
-The storefront also holds product grids, product details and variations for a minute itself (`lib/storeCatalog`,
-`lib/woo`), so a price or stock change shows on listing and product pages within about two minutes where people are
-browsing, and within about seven on a page nobody has opened for a while. Cart and checkout read WooCommerce live.
-A page rendered with content missing (a failed lookup) is sent `no-store` and never held.
+The storefront keeps rendered pages itself (`src/lib/shellStore.ts`, policy in `src/lib/shellPolicy.ts`), on disk
+under `MOS_SHELL_DIR`, and serves a kept page at once: product pages for a day, listings and the home page for five
+minutes, filtered listing URLs for two minutes in memory only (at most 500). A page past its lifetime is still served
+and rendered again in the background. WordPress marks a saved product's page stale through `mos-shell-poke.php`
+(`POST /api/shell-refresh`), and a product that leaves the shop is dropped. A product whose slug or category changed
+has its old address dropped too, and a stored page whose re-render answers 404 or a redirect is removed (it is not
+served as 200 any more); a re-render that fails (5xx, an incomplete page) keeps the stored copy and waits longer before
+the next try (30 s, doubling, up to 30 minutes). A bulk change (more than 50 paths in one save or import) is sent in batches of 50 without `MOS_SHELL_POKE_KEY`
+(at most 20 batches; the rest is logged as unsent). With the key it may be sent as one "every product" mark, which also
+makes the storefront's product and grid lookups read WooCommerce again (the mark is refused without the key). A page rendered while a poke arrived is not kept if the
+poke came after the render started. A drop that lands while a page is being written wins: the write is not renamed
+into place, and a page on disk that was rendered before a drop is not served. A failed write removes its partial file
+at once, and `prune` removes any partial file older than ten minutes. A scheduled sale (WooCommerce's cron, or the
+Action Scheduler actions that start and end a product's sale, save the product with no one logged in) pokes as an
+editor's save does, unless the save changed only stock. A render that is running when a poke arrives is treated as
+stored, so the poke still applies to it. A path longer than
+200 characters is logged and left out of its poke; the rest of the poke is sent. The build id covers the server build and the island key, so a release that
+changes only server markup starts a new set of pages. Stock is never in a rendered page and is
+never kept: it is read live from `/api/live/` (`no-store`) and filled in the browser. A price is baked into the page
+and corrected in the browser from the same live answer, so a changed price shows within about a tenth of a second
+of the page's arrival. Cart and checkout read WooCommerce live. A page rendered with content missing (a failed
+lookup, a product photo whose colour sampling timed out) is sent `no-store` and never held, neither by the CDN nor
+by the store.
 
 | Response | Cache-Control |
 |---|---|
 | Cart, checkout and thank-you, `/min-sida/`, wishlist, sign-out, `/api/cart*`, `/api/checkout`, `/api/order`, `/api/account/*` | `private, no-store` (whatever the route set) |
 | Any response that sets a cookie | `private, no-store` |
 | Errors (4xx/5xx), including the outage answer (503 + `Retry-After: 30`) | `no-store` |
-| Public HTML pages (200) | `public, max-age=0, s-maxage=60, stale-while-revalidate=300`: browsers revalidate every time, the CDN holds the page for a minute. `no-cache` while `MOS_MAINTENANCE` is on (the owner's preview must not reach the CDN). |
+| Public HTML pages (200) | `public, max-age=0, s-maxage=300, stale-while-revalidate=60`: browsers revalidate every time, the CDN holds the page for five minutes. `no-cache` while `MOS_MAINTENANCE` is on (the owner's preview must not reach the CDN). |
 | `/sitemap.xml` | `public, max-age=21600, stale-while-revalidate=86400` (its own) |
 | `/api/posturinn/droppoints` (200) | `public, max-age=600` (its own: public locker lists) |
 | `/api/products`, `/api/healthz`, other JSON | `no-store` |
@@ -364,7 +419,12 @@ carriers put many phones behind one address (CGNAT).
 | `POST /api/checkout` | 10 / min (the order-placing route; checked before WooCommerce is called; approved by the owner 2026-10-26) |
 | `POST /api/checkout/status` | 30 / min (the checkout page's follow-up after an order whose answer was lost: about 6 asks per lost answer; read-only, checked after the attempt id is validated) |
 | `GET /api/order` | 20 **misses** / 15 min (a found order gives its slot back, so the thank-you poll is never limited) |
+| `/api/live` and `/api/live/product/<id>/` | 120 requests per minute per visitor (429 with Retry-After). Process-wide: 600 WooCommerce calls per minute across both routes (503 with Retry-After 60 and no-store when spent; cards stay neutral, the product page shows its retry state; one warning per minute in the log). |
+| `GET /img/<width>/<format>/…` (AVIF or WebP conversion of a media photo) | 60 **cache misses** / min per visitor, a kept file costs nothing. At most 2 conversions run at once per process, 40 wait; past that the request gets 429 |
+| `POST /api/shell-refresh` (WordPress's "a product was saved" poke) | With `MOS_SHELL_POKE_KEY` set: 600 / min for the whole process, any other caller is refused (403), and a bulk "every product" mark is honoured. Without it (set the key in production): a budget of **path actions**, 600 a minute for the whole process and 300 a minute per address (WordPress is one address, so a bulk edit uses that share). Only paths with a stored page, a poke waiting for a render, or a render running now are marked or dropped; the cached product of each path is forgotten either way. Every request costs at least one action, and a request past the budget gets 429 when none of its paths fits. The bulk mark is refused (WordPress then sends bulk changes in batches of 50, at most 20 per change), and a listings mark is honoured once in five minutes. Refusals are counted and logged once a minute (`shell poke refused`), never with their bodies. A body over 16 KB is refused before it is read. |
 | Filtered listings | Not per visitor: cold Store API count requests (`collection-data`) are capped at 240 a minute per process. Past that, listings render without option counts (or with stale ones) instead of asking WordPress; the product grid is unaffected. |
+
+Accepted limits, shared by design: the 600 WooCommerce calls a minute for `/api/live` are one budget for every visitor, so a few addresses sending many different id sets can use it up, and until the minute ends product cards stay neutral and stock calls answer 503. The image conversion queue (2 running, 40 waiting) is shared the same way, and misses are limited per visitor only, so many addresses can fill it and legitimate requests then get unoptimised originals until it drains.
 
 Not limited, on purpose: `GET /api/cart` (every page view), and the rest of the payment flow — the calls
 the checkout page makes (`/api/cart/customer`, `/api/cart/select-shipping`, `/api/cart/coupon`,
@@ -442,10 +502,13 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    `jwt-authentication-for-wp-rest-api`.
 2. **Upload** to `wp-content/mu-plugins/`: `mos-posturinn-droppoints.php`, `headless-bridge.php`,
    `mos-headless-api.php`, `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`,
-   `mos-size-index.php`, `mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`, `mos-instagram.php`. **Never
+   `mos-size-index.php`, `mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`, `mos-instagram.php`,
+   `mos-newsletter.php`, `mos-search.php`, `mos-staff-flag.php` and `mos-shell-poke.php`. **Never
    `headless-bridge-local.php`** (the local-dev shim rewrites redirects to localhost).
-   Check: `wp plugin list --status=must-use` shows exactly those eleven, and `ls wp-content/mu-plugins` has no
-   `-local` file. `mos-headless-mode.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), so uploading
+   Check: `wp plugin list --status=must-use` shows exactly those fifteen, and `ls wp-content/mu-plugins` has no
+   `-local` file. `mos-shell-poke.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), like
+   `mos-headless-mode.php`; without it the storefront is not told when a product is saved, and its pages stay stale
+   until their lifetime ends. `mos-headless-mode.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), so uploading
    it before cutover is safe; the others act at once but only add routes, fields and the wp-admin "Stillingar" page.
 3. **Size index backfill**: `wp mos-size reindex` (seconds; rerunnable). Until it runs, size filters match nothing.
    Check: it prints per-group counts, and

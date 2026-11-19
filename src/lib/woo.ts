@@ -171,8 +171,26 @@ const PRODUCT_TTL_MS = 60 * 1000;
 const PRODUCT_MAX_STALE_MS = 5 * 60 * 1000; // a product nobody asked for in that long is loaded afresh, not shown
 const PRODUCT_FAIL_MEMO_MS = 10 * 1000;
 
+// Forgetting a product (forgetProduct, after a poke says it changed) is a new cache key: each key carries a
+// generation, and the old entry ages out of the loader on its own. A process-wide base generation is used for the
+// keys nobody forgot, and it moves when the maps below are cleared, so a cleared map can never bring back an old key.
+// One counter numbers every generation, so a generation is never handed out twice (a cleared map can't bring back an
+// old key that a later forget would collide with).
+let generationSeq = 0;
+let baseGeneration = 0;
+const MAX_FORGOTTEN = 5000;
+const productGen = new Map<string, number>(); // slug -> generation
+const variationGen = new Map<number, number>(); // product id -> generation
+const idBySlug = new Map<string, number>(); // slug -> product id, as last loaded
+const generation = <K>(m: Map<K, number>, k: K): number => m.get(k) ?? baseGeneration;
+
 const productBySlug = createKeyedLoader<WooProduct | null>({
-  load: async (slug) => (await wooGet<WooProduct[]>('/products', { slug, status: 'publish' })).data[0] ?? null,
+  load: async (key) => {
+    const slug = key.slice(0, key.lastIndexOf('#'));
+    const product = (await wooGet<WooProduct[]>('/products', { slug, status: 'publish' })).data[0] ?? null;
+    if (product) idBySlug.set(slug, product.id);
+    return product;
+  },
   ttlMs: PRODUCT_TTL_MS,
   maxStaleMs: PRODUCT_MAX_STALE_MS,
   failMemoMs: PRODUCT_FAIL_MEMO_MS,
@@ -180,7 +198,8 @@ const productBySlug = createKeyedLoader<WooProduct | null>({
 });
 
 const variationsByProduct = createKeyedLoader<WooVariation[]>({
-  load: async (productId) => {
+  load: async (key) => {
+    const productId = key.slice(0, key.lastIndexOf('#'));
     // The set and order WooCommerce matches in (lib/variations): published only, menu_order then id
     // (find_matching_product_variation). REST has no id tie-break, so sort here as well.
     const { data } = await wooGet<WooVariation[]>(`/products/${productId}/variations`, { per_page: 100, status: 'publish', orderby: 'menu_order', order: 'asc' });
@@ -194,12 +213,49 @@ const variationsByProduct = createKeyedLoader<WooVariation[]>({
 
 /** Full product object (no _fields) by slug, for the detail page. Shared between callers: read-only. */
 export function getProductBySlug(slug: string): Promise<WooProduct | null> {
-  return productBySlug(slug);
+  const s = slug.normalize('NFC');
+  return productBySlug(`${s}#${generation(productGen, s)}`);
+}
+
+/** After a bulk change: every product and variation read goes to WooCommerce next (one step, no list). */
+export function forgetAllProducts(): void {
+  productGen.clear();
+  variationGen.clear();
+  baseGeneration = ++generationSeq;
+}
+
+/** After a poke: the next read of this product (and its variations) goes to WooCommerce, not to the cache. Never
+ *  throws. */
+export function forgetProduct(slug: string): void {
+  const s = slug.normalize('NFC');
+  if (productGen.size >= MAX_FORGOTTEN || variationGen.size >= MAX_FORGOTTEN) {
+    productGen.clear();
+    variationGen.clear();
+    baseGeneration = ++generationSeq;
+  }
+  productGen.set(s, ++generationSeq);
+  const id = idBySlug.get(s);
+  if (id !== undefined) variationGen.set(id, ++generationSeq);
 }
 
 /** A variable product's published variations, in WooCommerce's matching order. Shared between callers: read-only. */
 export function getVariations(productId: number): Promise<WooVariation[]> {
-  return variationsByProduct(String(productId));
+  return variationsByProduct(`${productId}#${generation(variationGen, productId)}`);
+}
+
+/**
+ * A variable product's variations for STOCK, read from WooCommerce on every call and never held (no loader): stock
+ * must always be the live figure. Sorted in matching order like getVariations. Only the fields the live answer needs.
+ */
+export async function getVariationStock(productId: number): Promise<WooVariation[]> {
+  const { data } = await wooGet<WooVariation[]>(`/products/${productId}/variations`, {
+    per_page: 100,
+    status: 'publish',
+    orderby: 'menu_order',
+    order: 'asc',
+    _fields: 'id,menu_order,price,regular_price,sale_price,on_sale,stock_status',
+  });
+  return [...data].sort((a, b) => (a.menu_order ?? 0) - (b.menu_order ?? 0) || a.id - b.id);
 }
 
 /**

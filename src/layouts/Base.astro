@@ -15,7 +15,8 @@ import { loadSiteChrome } from '../lib/siteChrome';
 import { loadFrontPage } from '../lib/frontPage';
 import { ld } from '../lib/jsonld';
 import { pageTitle, SITE_NAME } from '../lib/seo';
-import { MEDIA_BASE_URL } from '../lib/img';
+import { lightSources, MEDIA_BASE_URL } from '../lib/img';
+import { heroBannerSizes } from '../lib/homeLayout';
 // The two faces drawn above the fold (body text, display headings): the same files global.css's @font-face rules name.
 import interUrl from '@fontsource/inter/files/inter-latin-400-normal.woff2?url';
 import archivoUrl from '@fontsource-variable/archivo/files/archivo-latin-wdth-normal.woff2?url';
@@ -50,8 +51,16 @@ const miniCartBar = chrome.shippingBar?.locations.includes('minicart') ? chrome.
 
 // Every photo comes from the media host: open that connection while the HTML is still arriving. Not when it is this
 // site's own origin (nothing to gain) or unset.
+// Compared with the site's origin (Astro.site), not the request's, so the HTML is the same whichever host answers.
 const mediaOrigin = MEDIA_BASE_URL && URL.canParse(MEDIA_BASE_URL) ? new URL(MEDIA_BASE_URL).origin : '';
-const preconnectTo = mediaOrigin && mediaOrigin !== Astro.url.origin ? mediaOrigin : null;
+const preconnectTo = mediaOrigin && mediaOrigin !== Astro.site?.origin ? mediaOrigin : null;
+
+// The home hero is the first banner with a photo (lib/homeLayout planHome) and the page's largest download: start it
+// with the HTML. Its preload repeats the picture's own srcset and sizes, so the browser fetches the file the image
+// then shows. A preload typed AVIF is skipped by browsers without AVIF, which then use the WebP source as before.
+const heroBanner = Astro.url.pathname === '/' ? (front?.banners.find((b) => b?.image)?.image ?? null) : null;
+const heroLight = heroBanner ? lightSources({ src: heroBanner.url, srcset: heroBanner.srcset, width: heroBanner.width }) : null;
+const heroSizes = heroBanner?.srcset ? heroBannerSizes(heroBanner.width, heroBanner.height) : undefined;
 
 // Absolute URLs for canonical + social tags (Astro.site = https://musikogsport.is).
 const siteUrl = Astro.site?.href ?? 'https://musikogsport.is/';
@@ -99,6 +108,8 @@ const websiteLd = {
     {pageLinks?.next && <link rel="next" href={new URL(pageLinks.next, siteUrl).href} />}
     <meta name="theme-color" content="#ffffff" />
     {preconnectTo && <link rel="preconnect" href={preconnectTo} />}
+    {heroBanner && heroLight && <link rel="preload" as="image" type="image/avif" href={heroLight.avif.split(', ')[0].split(' ')[0]} imagesrcset={heroLight.avif} imagesizes={heroSizes} fetchpriority="high" />}
+    {heroBanner && !heroLight && <link rel="preload" as="image" href={heroBanner.url} imagesrcset={heroBanner.srcset || undefined} imagesizes={heroSizes} fetchpriority="high" />}
     <!-- fonts are fetched in CORS mode, so the preload must be too or the file is downloaded twice -->
     <link rel="preload" as="font" type="font/woff2" href={interUrl} crossorigin />
     <link rel="preload" as="font" type="font/woff2" href={archivoUrl} crossorigin />

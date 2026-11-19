@@ -1,5 +1,5 @@
 ---
-import { mediaUrl, PLACEHOLDER } from '../lib/img';
+import { lightSources, mediaUrl, PLACEHOLDER } from '../lib/img';
 
 interface Props {
   src?: string | null;
@@ -14,24 +14,41 @@ interface Props {
   /** Already rewritten to the media host (mediaSrcset); with `sizes`. */
   srcset?: string;
   sizes?: string;
+  /** A srcset to take the AVIF/WebP sources from when the <img> itself gets none (the product page's main photo,
+   *  whose `src` the purchase island swaps). */
+  lightFrom?: string;
 }
-const { src, alt = '', width, height, loading = 'lazy', fetchpriority, class: className, id, srcset, sizes } = Astro.props;
+const { src, alt = '', width, height, loading = 'lazy', fetchpriority, class: className, id, srcset, sizes, lightFrom } = Astro.props;
 const finalSrc = mediaUrl(src) || PLACEHOLDER;
+// AVIF and WebP for the JPEG/PNG candidates (lib/img lightSources, from the original strings, which only carry the path).
+const light = lightSources({ src, srcset: srcset || lightFrom, width });
+const sourceSizes = srcset || lightFrom ? sizes : undefined;
 // Most local media files 404: `data-fallback` opts the image into /img-fallback.js (loaded by Base.astro), which drops
-// a failed srcset, then swaps a failed src for the placeholder, once. No inline onerror: an enforced CSP blocks it.
+// a failed source or srcset, then swaps a failed src for the placeholder, once. No inline onerror: an enforced CSP blocks it.
+const attrs = {
+  src: finalSrc,
+  srcset: srcset || undefined,
+  sizes: srcset ? sizes : undefined,
+  alt,
+  width,
+  height,
+  loading,
+  fetchpriority,
+  decoding: 'async',
+  class: className,
+  id,
+  'data-fallback': true,
+} as const;
 ---
 
-<img
-  src={finalSrc}
-  srcset={srcset || undefined}
-  sizes={srcset ? sizes : undefined}
-  alt={alt}
-  width={width}
-  height={height}
-  loading={loading}
-  fetchpriority={fetchpriority}
-  decoding="async"
-  class={className}
-  id={id}
-  data-fallback
-/>
+{
+  light ? (
+    <picture>
+      <source type="image/avif" srcset={light.avif} sizes={sourceSizes} />
+      <source type="image/webp" srcset={light.webp} sizes={sourceSizes} />
+      <img {...attrs} />
+    </picture>
+  ) : (
+    <img {...attrs} />
+  )
+}

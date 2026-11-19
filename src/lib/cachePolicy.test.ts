@@ -54,8 +54,8 @@ describe('cacheControlFor', () => {
     expect(cacheControlFor({ ...base, path: '/api/posturinn/droppoints', isHtml: false, current: 'public, max-age=600' })).toBe('public, max-age=600');
   });
 
-  it('lets the CDN hold public HTML for a minute while browsers revalidate every time', () => {
-    expect(PUBLIC_HTML).toBe('public, max-age=0, s-maxage=60, stale-while-revalidate=300');
+  it('lets the CDN hold public HTML for five minutes while browsers revalidate every time', () => {
+    expect(PUBLIC_HTML).toBe('public, max-age=0, s-maxage=300, stale-while-revalidate=60');
     expect(cacheControlFor({ ...base, path: '/' })).toBe(PUBLIC_HTML);
     expect(cacheControlFor({ ...base, path: '/verslun/skor/vara-1/' })).toBe(PUBLIC_HTML);
     expect(cacheControlFor({ ...base, path: '/voruflokkur/skor/', method: 'HEAD' })).toBe(PUBLIC_HTML);

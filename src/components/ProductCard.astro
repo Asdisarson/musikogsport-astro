@@ -1,14 +1,14 @@
 ---
-// The nike-look product card (SPEC § Wall): a square image on #f5f5f5 with no chrome, then 16px lines — a label
-// ("Útsala" / "Uppselt", cardLabel), the full title (clamped to two lines in CSS), the first of the product's
-// categories (cardCategories), Woo's price with the "-N%" in green after it, and "N litir" when the product comes
-// in several colours. On hover or focus WooCommerce's loop action appears under the price as a quiet text link:
-// "Veldu kosti" (a link to the product) for variable products, "Setja í körfu" (adds straight to the cart) for
-// simple ones in stock, and "Frekari upplýsingar" otherwise, as WooCommerce's add_to_cart_text() decides (labels
-// from WooCommerce's is_IS language pack, which live uses).
-// variant 'tile' (home carousels): no label or colours line, up to two categories, "Uppselt" on the image.
+// The nike-look product card (SPEC § Wall): a square image on #f5f5f5 with no chrome, then 16px lines: a label line
+// (Útsala when on sale), the full title (clamped to two lines in CSS), the first of the product's categories
+// (cardCategories), Woo's price with the "-N%" in green after it, and "N litir" when the product comes in several
+// colours. On hover or focus the action appears under the price: "Veldu kosti" for variable products, otherwise
+// "Frekari upplýsingar" (a link to the product). Stock is never baked here: the label line and the tile's "Uppselt"
+// badge are reserved, empty or hidden, and the card script fills them from /api/live/ (see lib/liveCards). A
+// buyable simple product's link becomes "Setja í körfu" once that answer comes in.
+// variant 'tile' (home carousels): no label or colours line, up to two categories, the "Uppselt" badge on the image.
 import type { WooProduct } from '../lib/types';
-import { productImage } from '../lib/img';
+import { modestCandidate, productImage } from '../lib/img';
 import { cardFillFor } from '../lib/photoBgServer';
 import { decodeEntities } from '../lib/decode';
 import { productPath } from '../lib/paths';
@@ -29,8 +29,11 @@ const { product, eager = false, variant = 'grid' } = Astro.props;
 const tile = variant === 'tile';
 const terms = await loadCatalogTerms();
 const img = productImage(product);
-// the gap the whole (contained) photo leaves in the square tile, filled side by side from the photo's own edge once
-// it's been read (lib/photoBg cardFill); none: the page shows through
+// The card draws the WHOLE photo (its CSS and the colour fill assume it), never WordPress' 450px hard crop: the src
+// is a modest uncropped candidate of the same srcset (or the original), so a failed candidate falls back to a
+// photo of the same shape.
+const cardSrc = modestCandidate(img.srcset, img.src);
+// The photo's own edge fills the square tile once it's been read (lib/photoBg cardFill); none: the page shows through.
 const photoFill = cardFillFor(img.src, img.srcset);
 // The rendered image width, from the wall and carousel CSS (measured with the filter rail shown and hidden, since the
 // rail is the visitor's choice and `sizes` can't see it, each range takes the wider of the two). Wall cells have a
@@ -44,27 +47,34 @@ const sizes = tile
   : '(min-width: 1800px) 468px, (min-width: 1400px) calc((100vw - 348px) / 3 - 16px), (min-width: 1200px) calc((100vw - 96px) / 3 - 16px), (min-width: 992px) calc((100vw - 348px) / 2 - 16px), 50vw';
 const fullName = decodeEntities(product.name);
 const href = productPath(product.permalink, product.slug);
-const out = product.stock_status === 'outofstock';
-const percent = !out && product.on_sale ? salePercent(product.price_html) : null;
+// The sale is baked from the catalogue price; a sold-out product still shows its sale (stock is filled live).
+const percent = product.on_sale ? salePercent(product.price_html) : null;
 const cats = cardCategories(
   (product.categories ?? []).map((c) => ({ id: c.id, name: decodeEntities(c.name) })),
   terms.categories,
   tile ? 2 : 1,
 );
 // The Store API the wall reads has no publish date, so "Nýtt" never shows here (see productCard.ts).
-const label = tile ? null : cardLabel({ discounted: percent !== null, outOfStock: out });
+const label = tile ? null : cardLabel({ discounted: percent !== null, outOfStock: false });
 const colours = tile ? 0 : colourCount(product.attributes);
-const addsToCart = product.type === 'simple' && !out;
-const actionText = product.type === 'variable' ? 'Veldu kosti' : addsToCart ? 'Setja í körfu' : 'Frekari upplýsingar';
+// The neutral action: variable products open their choices; everything else is the link to the product. The card
+// script swaps a buyable simple product's link for the cart button (liveCards.cardFill).
+const actionText = product.type === 'variable' ? 'Veldu kosti' : 'Frekari upplýsingar';
 ---
 
-<div class:list={['product-card', tile && 'product-card--tile']}>
+<div class:list={['product-card', tile && 'product-card--tile']} data-product-id={product.id} data-product-type={product.type}>
   <a class="product-card__media" href={href} tabindex="-1" aria-hidden="true" {...photoFill}>
-    <ProductImage src={img.src} srcset={img.srcset} sizes={sizes} alt={img.alt} width={450} height={450} loading={eager ? 'eager' : 'lazy'} />
-    {out && tile && <span class="badge badge--muted">Uppselt</span>}
+    <ProductImage src={cardSrc} srcset={img.srcset} sizes={sizes} alt={img.alt} width={450} height={450} loading={eager ? 'eager' : 'lazy'} />
+    {tile && <span class="badge badge--muted" data-card-badge hidden>Uppselt</span>}
   </a>
   <div class="product-card__caption">
-    {label && <span class:list={['product-card__label', `product-card__label--${label.tone}`]}>{label.text}</span>}
+    {
+      !tile && (
+        <span class:list={['product-card__label', 'product-card__label--accent']} data-card-label>
+          {label?.text ?? ''}
+        </span>
+      )
+    }
     <h3 class="product-card__title"><a href={href} title={fullName}>{fullName}</a></h3>
     {
       cats.length > 0 && (
@@ -80,23 +90,29 @@ const actionText = product.type === 'variable' ? 'Veldu kosti' : addsToCart ? 'S
       </div>
       {colours > 0 && <span class="product-card__colours">{colourLabel(colours)}</span>}
       <div class="product-card__action">
-        {
-          addsToCart ? (
-            <button type="button" data-card-add={product.id} aria-label={`${actionText}: ${fullName}`}>{actionText}</button>
-          ) : (
-            <a href={href} aria-label={`${actionText}: ${fullName}`}>{actionText}</a>
-          )
-        }
+        <a href={href} aria-label={`${actionText}: ${fullName}`}>{actionText}</a>
       </div>
     </div>
   </div>
 </div>
 
 <script>
+  // Fills every product card on the page from ONE /api/live/ call per chunk of ids (no store, so stock is current).
+  // Pure decisions live in lib/liveCards; this part only applies them. Cards are marked seen when collected, so a
+  // page view never asks twice; a failed call unmarks its cards (they stay neutral and are asked again later).
+  // Re-runs on: cards added to the page (MutationObserver: archive swaps, the related-products island), bfcache
+  // restore and tab return (stock may have changed, so everything is asked again). A failed call keeps the last
+  // answer it had (that was a real WooCommerce answer; add-to-cart and the PDP check stock again) and is asked once
+  // more after a few seconds (lib/liveCards LIVE_RETRY_MS). Each call is numbered; a card takes an answer only from
+  // a call at least as new as the one that filled it, so a slow older response can't overwrite a newer one.
+  import { addToCart, openCart } from '../lib/cartStore';
+  import { chunkIds, LIVE_MAX_IDS, priceChanged } from '../lib/livePrices';
+  import { cardFill, LIVE_RETRY_MS, parseLiveAnswer, shouldRetry, takesAnswer, type CardFill } from '../lib/liveCards';
+  import { formatSaleBadge } from '../lib/price';
+  import { onPageRestored, onTabVisible } from '../lib/pageLifecycle';
+
   // "Setja í körfu" on a card: WooCommerce's ajax add to cart, then the side cart opens (as on the PDP).
   // The cart store runs cart calls one at a time, so quick adds on several cards can't lose an item.
-  import { addToCart, openCart } from '../lib/cartStore';
-
   document.addEventListener('click', async (e) => {
     const btn = (e.target as Element | null)?.closest<HTMLButtonElement>('[data-card-add]');
     if (!btn || btn.disabled) return;
@@ -109,5 +125,148 @@ const actionText = product.type === 'variable' ? 'Veldu kosti' : addsToCart ? 'S
       btn.disabled = false;
       openCart();
     }
+  });
+
+  let seen = new WeakSet<HTMLElement>();
+  let timer = 0;
+  let calls = 0;
+  let retries = 0;
+  let retryTimer = 0;
+  const filledBy = new WeakMap<HTMLElement, number>();
+
+  function schedule(): void {
+    if (timer) return; // one pass per tick: a swap that adds many cards makes one call
+    timer = window.setTimeout(() => {
+      timer = 0;
+      void run();
+    }, 0);
+  }
+
+  async function run(): Promise<void> {
+    const seq = ++calls;
+    let failed = false;
+    const byId = new Map<number, HTMLElement[]>();
+    for (const card of document.querySelectorAll<HTMLElement>('[data-product-id]')) {
+      if (seen.has(card)) continue;
+      const id = Number(card.dataset.productId);
+      if (!Number.isInteger(id) || id <= 0) continue;
+      seen.add(card);
+      byId.set(id, [...(byId.get(id) ?? []), card]);
+    }
+    for (const group of chunkIds([...byId.keys()], LIVE_MAX_IDS)) {
+      const cards = group.flatMap((id) => byId.get(id) ?? []);
+      try {
+        const res = await fetch(`/api/live/?ids=${group.join(',')}`, { cache: 'no-store', headers: { accept: 'application/json' } });
+        if (!res.ok) throw new Error(`live ${res.status}`);
+        const answer = parseLiveAnswer(await res.json());
+        for (const card of cards) {
+          if (!takesAnswer(filledBy.get(card), seq)) continue; // a newer call already filled this card
+          const live = answer.get(Number(card.dataset.productId));
+          const fill = cardFill(card.dataset.productType ?? '', bakedPrice(card), live);
+          if (!fill) continue;
+          filledBy.set(card, seq);
+          apply(card, fill);
+        }
+      } catch {
+        // Unmark so the retry asks again; a card keeps its last answer (or stays neutral if it never had one).
+        failed = true;
+        for (const card of cards) seen.delete(card);
+      }
+    }
+    if (failed) retryLater();
+    else retries = 0;
+  }
+
+  function retryLater(): void {
+    if (retryTimer || !shouldRetry(retries)) return;
+    retries++;
+    retryTimer = window.setTimeout(() => {
+      retryTimer = 0;
+      schedule();
+    }, LIVE_RETRY_MS);
+  }
+
+  /** The price markup the server baked, remembered on first sight so a reverted price can go back to it. */
+  function bakedPrice(card: HTMLElement): string {
+    const wrap = card.querySelector<HTMLElement>('.product-card__price');
+    if (!wrap) return '';
+    if (wrap.dataset.bakedPrice === undefined) wrap.dataset.bakedPrice = wrap.querySelector('.price')?.innerHTML ?? '';
+    return wrap.dataset.bakedPrice;
+  }
+
+  function apply(card: HTMLElement, fill: CardFill): void {
+    const label = card.querySelector<HTMLElement>('[data-card-label]');
+    if (label && fill.label !== null && label.textContent !== fill.label) label.textContent = fill.label;
+    const badge = card.querySelector<HTMLElement>('[data-card-badge]');
+    if (badge) badge.hidden = !fill.outOfStock;
+    const wrap = card.querySelector<HTMLElement>('.product-card__price');
+    if (wrap) {
+      const price = wrap.querySelector<HTMLElement>('.price');
+      // fill.priceHtml is WooCommerce's price_html after lib/sanitize (server side, in livePrices.liveProductOf). It is
+      // parsed as a fragment and put in place of the old children: the only markup source is that sanitised answer.
+      if (price && priceChanged(price.innerHTML, fill.priceHtml)) {
+        price.replaceChildren(document.createRange().createContextualFragment(fill.priceHtml));
+      }
+      setOff(wrap, fill.percent);
+    }
+    setAction(card, fill);
+  }
+
+  function setOff(wrap: HTMLElement, percent: number | null): void {
+    const off = wrap.querySelector<HTMLElement>('.product-card__off');
+    if (percent === null) {
+      off?.remove();
+      return;
+    }
+    const text = formatSaleBadge(percent);
+    if (off) {
+      if (off.textContent !== text) off.textContent = text;
+      return;
+    }
+    const span = document.createElement('span');
+    span.className = 'product-card__off';
+    span.textContent = text;
+    wrap.append(span);
+  }
+
+  function setAction(card: HTMLElement, fill: CardFill): void {
+    const box = card.querySelector<HTMLElement>('.product-card__action');
+    if (!box) return;
+    const title = card.querySelector<HTMLAnchorElement>('.product-card__title a');
+    const name = title?.textContent?.trim() ?? '';
+    const isButton = box.querySelector('[data-card-add]') !== null;
+    const label = `${fill.action.text}: ${name}`;
+    if (fill.action.kind === 'cart') {
+      if (isButton) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.cardAdd = card.dataset.productId ?? '';
+      btn.textContent = fill.action.text;
+      btn.setAttribute('aria-label', label);
+      box.replaceChildren(btn);
+      return;
+    }
+    // Back to the neutral link (a product that went out of stock, or one that was never buyable).
+    if (!isButton) return;
+    const link = document.createElement('a');
+    link.href = title?.getAttribute('href') ?? '#';
+    link.textContent = fill.action.text;
+    link.setAttribute('aria-label', label);
+    box.replaceChildren(link);
+  }
+
+  schedule();
+  new MutationObserver((records) => {
+    if (records.some((r) => r.addedNodes.length > 0)) schedule();
+  }).observe(document.body, { childList: true, subtree: true });
+  onPageRestored(() => {
+    seen = new WeakSet();
+    retries = 0;
+    schedule();
+  });
+  onTabVisible(() => {
+    seen = new WeakSet();
+    retries = 0;
+    schedule();
   });
 </script>

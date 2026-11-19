@@ -1,7 +1,7 @@
 // Server side of photoBg: fetches a product photo from the media host, decodes it with sharp and reads its edges
 // (readEdges). One process-wide cache; components call photoBg() / photoFitFor() while rendering, which never wait
 // on the network (see createPhotoBgCache). Server-only: sharp is a native module.
-import { cardFill, cardFillAttrs, createPhotoBgCache, photoBgAttrs, photoFit, photoFitAttrs, readEdges, tileAspect, type CardFill, type PhotoEdges, type PhotoFit } from './photoBg';
+import { waitWithin, cardFill, cardFillAttrs, createPhotoBgCache, photoBgAttrs, photoFit, photoFitAttrs, readEdges, tileAspect, type CardFill, type PhotoEdges, type PhotoFit } from './photoBg';
 
 const TIMEOUT_MS = 4000;
 /** Sub-size candidates are a few KB to ~100 KB; only a photo without a srcset falls back to its original. */
@@ -73,13 +73,12 @@ export function photoBg(src: string | null | undefined, srcset?: string): string
 
 /** Starts reading these photos and waits until the cache has nothing left to read, or `ms` passes, so the cards come
  *  out filled on the first view instead of the next one: the wall (a short wait) and the product page's
- *  related-products server island (already off the critical path, so a longer one). */
-export async function settlePhotos(images: { src: string; srcset?: string }[], ms: number): Promise<void> {
+ *  related-products server island (already off the critical path, so a longer one). Resolves true when every photo
+ *  was read in time, false when the bound passed first (the render then has a part missing: see lib/shellIncomplete). */
+export async function settlePhotos(images: { src: string; srcset?: string }[], ms: number): Promise<boolean> {
   // only these photos: the cache's queue is shared with every other render, so waiting for it to empty would cost
   // the whole bound whenever another page is being read at the same time
-  const known = () => images.every((im) => cache.lookup(im.src, im.srcset) !== undefined);
-  const end = Date.now() + ms;
-  while (!known() && Date.now() < end) await new Promise((resolve) => setTimeout(resolve, 25));
+  return waitWithin(() => images.every((im) => cache.lookup(im.src, im.srcset) !== undefined), ms);
 }
 
 /** The product page gallery tile's shape for this photo (tileAspect), once known; null: the default 4:5 tile. */

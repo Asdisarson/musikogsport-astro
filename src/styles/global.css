@@ -488,6 +488,7 @@
   /* the home tiles' grey "Uppselt" badge */
   .badge { position: absolute; top: 12px; left: 12px; z-index: 1; background: #fff; font-size: 14px; line-height: 1; padding: 6px 8px; }
   .badge--muted { color: #585858; }
+  .badge[hidden] { display: none; }
 
   /* product grid + card (nike-look, SPEC § Wall). The card: a 1:1 #f5f5f5 image (contain, multiply; no border,
      radius, shadow or zoom), then 16/24 lines — label, title 500, subtitle #707072, price 500 (sale: the price,
@@ -512,7 +513,8 @@
   .product-card__media img[src$='/placeholder.svg'] { object-fit: cover; padding: 0; mix-blend-mode: normal; }
   .product-card__caption { flex: 1; display: flex; flex-direction: column; padding-top: 12px; font-size: 16px; line-height: 24px; }
   /* labels sit on white only: --accent is 4.6:1 there but under 4.5:1 on the #f5f5f5 tile */
-  .product-card__label { font-weight: 500; }
+  /* The label line is always there (empty until the live stock answer or a sale fills it), so nothing shifts. */
+  .product-card__label { display: block; min-height: 24px; font-weight: 500; }
   .product-card__label--accent { color: var(--accent); }
   .product-card__label--muted { color: var(--meta); }
   .product-card__title { margin: 0; font-size: 16px; font-weight: 500; line-height: 24px; overflow-wrap: anywhere; hyphens: auto; }
@@ -985,6 +987,10 @@
   .pdp-stock { margin: 0; font-size: 16px; font-weight: 500; line-height: 24px; }
   .pdp-stock--in { color: var(--good); }
   .pdp-stock--out { color: var(--invalid-text); }
+  /* pending: same 24px line as the answer, so nothing moves when it arrives */
+  .pdp-stock--pending { min-height: 24px; color: transparent; }
+  .pdp-stock--unknown { color: var(--invalid-text); font-size: 15px; }
+  .pdp-stock__retry { font: inherit; color: inherit; text-decoration: underline; background: none; border: 0; padding: 0; cursor: pointer; }
 
   /* quantity: a quiet 48px field on its own line; then the full-width 60px pills, 12px apart */
   .pdp-cart { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }

@@ -4,12 +4,14 @@
 // view is marked. Below 992px the same track is a full-bleed swipe carousel of 4:5 slides with a "1 / N" counter. Every image
 // opens the lightbox. `viewer` (shoes, as on nike.com) keeps the carousel on a desktop too: one 4:5 photo at a time beside
 // the thumbnails, which pick it (click or hover), with ‹ › in its corner. The first image is #pdp-main so the purchase island can swap in a variation's photo; it gets
-// no srcset, because the island swaps it by setting `src`, which a srcset would override.
+// no srcset, because the island swaps it by setting `src`, which a srcset would override. Its AVIF/WebP sources sit
+// in the <picture> around it, and the island replaces them with the variation photo's when it swaps (lib/img mainSources).
 import Icon from './Icon.astro';
 import ProductImage from './ProductImage.astro';
 import { mediaSrcset, mediaUrl, PLACEHOLDER } from '../lib/img';
 import { subSizeAspect, TILE_ASPECT } from '../lib/photoBg';
 import { photoAspectOf, photoFitFor, settlePhotos } from '../lib/photoBgServer';
+import { markIncomplete } from '../lib/shellIncomplete';
 import type { WooImage } from '../lib/types';
 
 interface Props {
@@ -33,7 +35,8 @@ const slides = images.length
 // (ProductPurchase). A thumbnail shows WordPress' own (usually square-cropped) rendition, so it's judged by that
 // rendition's shape, read from its file name.
 // The shapes need each photo read first: a short wait, bounded, so even a first view gets them (lib/photoBgServer).
-await settlePhotos(slides, 800);
+// A photo still unread at the bound leaves a default tile: the page is served but not kept (see markIncomplete).
+if (!(await settlePhotos(slides, 800))) markIncomplete(Astro);
 const bgs = slides.map((im) => {
   const attrs = photoFitFor(im.src, im.srcset, TILE_ASPECT.gallery);
   const aspect = viewer ? null : photoAspectOf(im.src, im.srcset); // the viewer's tiles are all 4:5
@@ -65,6 +68,7 @@ const many = slides.length > 1;
                 id={i === 0 ? 'pdp-main' : undefined}
                 src={im.src}
                 srcset={i === 0 ? undefined : im.srcset}
+                lightFrom={i === 0 ? im.srcset : undefined}
                 sizes={SIZES}
                 alt={im.alt}
                 loading={i === 0 ? 'eager' : 'lazy'}
@@ -138,7 +142,7 @@ const many = slides.length > 1;
       const list = imgs();
       index = (i + list.length) % list.length;
       // the full-size `src`, not currentSrc (the small srcset candidate the tile chose); it still follows the island's
-      // #pdp-main variation swap and the onerror placeholder, which both set `src`
+      // #pdp-main variation swap and the shared photo fallback (public/img-fallback.js), which both set `src`
       big.src = list[index].src;
       big.alt = list[index].alt;
       count.textContent = list.length > 1 ? `${index + 1} / ${list.length}` : '';

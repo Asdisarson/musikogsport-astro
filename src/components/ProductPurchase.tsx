@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useStore } from '@nanostores/react';
 import { addToCart, openCart } from '../lib/cartStore';
+import { buyable, stockLabel } from '../lib/livePrices';
+import { liveStore, productStock, retryLive, startLive, withLive } from '../lib/liveStore';
 import { formatISK } from '../lib/format';
 import { gridStep } from '../lib/gridNav';
-import { PLACEHOLDER } from '../lib/img';
+import { mainSources } from '../lib/img';
 import { applyPhotoFit, photoBgProps, type PhotoFit } from '../lib/photoBg';
 import { isColourAttribute } from '../lib/productCard';
 import { choiceHint, isSizeAttribute, optionImages, optionState, resolveVariation } from '../lib/variations';
@@ -24,7 +27,6 @@ interface VarAttr {
 interface Props {
   productId: number;
   type: string;
-  inStock: boolean;
   variationAttrs?: VarAttr[];
   variations?: PdpVariation[];
   variationsFailed?: boolean;
@@ -59,6 +61,32 @@ function moveFocus(e: KeyboardEvent<HTMLUListElement>) {
   if (to !== at) buttons[to].focus();
 }
 
+/** The stock line in its three states. Pending keeps the same height (no layout shift) and says nothing; failed says so
+ *  with a retry; a known answer is "Á lager" or "Uppselt" through stockLabel (the one backorder rule). */
+function StockLine({ state, stock, hasChoice }: { state: 'pending' | 'ready' | 'failed'; stock: string | null | undefined; hasChoice: boolean }) {
+  if (state === 'failed') {
+    return (
+      <div className="pdp-variation">
+        <p className="pdp-stock pdp-stock--unknown" role="status">
+          Gat ekki sótt lagerstöðu{' '}
+          <button type="button" className="pdp-stock__retry" onClick={retryLive}>Reyna aftur</button>
+        </p>
+      </div>
+    );
+  }
+  if (!hasChoice) return <div className="pdp-variation pdp-stock-slot" aria-hidden="true"><p className="pdp-stock pdp-stock--pending">&nbsp;</p></div>;
+  const label = state === 'ready' && stock !== undefined ? stockLabel(stock as 'instock' | null) : null;
+  return (
+    <div className="pdp-variation">
+      {label ? (
+        <p className={`pdp-stock pdp-stock--${label === 'Á lager' ? 'in' : 'out'}`}>{label}</p>
+      ) : (
+        <p className="pdp-stock pdp-stock--pending" aria-hidden="true">&nbsp;</p>
+      )}
+    </div>
+  );
+}
+
 const Minus = () => (
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12h14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
 );
@@ -69,7 +97,6 @@ const Plus = () => (
 export default function ProductPurchase({
   productId,
   type,
-  inStock,
   variationAttrs = [],
   variations = [],
   variationsFailed = false,
@@ -83,6 +110,12 @@ export default function ProductPurchase({
   sizeGuide,
 }: Props) {
   const isVariable = type === 'variable';
+  // Stock and the corrected prices come from the live answer, never from the page (see lib/liveStore).
+  const live = useStore(liveStore);
+  useEffect(() => startLive(productId), [productId]);
+  const liveVars = useMemo(() => variations.map((v) => withLive(v, live.state === 'ready' ? live.variations : undefined)), [variations, live]);
+  // The product's own stock: undefined while pending, null once failed (no guess either way).
+  const simpleStock = productStock(live);
   const [selected, setSelected] = useState<Record<string, string>>({});
   // The field's raw text, so clearing it to type a new number works; read through qtyFromInput.
   const [qtyText, setQtyText] = useState('1');
@@ -109,8 +142,8 @@ export default function ProductPurchase({
 
   const attrNames = useMemo(() => variationAttrs.map((a) => a.name), [variationAttrs]);
   const resolved = useMemo(
-    () => (isVariable ? resolveVariation(variations, attrNames, selected) : null),
-    [isVariable, variations, attrNames, selected],
+    () => (isVariable ? resolveVariation(liveVars, attrNames, selected) : null),
+    [isVariable, liveVars, attrNames, selected],
   );
   const anySelected = Object.values(selected).some(Boolean);
   // Display only: a colour attribute (the colourway row) comes first; attrNames keeps WooCommerce's order.
@@ -119,8 +152,8 @@ export default function ProductPurchase({
     [variationAttrs],
   );
   const pictures = useMemo(
-    () => new Map(variationAttrs.filter((a) => isColourAttribute(a.name)).map((a) => [a.name, optionImages(a.name, a.options, variations)])),
-    [variationAttrs, variations],
+    () => new Map(variationAttrs.filter((a) => isColourAttribute(a.name)).map((a) => [a.name, optionImages(a.name, a.options, liveVars)])),
+    [variationAttrs, liveVars],
   );
   const sizeGuideFor = variationAttrs.find((a) => isSizeAttribute(a.name))?.name;
 
@@ -132,16 +165,33 @@ export default function ProductPurchase({
     const main = document.getElementById('pdp-main') as HTMLImageElement | null;
     const target = resolved?.image?.src ? resolved.image : baseImage;
     if (!main || !target?.src) return;
-    // Re-arm the placeholder fallback for the new photo: /img-fallback.js handles each image once (it drops
-    // data-fallback after swapping in the placeholder), so a variation photo that fails later needs its own handler.
-    // A property set from script, not an inline attribute, so an enforced CSP allows it.
-    main.onerror = () => {
-      if (!main.src.endsWith(PLACEHOLDER)) {
-        main.src = PLACEHOLDER;
-        main.onerror = null;
-      }
+    // The new photo gets the shared fallback (public/img-fallback.js, one path for every product photo): its
+    // data-fallback is set again (the script drops it after a placeholder) and its per-image state is cleared. A
+    // property handler here would run on the same error as the script and decide the photo a second time.
+    // The photo's AVIF/WebP <source>s sit before the <img> and win over its `src`: the script drops a failed one first.
+    const picture = main.parentElement?.tagName === 'PICTURE' ? main.parentElement : null;
+    const dropSources = () => {
+      const sources = picture ? [...picture.querySelectorAll('source')] : [];
+      sources.forEach((s) => s.remove());
+      return sources.length > 0;
     };
+    main.setAttribute('data-fallback', '');
+    main.removeAttribute('data-reloaded');
+    main.removeAttribute('data-probing');
     const swapped = main.src !== new URL(target.src, location.href).href;
+    if (swapped && picture) {
+      // The sources must follow the swap, or the browser keeps showing the previous photo's.
+      dropSources();
+      const light = mainSources(target.src);
+      if (light) {
+        for (const [type, srcset] of [['image/avif', light.avif], ['image/webp', light.webp]] as const) {
+          const source = document.createElement('source');
+          source.type = type;
+          source.srcset = srcset;
+          picture.insertBefore(source, main);
+        }
+      }
+    }
     main.src = target.src;
     if (target.alt) main.alt = target.alt;
     // a carousel (phones, the shoe viewer) brings a new photo into view; picking a size alone leaves it be
@@ -155,15 +205,20 @@ export default function ProductPurchase({
     }
   }, [resolved?.id]);
 
-  const canAdd = (isVariable ? resolved?.stock_status === 'instock' : inStock) && !adding;
+  // The stock this selection shows: a variation's, or the product's. undefined = not known yet (pending or failed).
+  const stock = isVariable ? resolved?.stock_status : simpleStock;
+  const known = stock !== undefined && stock !== null;
+  // Pending stays pressable: WooCommerce checks stock when the item is added. Only a known sold-out choice is blocked.
+  const pending = live.state === 'pending' && (!isVariable || !!resolved);
+  const canAdd = !adding && !(known && !buyable(stock as 'instock'));
   // Guidance under the button until every attribute is chosen ("Veldu stærð"); the button stays pressable then and
   // points at the missing choice instead of doing nothing.
   // Only when the missing attribute has an option left to pick: a hint over all-crossed-out swatches can't be acted on.
-  const hint = isVariable && !variationsFailed ? choiceHint(attrNames, selected, { attrs: variationAttrs, variations }) : null;
+  const hint = isVariable && !variationsFailed ? choiceHint(attrNames, selected, { attrs: variationAttrs, variations: liveVars }) : null;
   const hintId = `pdp-hint-${productId}`;
   // Phones: a bottom bar with "Setja í körfu" once every option is picked and that variation is in stock (never on a
   // simple product), sliding in while the form's own button is out of sight
-  const barReady = isVariable && resolved?.stock_status === 'instock' && attrNames.every((n) => selected[n]) && barClosedFor !== resolved.id;
+  const barReady = isVariable && !!resolved && attrNames.every((n) => selected[n]) && barClosedFor !== resolved.id && (resolved.stock_status === undefined || buyable(resolved.stock_status as 'instock'));
   const missing = hint ? attrNames.find((n) => !selected[n]) : undefined;
 
   function choose(attr: string, option: string) {
@@ -238,7 +293,7 @@ export default function ProductPurchase({
                 </div>
                 <ul className={`pdp-swatches${images ? ' pdp-swatches--images' : ''}`} role="radiogroup" aria-labelledby={`pdp-var-${ai}`} onKeyDown={moveFocus}>
                   {a.options.map((opt) => {
-                    const state = optionState(variations, a.name, opt, selected, attrNames);
+                    const state = optionState(liveVars, a.name, opt, selected, attrNames);
                     return (
                       <li key={opt}>
                         <button
@@ -246,9 +301,9 @@ export default function ProductPurchase({
                           className={`pdp-swatch${images ? ' pdp-swatch--image' : ''}`}
                           role="radio"
                           aria-checked={selected[a.name] === opt}
-                          aria-label={state === 'instock' ? opt : `${opt} — uppselt`}
+                          aria-label={state === 'outofstock' ? `${opt} — uppselt` : opt}
                           data-state={state}
-                          disabled={state !== 'instock'}
+                          disabled={state === 'outofstock' || state === 'none'}
                           onClick={() => choose(a.name, opt)}
                           {...(images ? photoBgProps(photoBgs[images[opt]]) : {})}
                         >
@@ -272,19 +327,12 @@ export default function ProductPurchase({
         </div>
       )}
 
-      {isVariable && resolved && (
+      {isVariable && resolved && priceVaries && (
         <div className="pdp-variation">
-          {priceVaries && <p className="pdp-variation__price price">{price(resolved)}</p>}
-          <p className={`pdp-stock pdp-stock--${resolved.stock_status === 'instock' ? 'in' : 'out'}`}>
-            {resolved.stock_status === 'instock' ? 'Á lager' : 'Uppselt'}
-          </p>
+          <p className="pdp-variation__price price">{price(resolved)}</p>
         </div>
       )}
-      {!isVariable && !inStock && (
-        <div className="pdp-variation">
-          <p className="pdp-stock pdp-stock--out">Uppselt</p>
-        </div>
-      )}
+      <StockLine state={live.state} stock={stock} hasChoice={!isVariable || !!resolved} />
 
       <div className="pdp-cart" ref={cartRef}>
         <div className="pdp-qty" role="group" aria-label="Fjöldi">
@@ -308,7 +356,7 @@ export default function ProductPurchase({
           type="button"
           className="pdp-atc"
           disabled={!canAdd && missing === undefined}
-          aria-busy={adding}
+          aria-busy={adding || pending}
           aria-describedby={hint ? hintId : undefined}
           onClick={handleAdd}
         >
@@ -327,7 +375,7 @@ export default function ProductPurchase({
             <span className="pdp-bar__name">{name}</span>
             {resolved && <span className="pdp-bar__choice">{attrNames.map((n) => (isSizeAttribute(n) ? `Stærð ${selected[n]}` : selected[n])).join(' · ')}</span>}
           </div>
-          <button type="button" className="pdp-atc pdp-bar__atc" disabled={!canAdd} aria-busy={adding} onClick={handleAdd}>
+          <button type="button" className="pdp-atc pdp-bar__atc" disabled={!canAdd} aria-busy={adding || pending} onClick={handleAdd}>
             Setja í körfu
           </button>
           <button type="button" className="pdp-bar__close" aria-label="Fela" onClick={() => setBarClosedFor(resolved?.id ?? null)}>

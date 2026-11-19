@@ -74,6 +74,8 @@ export interface Archive {
   /** The products couldn't be loaded, or filters were asked for while the terms (or, for `staerd`, the size list)
    *  are down: answer 503. */
   unavailable: boolean;
+  /** The facet counts didn't come back (the page still shows, without counts): the page must not be stored. */
+  countsMissing: boolean;
 }
 
 /** Stærð opens by default on this category and below it. */
@@ -100,6 +102,7 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
       pseudoCategories: new Set(),
       terms,
       unavailable: true,
+      countsMissing: false,
     };
   }
   const minorUnit = currencyMinorUnit();
@@ -289,5 +292,6 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
     pseudoCategories: pseudo,
     terms,
     unavailable: result === null,
+    countsMissing: main === null,
   };
 }

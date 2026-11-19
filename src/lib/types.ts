@@ -275,7 +275,8 @@ export interface PdpVariation {
   regular_price: string;
   sale_price: string;
   on_sale: boolean;
-  stock_status: string;
+  /** Never set on the page: stock is not baked in. It comes from /api/live/product (lib/liveStore). */
+  stock_status?: string;
   sku?: string;
   image?: { src: string; alt: string } | null;
 }

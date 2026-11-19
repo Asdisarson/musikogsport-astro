@@ -19,6 +19,7 @@ import { productImage } from '../lib/img';
 import { settlePhotos } from '../lib/photoBgServer';
 import { SORT_OPTIONS, clearFilterHref, clearFiltersHref, toggleFilterHref } from '../lib/liveFilters';
 import { CATALOG_PER_PAGE } from '../lib/storeCatalog';
+import { markIncomplete } from '../lib/shellIncomplete';
 import { LIST_SEARCH_MIN } from '../lib/facets';
 import { railCategoryLinks } from '../lib/categoryTree';
 import type { Archive, FacetOption } from '../lib/archive';
@@ -37,10 +38,12 @@ interface Props {
 }
 const { title, crumbs, basePath, params, archive, page, navCategoryId } = Astro.props;
 const { result, groups, state, activeCount, activeFilters, pseudoCategories, terms } = archive;
+// Facet counts that didn't come back: the page shows without them, so it must not be kept for a day (lib/shellStore).
+if (archive.countsMissing) markIncomplete(Astro);
 // A card's tile fills around its photo once the photo has been read (lib/photoBg cardFill); renders never wait for
 // that, so a page with photos nobody had looked at lately came out half filled and filled on the next view. Wait a
 // moment for this page's photos, bounded so a slow media host only costs that much once.
-await settlePhotos(result.items.map(productImage), 1200);
+if (!(await settlePhotos(result.items.map(productImage), 1200))) markIncomplete(Astro);
 
 const from = (page - 1) * CATALOG_PER_PAGE + 1;
 const to = Math.min(page * CATALOG_PER_PAGE, result.total);

@@ -59,6 +59,23 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
   straumurStatus routing (0–1), before WooCommerce's own redirects (10), so query strings survive. wp-admin, REST, wc-api, wp-login, cron, feeds, previews,
   uploads and WooCommerce's order-pay page (emailed "pay for this order" links) are not redirected. It
   does nothing when neither constant is defined.
+- **mos-shell-poke.php** — tells the storefront's rendered-page store (app-astro `src/lib/shellStore.ts`) when a
+  catalog editor saves a product or takes one out of sale. A saved product's page and the listings are marked stale
+  (still served while they refresh); a removed product's stored page is dropped. Queued per request and sent once at
+  the end of the request (after `fastcgi_finish_request`), like `mos-size-index.php`, to
+  `mos_headless_target_base() . '/api/shell-refresh'`. A product's old address is dropped when it moves (new slug or
+  category) or leaves the shop (the path is taken before WordPress writes the change). More than 50 changed paths are sent
+  in batches of 50 (at most 20 POSTs); with the key the overflow is the bulk "every product" mark. Optional secret: define `MOS_SHELL_POKE_KEY` in `wp-config.php` and
+  set the same value as `MOS_SHELL_POKE_KEY` on the storefront (sent as `X-Mos-Shell-Key`); without it the storefront
+  accepts only product and category paths of one strict shape, and bounds the route by a budget of path actions
+  (DEPLOY.md, Rate limits; set the key in production). A refused or failed poke is logged to the PHP error log.
+  Who counts as an editor: a user who may edit products, WP-CLI, and a scheduled save (WP-Cron, or the Action Scheduler
+  actions that start and end a WooCommerce sale) unless it changed only stock. Stock changes from orders send nothing. A path over 200 characters is
+  logged and left out; the rest of the poke is sent. A product's pre-save path and changed props are taken once per
+  save, so nothing is carried into a later hook of the same request.
+  Tests: `php tests/mos_shell_poke_test.php` (path rule, body, bulk mark, moved path, editor guard, scheduled saves,
+  path cap, one-time captures). **Deploy by hand:** copy the file to
+  `app/public/wp-content/mu-plugins/` (this repo is not loaded from here).
 - **mos-search.php** — the product search behind the storefront's `/?s=` page and the live results in its search
   sheet. It swaps the search clause of the Store API's `search` (and WordPress's `s`) for its own: every word has to
   match, in the title, the SKU or a term name (category, brand, tag, attribute); words match by their stem

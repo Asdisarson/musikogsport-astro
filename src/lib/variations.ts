@@ -1,12 +1,15 @@
 // Variation logic for the product page's swatches (live: WooCommerce + Variation Swatches with
 // out-of-stock options crossed out). Pure functions so the PDP island stays thin and testable.
+import { buyable } from './livePrices';
+import type { StockStatus } from './types';
 
 export interface VariationLike {
   id: number;
   attributes: { name: string; option: string }[];
   price: string;
   regular_price: string;
-  stock_status: string;
+  /** Absent on the page: stock is never baked in, it arrives from /api/live/product. Absent means unknown. */
+  stock_status?: string;
 }
 
 /** "Any value" is a wildcard: Woo stores it as an empty option, and WC REST leaves the attribute out of
@@ -32,7 +35,8 @@ export function resolveVariation<T extends VariationLike>(
 }
 
 /** Whether one option can be picked given the OTHER attributes already chosen:
- *  'instock' (buyable), 'outofstock' (exists but sold out — live crosses it out), 'none' (no such combination).
+ *  'instock' (buyable), 'outofstock' (exists but sold out — live crosses it out), 'none' (no such combination),
+ *  'pending' (stock not known yet: selectable, never shown as sold out).
  *  Once every other attribute in `attrNames` is chosen, the option means one variation (the first match in
  *  menu order, as resolveVariation picks), so its stock decides. While others are still open, the option is
  *  buyable when some matching variation is in stock. */
@@ -42,13 +46,17 @@ export function optionState(
   option: string,
   selected: Record<string, string>,
   attrNames: string[] = [],
-): 'instock' | 'outofstock' | 'none' {
+): 'instock' | 'outofstock' | 'none' | 'pending' {
   const wanted = { ...selected, [attrName]: option };
   const candidates = variations.filter((v) => matches(v, wanted));
   if (candidates.length === 0) return 'none';
   const decided = attrNames.length > 0 && attrNames.every((n) => wanted[n]);
-  const inStock = decided ? candidates[0].stock_status === 'instock' : candidates.some((v) => v.stock_status === 'instock');
-  return inStock ? 'instock' : 'outofstock';
+  if (decided) {
+    const s = candidates[0].stock_status;
+    return s === undefined ? 'pending' : buyable(s as StockStatus) ? 'instock' : 'outofstock';
+  }
+  if (candidates.some((v) => v.stock_status !== undefined && buyable(v.stock_status as StockStatus))) return 'instock';
+  return candidates.some((v) => v.stock_status === undefined) ? 'pending' : 'outofstock';
 }
 
 /** The add-to-cart guidance while a selection is incomplete: "Veldu stærð" when the first unchosen attribute is a
@@ -64,7 +72,10 @@ export function choiceHint(
   if (missing === undefined) return null;
   if (availability) {
     const options = availability.attrs.find((a) => a.name === missing)?.options ?? [];
-    const selectable = options.some((opt) => optionState(availability.variations, missing, opt, selected, attrNames) === 'instock');
+    const selectable = options.some((opt) => {
+      const st = optionState(availability.variations, missing, opt, selected, attrNames);
+      return st === 'instock' || st === 'pending';
+    });
     if (!selectable) return null;
   }
   return isSizeAttribute(missing) ? 'Veldu stærð' : 'Veldu valkost';

@@ -237,3 +237,29 @@ describe('sortSizeOptions', () => {
     expect(input).toEqual(['2', '1']);
   });
 });
+
+// Stock is not in the page (it comes from /api/live/product): a variation without a stock_status is unknown, and an
+// unknown option must stay selectable, never struck through as sold out.
+describe('unknown stock (pending live answer)', () => {
+  const pending = (id: number, attrs: Record<string, string>): VariationLike => ({
+    id,
+    attributes: Object.entries(attrs).map(([name, option]) => ({ name, option })),
+    price: '10000',
+    regular_price: '10000',
+    stock_status: undefined as unknown as string,
+  });
+  const vars = [pending(1, { Stærðir: '40' }), pending(2, { Stærðir: '41' })];
+
+  it('reports an option as pending, not sold out', () => {
+    expect(optionState(vars, 'Stærðir', '41', {}, ['Stærðir'])).toBe('pending');
+  });
+
+  it('keeps a pending option selectable in the hint (choiceHint does not hide it)', () => {
+    expect(choiceHint(['Stærðir'], {}, { attrs: [{ name: 'Stærðir', options: ['40', '41'] }], variations: vars })).toBe('Veldu stærð');
+  });
+
+  it('a known sold-out option stays outofstock even next to unknown ones', () => {
+    const mixed = [pending(1, { Stærðir: '40' }), v(2, { Stærðir: '41' }, 'outofstock')];
+    expect(optionState(mixed, 'Stærðir', '41', {}, ['Stærðir'])).toBe('outofstock');
+  });
+});

@@ -10,6 +10,7 @@
     "build": "astro check && astro build",
     "build:plesk": "WP_INTERNAL_URL=https://wp.musikogsport.is MOS_MEDIA_BASE_URL=https://wp.musikogsport.is MOS_EXTRA_ALLOWED_HOSTS=new.musikogsport.is MOS_CLIENT_IP_HEADER=cf-connecting-ip astro build",
     "preview": "astro preview",
+    "shells": "node scripts/prebuild_shells.mjs",
     "test": "vitest run",
     "astro": "astro"
   },

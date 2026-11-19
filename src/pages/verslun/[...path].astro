@@ -18,6 +18,7 @@ import { decodeEntities, stripShortcodes } from '../../lib/decode';
 import { sanitizeHtml } from '../../lib/sanitize';
 import { formatSaleBadge, salePercent } from '../../lib/price';
 import { isSizeAttribute, pricesVary, sortSizeOptions } from '../../lib/variations';
+import { markIncomplete, setShellTier } from '../../lib/shellIncomplete';
 import { ld, productLd, breadcrumbList } from '../../lib/jsonld';
 import { metaDescription, productFallbackDescription } from '../../lib/seo';
 import { formatISK } from '../../lib/format';
@@ -82,7 +83,7 @@ if (product && product.type === 'variable') {
     regular_price: v.regular_price,
     sale_price: v.sale_price,
     on_sale: v.on_sale,
-    stock_status: v.stock_status,
+    // no stock here: it is never baked into the page (lib/liveStore fills it from /api/live)
     sku: v.sku,
     image: v.image?.src ? { src: mediaUrl(v.image.src), alt: v.image.alt ?? '' } : null,
   }));
@@ -95,6 +96,7 @@ const pickedRelatedIds = pickedIds(product);
 const relatedIds = (product?.related_ids ?? []).filter((id) => id !== product?.id);
 const related = relatedScope((product?.categories ?? []).map((c) => c.id), terms.categories);
 
+if (product) setShellTier(Astro, 'product'); // a /verslun/ URL can be a listing; the store needs to know this is a product
 const name = product ? decodeEntities(product.name) : '';
 const img = product ? productImage(product) : { src: '', alt: '' };
 // Tile colours (lib/photoBg) for the purchase island: the colourway swatches (the flat-edge colour only), and how the
@@ -107,7 +109,8 @@ const mainAspects: Record<string, number> = {};
 if (product) {
   const srcsetOf = new Map(product.images.map((im) => [mediaUrl(im.src), mediaSrcset(im.srcset)]));
   const srcs = [...new Set([img.src, ...variations.flatMap((v) => (v.image?.src ? [v.image.src] : []))])];
-  await settlePhotos(srcs.map((src) => ({ src, srcset: srcsetOf.get(src) })), 800);
+  // Not read within the budget: the page is served with the default tile for those photos, and it is not kept (see markIncomplete).
+  if (!(await settlePhotos(srcs.map((src) => ({ src, srcset: srcsetOf.get(src) })), 800))) markIncomplete(Astro);
   for (const src of srcs) {
     const colour = photoBg(src, srcsetOf.get(src));
     if (colour) photoBgs[src] = colour;
@@ -117,7 +120,6 @@ if (product) {
     if (aspect) mainAspects[src] = aspect;
   }
 }
-const inStock = product?.stock_status === 'instock';
 const percent = product?.on_sale ? salePercent(product.price_html) : null;
 const textOf = (html?: string) => decodeEntities((html ?? '').replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
 const excerptHtml = product && textOf(product.short_description) ? sanitizeHtml(stripShortcodes(product.short_description!)) : '';
@@ -178,7 +180,6 @@ if (product) {
     description: (textOf(product.short_description) || textOf(product.description)).slice(0, 500) || undefined,
     sku: product.sku,
     brand: metaBrands[0]?.name,
-    inStock,
     price: product.price,
     priceRange:
       product.type === 'variable' && varPrices.length
@@ -204,7 +205,8 @@ const shareUrl = `https://www.facebook.com/sharer.php?u=${encodeURIComponent(can
           <div class="pdp-head">
             <h1 class="pdp-title">{name}</h1>
             {subtitle && <p class="pdp-subtitle">{subtitleCat ? <Fragment><a href={subtitleCat.href}>{subtitleCat.name}</a>{subtitleCat.rest}</Fragment> : subtitle}</p>}
-            <div class="pdp-price">
+            {/* The baked price and "-N%" are corrected by the script below from the live answer (lib/livePrices pdpPriceFill). */}
+            <div class="pdp-price" data-pdp-price={product.id}>
               <PriceTag product={product} />
               {percent !== null && <span class="pdp-price__off">{formatSaleBadge(percent)}</span>}
             </div>
@@ -214,7 +216,6 @@ const shareUrl = `https://www.facebook.com/sharer.php?u=${encodeURIComponent(can
             client:load
             productId={product.id}
             type={product.type}
-            inStock={inStock}
             variationAttrs={variationAttrs}
             variations={variations}
             variationsFailed={variationsFailed}
@@ -334,3 +335,45 @@ const shareUrl = `https://www.facebook.com/sharer.php?u=${encodeURIComponent(can
     </Base>
   )
 }
+
+<script>
+  // The baked price shows at once; this corrects it when /api/live/product/<id>/ answers differently (within ~0.1 s).
+  // One call per page view: startLive (lib/liveStore) is shared with ProductPurchase, which calls it too, and dedupes.
+  // The live priceHtml is sanitised on the server (livePrices.liveProductOf → sanitizeHtml) and inserted as a fragment,
+  // the same as the card script does; the only markup source is that answer.
+  import { liveStore, startLive } from '../../lib/liveStore';
+  import { pdpPriceFill } from '../../lib/livePrices';
+  import { formatSaleBadge } from '../../lib/price';
+
+  const wrap = document.querySelector<HTMLElement>('[data-pdp-price]');
+  const productId = Number(wrap?.dataset.pdpPrice);
+  if (wrap && Number.isInteger(productId) && productId > 0) {
+    startLive(productId);
+    liveStore.subscribe((s) => {
+      if (s.state !== 'ready' || s.productId !== productId) return;
+      const fill = pdpPriceFill(wrap.querySelector('.price')?.innerHTML ?? '', s.product);
+      if (!fill) return;
+      if (fill.priceHtml !== null) {
+        let price = wrap.querySelector<HTMLElement>('.price');
+        if (!price) {
+          price = document.createElement('span');
+          price.className = 'price';
+          wrap.prepend(price);
+        }
+        price.replaceChildren(document.createRange().createContextualFragment(fill.priceHtml));
+      }
+      let off = wrap.querySelector<HTMLElement>('.pdp-price__off');
+      if (fill.percent === null) {
+        off?.remove();
+        return;
+      }
+      const text = formatSaleBadge(fill.percent);
+      if (!off) {
+        off = document.createElement('span');
+        off.className = 'pdp-price__off';
+        wrap.append(off);
+      }
+      if (off.textContent !== text) off.textContent = text;
+    });
+  }
+</script>

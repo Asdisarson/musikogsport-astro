@@ -580,6 +580,16 @@ export function applyPhotoFit(tile: HTMLElement, fit: PhotoFit | null | undefine
   else tile.style.removeProperty('--photo-grad');
 }
 
+/** Polls `done` (every 25 ms) until it is true, resolving true, or until `ms` passes, resolving false. */
+export async function waitWithin(done: () => boolean, ms: number): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (!done()) {
+    if (Date.now() >= end) return false;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return true;
+}
+
 export interface PhotoBgCache<T> {
   /** The cached reading (null: keep the default tile) at once, or undefined on a miss. A miss or a stale entry
    *  queues a background sample; the page renders with what's known now and later renders get the result. */

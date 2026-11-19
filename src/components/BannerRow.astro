@@ -3,26 +3,57 @@
 // tile when a banner is left over. The whole tile is the link; the title is an uppercase display headline
 // bottom-left over a lower gradient, with a white "Skoða" pill (a span, so links don't nest).
 // A banner without an image keeps ink text on #F5F5F5.
+// Photos carry WordPress' sub-sizes (srcset) and AVIF/WebP sources, so a 2-column tile downloads a half-width file.
 import type { Banner } from '../lib/frontPage';
+import { lightSources } from '../lib/img';
 
 interface Props {
   banners: Banner[];
 }
 const { banners } = Astro.props;
+const single = banners.length === 1;
+// a single tile spans the page on every width; a pair is one half of it from 992px up
+const sizes = single ? '100vw' : '(min-width: 992px) 50vw, 100vw';
 ---
 
 {
   banners.length > 0 && (
-    <div class:list={['story-row', banners.length === 1 && 'story-row--single']}>
-      {banners.map((b) => (
-        <a class:list={['story', !b.image && 'story--plain']} href={b.href || '/verslun/'}>
-          {b.image && <img class="story__img" src={b.image.url} alt="" width={b.image.width} height={b.image.height} loading="lazy" decoding="async" />}
-          <div class="story__copy">
-            <h2 class="story__title">{b.title}</h2>
-            <span class:list={['pill', !b.image && 'pill--ink']}>Skoða</span>
-          </div>
-        </a>
-      ))}
+    <div class:list={['story-row', single && 'story-row--single']}>
+      {banners.map((b) => {
+        const light = b.image ? lightSources({ src: b.image.url, srcset: b.image.srcset, width: b.image.width }) : null;
+        const attrs = b.image
+          ? {
+              src: b.image.url,
+              srcset: b.image.srcset || undefined,
+              sizes: b.image.srcset ? sizes : undefined,
+              alt: '',
+              width: b.image.width,
+              height: b.image.height,
+              loading: 'lazy',
+              decoding: 'async',
+              class: 'story__img',
+              'data-fallback': true,
+            } as const
+          : null;
+        return (
+          <a class:list={['story', !b.image && 'story--plain']} href={b.href || '/verslun/'}>
+            {attrs &&
+              (light ? (
+                <picture>
+                  <source type="image/avif" srcset={light.avif} sizes={b.image!.srcset ? sizes : undefined} />
+                  <source type="image/webp" srcset={light.webp} sizes={b.image!.srcset ? sizes : undefined} />
+                  <img {...attrs} />
+                </picture>
+              ) : (
+                <img {...attrs} />
+              ))}
+            <div class="story__copy">
+              <h2 class="story__title">{b.title}</h2>
+              <span class:list={['pill', !b.image && 'pill--ink']}>Skoða</span>
+            </div>
+          </a>
+        );
+      })}
     </div>
   )
 }

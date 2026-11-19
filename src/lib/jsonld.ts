@@ -25,11 +25,6 @@ export function breadcrumbList(crumbs: Crumb[], siteUrl: string, currentUrl: str
   };
 }
 
-const AVAILABILITY = {
-  in: 'https://schema.org/InStock',
-  out: 'https://schema.org/OutOfStock',
-};
-
 export interface ProductLdInput {
   name: string;
   url: string;
@@ -37,16 +32,14 @@ export interface ProductLdInput {
   description?: string;
   sku?: string;
   brand?: string;
-  inStock: boolean;
   /** Simple product price (whole ISK as string/number). */
   price?: string | number;
   /** Variable product: min/max across variations. */
   priceRange?: { low: number; high: number; count: number };
 }
 
-/** schema.org Product with Offer (simple) or AggregateOffer (variable). */
+/** schema.org Product with Offer (simple) or AggregateOffer (variable). No availability: stock is live, never in the page. */
 export function productLd(p: ProductLdInput) {
-  const availability = p.inStock ? AVAILABILITY.in : AVAILABILITY.out;
   let offers: Record<string, unknown> | undefined;
   if (p.priceRange && p.priceRange.count > 0) {
     offers = {
@@ -55,7 +48,6 @@ export function productLd(p: ProductLdInput) {
       lowPrice: p.priceRange.low,
       highPrice: p.priceRange.high,
       offerCount: p.priceRange.count,
-      availability,
       url: p.url,
     };
   } else {
@@ -64,7 +56,6 @@ export function productLd(p: ProductLdInput) {
       '@type': 'Offer',
       priceCurrency: 'ISK',
       ...(price > 0 ? { price } : {}),
-      availability,
       url: p.url,
     };
   }

@@ -573,3 +573,42 @@ describe('product page lookups are held for a minute', () => {
     expect(f).toHaveBeenCalledTimes(1);
   });
 });
+
+// The uncached WooCommerce lookups the live answer uses. Stock must come from WooCommerce on every call.
+describe('uncached live lookups', () => {
+  const liveFetch = vi.fn();
+  beforeEach(() => {
+    liveFetch.mockReset();
+    liveFetch.mockImplementation(
+      async () =>
+        new Response(JSON.stringify([{ id: 5, menu_order: 0, stock_status: 'instock' }]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', 'X-WP-Total': '1', 'X-WP-TotalPages': '1' },
+        }),
+    );
+    vi.stubGlobal('fetch', liveFetch);
+    secrets.WOOCOMMERCE_CONSUMER_KEY = KEY;
+    secrets.WOOCOMMERCE_CONSUMER_SECRET = SECRET;
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('getVariationStock asks WooCommerce on every call (no cache), with the stock fields only', async () => {
+    const { getVariationStock } = await import('./woo');
+    await getVariationStock(42);
+    await getVariationStock(42);
+    expect(liveFetch).toHaveBeenCalledTimes(2);
+    const url = String(liveFetch.mock.calls[0][0]);
+    expect(url).toContain('/products/42/variations');
+    expect(url).toContain('_fields=');
+    expect(url).toContain('stock_status');
+  });
+
+  it('getProductsByIds is uncached too: each call reaches WooCommerce', async () => {
+    const { getProductsByIds } = await import('./woo');
+    await getProductsByIds([5], 1);
+    await getProductsByIds([5], 1);
+    expect(liveFetch).toHaveBeenCalledTimes(2);
+  });
+});

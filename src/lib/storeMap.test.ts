@@ -20,7 +20,6 @@ const storeImage = {
   srcset:
     'http://localhost:10025/wp-content/uploads/2026/04/a.jpg.webp 1200w, http://localhost:10025/wp-content/uploads/2026/04/a.jpg-720x720.webp 720w, http://localhost:10025/wp-content/uploads/2026/04/a.jpg-360x360.webp 360w',
   sizes: '(max-width: 1200px) 100vw, 1200px',
-  thumbnail_srcset: 'http://localhost:10025/wp-content/uploads/2026/04/a.jpg-450x450.webp 450w',
   name: 'a.jpg',
   alt: 'Skór á hlið',
 };

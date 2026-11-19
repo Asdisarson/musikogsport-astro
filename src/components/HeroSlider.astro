@@ -4,7 +4,7 @@
 // slides on #F5F5F5 (ink text, no gradient), stepped by two round arrows when there are several.
 // planHome() (lib/homeLayout) decides which.
 import { heroBannerSizes, type HeroPlan } from '../lib/homeLayout';
-import { mediaUrl } from '../lib/img';
+import { lightSources, mediaUrl } from '../lib/img';
 import { photoBgFor } from '../lib/photoBgServer';
 
 interface Props {
@@ -15,12 +15,23 @@ const slides = plan.kind === 'product' ? plan.slides : [];
 const many = slides.length > 1;
 // the product photo fills the right half on a desktop, the full width below 992px (global.css .hero__media)
 const SLIDE_SIZES = '(min-width: 992px) 50vw, 100vw';
+// AVIF/WebP for the JPEG/PNG candidates; the <img> keeps its original src and srcset, and /img-fallback.js (data-fallback)
+// drops a failed source first, so a refused conversion shows the original photo.
+const heroLight = plan.kind === 'banner' ? lightSources({ src: plan.image.url, srcset: plan.image.srcset, width: plan.image.width }) : null;
 ---
 
 {
   plan.kind === 'banner' ? (
     <section class="hero hero--banner" data-hero>
-      <img class="hero__img" src={plan.image.url} srcset={plan.image.srcset || undefined} sizes={plan.image.srcset ? heroBannerSizes(plan.image.width, plan.image.height) : undefined} alt="" width={plan.image.width} height={plan.image.height} loading="eager" fetchpriority="high" decoding="async" />
+      {heroLight ? (
+        <picture>
+          <source type="image/avif" srcset={heroLight.avif} sizes={plan.image.srcset ? heroBannerSizes(plan.image.width, plan.image.height) : undefined} />
+          <source type="image/webp" srcset={heroLight.webp} sizes={plan.image.srcset ? heroBannerSizes(plan.image.width, plan.image.height) : undefined} />
+          <img class="hero__img" src={plan.image.url} srcset={plan.image.srcset || undefined} sizes={plan.image.srcset ? heroBannerSizes(plan.image.width, plan.image.height) : undefined} alt="" width={plan.image.width} height={plan.image.height} loading="eager" fetchpriority="high" decoding="async" data-fallback />
+        </picture>
+      ) : (
+        <img class="hero__img" src={plan.image.url} srcset={plan.image.srcset || undefined} sizes={plan.image.srcset ? heroBannerSizes(plan.image.width, plan.image.height) : undefined} alt="" width={plan.image.width} height={plan.image.height} loading="eager" fetchpriority="high" decoding="async" data-fallback />
+      )}
       <div class="hero__copy">
         <h1 class="hero__title">{plan.headline}</h1>
         {plan.text && <p class="hero__text">{plan.text}</p>}
@@ -45,7 +56,19 @@ const SLIDE_SIZES = '(min-width: 992px) 50vw, 100vw';
           {...photoBgFor(mediaUrl(s.image.url))}
         >
           <a class="hero__media" href={s.href} tabindex="-1" aria-hidden="true">
-            <img src={s.image.url} srcset={s.image.srcset || undefined} sizes={s.image.srcset ? SLIDE_SIZES : undefined} alt="" width={s.image.width} height={s.image.height} loading={i === 0 ? 'eager' : 'lazy'} fetchpriority={i === 0 ? 'high' : undefined} decoding="async" />
+            {(() => {
+              const light = lightSources({ src: s.image.url, srcset: s.image.srcset, width: s.image.width });
+              const attrs = { src: s.image.url, srcset: s.image.srcset || undefined, sizes: s.image.srcset ? SLIDE_SIZES : undefined, alt: '', width: s.image.width, height: s.image.height, loading: i === 0 ? 'eager' : 'lazy', fetchpriority: i === 0 ? 'high' : undefined, decoding: 'async', 'data-fallback': true } as const;
+              return light ? (
+                <picture>
+                  <source type="image/avif" srcset={light.avif} sizes={s.image.srcset ? SLIDE_SIZES : undefined} />
+                  <source type="image/webp" srcset={light.webp} sizes={s.image.srcset ? SLIDE_SIZES : undefined} />
+                  <img {...attrs} />
+                </picture>
+              ) : (
+                <img {...attrs} />
+              );
+            })()}
           </a>
           {!plan.headline && (
             <div class="hero__copy">

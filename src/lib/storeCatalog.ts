@@ -96,8 +96,13 @@ async function catalogFetch(url: string, what: string): Promise<Response> {
 const PRODUCTS_TTL_MS = 60 * 1000;
 const PRODUCTS_MAX_STALE_MS = 5 * 60 * 1000; // a grid nobody asked for in that long is loaded afresh, not shown
 const PRODUCTS_FAIL_MEMO_MS = 10 * 1000;
+// After a poke (forgetAllGrids), every grid is asked for again: the key carries a generation (see lib/woo forgetProduct).
+let gridGeneration = 0;
 const productsByUrl = createKeyedLoader<Paged<WooProduct>>({
-  load: (url) => fetchProducts(url, Number(new URL(url).searchParams.get('page'))),
+  load: (key) => {
+    const url = key.slice(key.indexOf('|') + 1);
+    return fetchProducts(url, Number(new URL(url).searchParams.get('page')));
+  },
   ttlMs: PRODUCTS_TTL_MS,
   maxStaleMs: PRODUCTS_MAX_STALE_MS,
   failMemoMs: PRODUCTS_FAIL_MEMO_MS,
@@ -113,7 +118,12 @@ export function storeProducts(q: StoreQuery = {}): Promise<Paged<WooProduct>> {
   usp.set('orderby', q.orderby ?? 'date');
   usp.set('order', q.order ?? 'desc');
   appendFilters(usp, q);
-  return productsByUrl(`${BASE}/products?${usp.toString()}`);
+  return productsByUrl(`${gridGeneration}|${BASE}/products?${usp.toString()}`);
+}
+
+/** After a catalogue change (a poke): every product grid is read again, not shown from the minute's cache. */
+export function forgetAllGrids(): void {
+  gridGeneration += 1;
 }
 
 async function fetchProducts(url: string, page: number): Promise<Paged<WooProduct>> {

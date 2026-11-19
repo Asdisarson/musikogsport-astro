@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('astro:env/client', () => ({ MOS_MEDIA_BASE_URL: 'https://musikogsport.is' }));
-import { applyPhotoFit, cardFill, cardFillAttrs, cardFillProps, createPhotoBgCache, edgeColour, isMediaFile, photoBgAttrs, photoBgProps, photoBgStyle, photoFit, photoFitAttrs, readEdges, sampleCandidate, subSizeAspect, tileAspect, type CardFill, type PhotoEdges, type PhotoFit, type RawPixels } from './photoBg';
+import { applyPhotoFit, cardFill, cardFillAttrs, cardFillProps, createPhotoBgCache, edgeColour, isMediaFile, photoBgAttrs, photoBgProps, photoBgStyle, photoFit, photoFitAttrs, readEdges, sampleCandidate, subSizeAspect, tileAspect, waitWithin, type CardFill, type PhotoEdges, type RawPixels } from './photoBg';
 
 /** A w×h RGBA image filled with `bg`, then `paint(x, y)` may return a different pixel. */
 function image(w: number, h: number, bg: number[], paint?: (x: number, y: number) => number[] | undefined): RawPixels {
@@ -192,6 +192,26 @@ describe('createPhotoBgCache', () => {
     expect(s.cache.lookup(A)).toBeNull(); // stale value served while it re-samples
     await s.cache.idle();
     expect(s.cache.lookup(A)).toBe('#e8eeef');
+  });
+
+  // The settle contract (photoBgServer.settlePhotos): undefined means "still being read" and is the only state that
+  // makes a page incomplete. A photo that can never be read (404, missing file, off-host URL) must settle, or its
+  // page would never be stored and every visit would render it again.
+  it('settles a photo that can never be read (failed sample or off-host URL), but not one still being read', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const s = setup(async (url) => {
+      if (url === A) {
+        await gate;
+        throw new Error('HTTP 404');
+      }
+      return '#eaeaea';
+    });
+    expect(s.cache.lookup(A)).toBeUndefined(); // still being read: not settled
+    expect(s.cache.lookup('https://evil.example/wp-content/uploads/a.jpg')).not.toBeUndefined();
+    release();
+    await s.cache.idle();
+    expect(s.cache.lookup(A)).toBeNull(); // the 404 is a decided null, so it settles
   });
 
   it('keeps a known colour when a re-sample after the TTL fails (LC-11)', async () => {
@@ -612,5 +632,18 @@ describe('tileAspect: the product page tile takes its photo\'s own shape', () =>
     expect(tileAspect(undefined)).toBeNull();
     expect(tileAspect(null)).toBeNull();
     expect(tileAspect(edges(0, 100))).toBeNull();
+  });
+});
+
+describe('waitWithin', () => {
+  it('resolves true at once when the check already passes', async () => {
+    expect(await waitWithin(() => true, 50)).toBe(true);
+  });
+  it('resolves true when the check passes before the bound', async () => {
+    let n = 0;
+    expect(await waitWithin(() => ++n > 3, 2000)).toBe(true);
+  });
+  it('resolves false when the bound passes first', async () => {
+    expect(await waitWithin(() => false, 60)).toBe(false);
   });
 });

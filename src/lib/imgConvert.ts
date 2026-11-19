@@ -1,0 +1,170 @@
+// Light-image conversion for src/pages/img: a WordPress JPEG or PNG in the uploads folder, re-encoded as AVIF or WebP
+// at one of the allow-listed widths, kept on disk. SERVER-ONLY (sharp, node:fs).
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { LIGHT_WIDTHS } from './img';
+import { log } from './logger';
+
+export type LightFormat = 'avif' | 'webp';
+export interface LightRequest {
+  width: number;
+  format: LightFormat;
+  /** The path under /wp-content/uploads/, e.g. 2026/04/a.jpg. */
+  rel: string;
+}
+
+const MAX_DEPTH = 6;
+const MAX_PATH = 300;
+const LIGHT_EXT = /\.(jpe?g|png)$/i;
+// Browsers ask for a few images at once; sharp takes a core per encode. Two at a time keeps a page of misses from
+// starving the storefront's own requests.
+const CONCURRENCY = 2;
+const MAX_WAITING = 40;
+/** WordPress' originals are a few MB; a larger file is not a web image and is not fetched. */
+const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
+const FETCH_MS = 10_000;
+const TOTAL_MS = 25_000;
+
+/** Why a conversion did not produce an image: the HTTP status the route answers with. */
+export class LightError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** The request parts, validated; null for anything the endpoint does not serve. */
+export function parseLightRequest(width: string, format: string, rel: string): LightRequest | null {
+  if (!/^[1-9]\d*$/.test(width)) return null;
+  const w = Number(width);
+  if (!(LIGHT_WIDTHS as readonly number[]).includes(w)) return null;
+  if (format !== 'avif' && format !== 'webp') return null;
+  if (!rel || rel.length > MAX_PATH || rel.startsWith('/') || /[\\%?#]|[\u0000-\u001f\u007f]/.test(rel)) return null;
+  const parts = rel.split('/');
+  if (parts.length > MAX_DEPTH) return null;
+  for (const p of parts) if (!p || p === '.' || p === '..' || p.startsWith('.')) return null;
+  if (!LIGHT_EXT.test(rel)) return null;
+  return { width: w, format, rel };
+}
+
+/** Where a conversion is kept: one folder per width and format, one file per path (hashed, so no name is unsafe). */
+export function cachePathFor(dir: string, width: number, format: LightFormat, rel: string): string {
+  const name = createHash('sha256').update(rel).digest('hex').slice(0, 40);
+  return join(dir, `${width}-${format}`, `${name}.${format}`);
+}
+
+/** Re-encode a JPEG or PNG at `width` (never larger than the source). Throws for any other input. */
+export async function encodeLight(input: Buffer, width: number, format: LightFormat): Promise<{ data: Buffer; contentType: string }> {
+  // Loaded when first needed, as photoBgServer does: sharp is a native module the server should not load up front.
+  const { default: sharp } = await import('sharp');
+  const meta = await sharp(input, { limitInputPixels: 60_000_000 }).metadata();
+  if (meta.format !== 'jpeg' && meta.format !== 'png') throw new LightError(404, 'not a jpeg or png');
+  const base = sharp(input, { limitInputPixels: 60_000_000 }).rotate().resize({ width, withoutEnlargement: true });
+  if (format === 'avif') {
+    return { data: await base.avif({ quality: 62, effort: 4 }).toBuffer(), contentType: 'image/avif' };
+  }
+  return { data: await base.webp({ quality: 82 }).toBuffer(), contentType: 'image/webp' };
+}
+
+/** Bounded concurrency with a queue, and one shared run for callers that ask for the same key at the same time. */
+export function createGate(concurrency: number, maxWaiting: number) {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  const inflight = new Map<string, Promise<unknown>>();
+  return {
+    run<T>(key: string, task: () => Promise<T>): Promise<T> {
+      const shared = inflight.get(key) as Promise<T> | undefined;
+      if (shared) return shared;
+      if (active >= concurrency && waiting.length >= maxWaiting) return Promise.reject(new Error('queue full'));
+      const p = (async () => {
+        if (active < concurrency) active++;
+        else await new Promise<void>((resolve) => waiting.push(resolve)); // the finishing run hands over its slot
+        try {
+          return await task();
+        } finally {
+          const next = waiting.shift();
+          if (next) next();
+          else active--;
+        }
+      })();
+      inflight.set(key, p);
+      const forget = () => {
+        if (inflight.get(key) === p) inflight.delete(key);
+      };
+      p.then(forget, forget);
+      return p;
+    },
+  };
+}
+
+/** The kept file's bytes, or null when there is none (or it cannot be read: the caller converts again). */
+export async function readCached(file: string): Promise<Buffer | null> {
+  try {
+    return await readFile(file);
+  } catch (err) {
+    if ((err as { code?: string }).code !== 'ENOENT') log.warn('image cache not read', { err });
+    return null;
+  }
+}
+
+/** Written beside the target and renamed, so a reader never sees half a file. A failure is logged, not thrown. */
+export async function writeCached(file: string, data: Buffer): Promise<void> {
+  const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await mkdir(join(file, '..'), { recursive: true });
+    await writeFile(tmp, data);
+    await rename(tmp, file);
+  } catch (err) {
+    log.warn('image cache not written', { err });
+  }
+}
+
+/** The original from WordPress: its uploads folder on `origin` (the storefront's own WordPress connection). */
+async function fetchSource(origin: string, rel: string, fetchImpl: typeof fetch): Promise<Buffer> {
+  const url = `${origin.replace(/\/+$/, '')}/wp-content/uploads/${rel.split('/').map(encodeURIComponent).join('/')}`;
+  // WordPress answers a missing upload with a redirect (to the site's own address), so redirects are not followed:
+  // any 3xx means there is no such original here.
+  const res = await fetchImpl(url, { signal: AbortSignal.timeout(FETCH_MS), redirect: 'manual' });
+  if (res.status === 404 || (res.status >= 300 && res.status < 400)) {
+    await res.body?.cancel();
+    throw new LightError(404, 'no such original');
+  }
+  if (!res.ok) throw new LightError(502, `original answered ${res.status}`);
+  const declared = Number(res.headers.get('content-length') ?? 0);
+  if (declared > MAX_SOURCE_BYTES) throw new LightError(502, 'original too large');
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > MAX_SOURCE_BYTES) throw new LightError(502, 'original too large');
+  return buf;
+}
+
+export interface MakeDeps {
+  origin: string;
+  dir: string;
+  gate: ReturnType<typeof createGate>;
+  fetchImpl?: typeof fetch;
+}
+
+/** Convert one request, keep the result on disk, and return it. Throws LightError (or a plain Error for the queue). */
+export async function makeLight(req: LightRequest, deps: MakeDeps): Promise<{ data: Buffer; contentType: string }> {
+  const file = cachePathFor(deps.dir, req.width, req.format, req.rel);
+  const work = async () => {
+    const source = await fetchSource(deps.origin, req.rel, deps.fetchImpl ?? fetch);
+    const out = await encodeLight(source, req.width, req.format);
+    await writeCached(file, out.data);
+    return out;
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new LightError(503, 'conversion timed out')), TOTAL_MS);
+  });
+  try {
+    return await Promise.race([deps.gate.run(file, work), limit]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export { CONCURRENCY, MAX_WAITING };
