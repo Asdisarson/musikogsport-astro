@@ -30,28 +30,24 @@ const quiet = () => {};
 
 // Each click counts from the last queued quantity, not the rendered one (CO-06): quick clicks all count.
 export function QtyStepper({ item }: { item: CartItem }) {
-  // At the line's maximum (WooCommerce quantity_limits) the + stays focusable but does nothing, and a quiet note says why.
-  // The maximum is a stock shortage or one per cart (sold individually), and the cart data does not say which: the note says only what is true of both.
+  // At the line's maximum (WooCommerce quantity_limits) the + stays focusable but does nothing; it is dimmed and its label says so.
   const max = lineMax(item);
   const atMax = max !== null && item.quantity >= max;
   return (
-    <>
-      <div className="line-qty">
-        <button type="button" onClick={() => void stepQty(item.key, -1).catch(quiet)} aria-label="Fækka" disabled={item.quantity <= 1}>
-          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M5 12h14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
-        </button>
-        <span className="line-qty__n" aria-label="Fjöldi">{item.quantity}</span>
-        <button
-          type="button"
-          onClick={() => { if (!atMax) void stepQty(item.key, 1).catch(quiet); }}
-          aria-disabled={atMax}
-          aria-label={atMax ? 'Fjölga (hámark í körfu náð)' : 'Fjölga'}
-        >
-          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
-        </button>
-      </div>
-      {atMax && <p className="pdp-qty-note" aria-live="polite">Ekki fleiri í körfu</p>}
-    </>
+    <div className="line-qty">
+      <button type="button" onClick={() => void stepQty(item.key, -1).catch(quiet)} aria-label="Fækka" disabled={item.quantity <= 1}>
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M5 12h14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+      </button>
+      <span className="line-qty__n" aria-label="Fjöldi">{item.quantity}</span>
+      <button
+        type="button"
+        onClick={() => { if (!atMax) void stepQty(item.key, 1).catch(quiet); }}
+        aria-disabled={atMax}
+        aria-label={atMax ? 'Fjölga (hámark í körfu náð)' : 'Fjölga'}
+      >
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+      </button>
+    </div>
   );
 }
 

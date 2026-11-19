@@ -25,16 +25,15 @@ export function stillAddable(cap: number | null, inCart: number): number | null 
   return cap === null ? null : Math.max(0, cap - inCart);
 }
 
-/** The quiet line under the product counter. Reads the cart's own count when nothing more can be added (the stock may
- *  have fallen below what the cart holds), and says "stock" only when the cap is a stock cap, never for sold individually. */
+/** The quiet line under the product counter. Nothing when the cart already holds all there is (the button is off);
+ *  it says "stock" only when the cap is a stock cap, never for sold individually. */
 export function purchaseNote(
   s: { cap: number | null; inCart: number; remaining: number | null; soldOne: boolean; atMax: boolean },
   lowStock: number,
 ): string | null {
   if (s.cap === null || s.cap < 1) return null;
-  if (s.remaining === 0) return s.inCart > 0 ? `Þú ert þegar með öll ${s.inCart} stk. í körfunni` : null;
+  if (s.remaining === 0) return null;
   if (s.soldOne) return null;
-  if (s.atMax) return 'Ekki fleiri til á lager';
   if (s.cap <= lowStock) return `Aðeins ${s.cap} til á lager`;
   return null;
 }

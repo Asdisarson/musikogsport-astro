@@ -70,15 +70,15 @@ describe('purchaseNote (the quiet line under the product counter)', () => {
   it('a low stock cap says how many are left', () => {
     expect(purchaseNote({ ...base, cap: 3, remaining: 3 }, 5)).toBe('Aðeins 3 til á lager');
   });
-  it('at the counter maximum on stock: not more in stock', () => {
-    expect(purchaseNote({ ...base, cap: 10, inCart: 2, remaining: 8, atMax: true }, 5)).toBe('Ekki fleiri til á lager');
+  it('at the counter maximum: no extra note, only the low-stock line when the cap is low', () => {
+    expect(purchaseNote({ ...base, cap: 10, inCart: 2, remaining: 8, atMax: true }, 5)).toBeNull();
+    expect(purchaseNote({ ...base, cap: 3, remaining: 3, atMax: true }, 5)).toBe('Aðeins 3 til á lager');
   });
-  it('nothing more addable: the count in the cart, never the live cap', () => {
-    // stock fell to 3 while 5 are in the cart: the note must say 5
-    expect(purchaseNote({ ...base, cap: 3, inCart: 5, remaining: 0 }, 5)).toBe('Þú ert þegar með öll 5 stk. í körfunni');
+  it('nothing more addable: no note (the button is off)', () => {
+    expect(purchaseNote({ ...base, cap: 3, inCart: 5, remaining: 0 }, 5)).toBeNull();
   });
-  it('sold individually: no stock wording, only the cart note once it is in the cart', () => {
+  it('sold individually: no note, in the cart or not', () => {
     expect(purchaseNote({ cap: 1, inCart: 0, remaining: 1, soldOne: true, atMax: true }, 5)).toBeNull();
-    expect(purchaseNote({ cap: 1, inCart: 1, remaining: 0, soldOne: true, atMax: false }, 5)).toBe('Þú ert þegar með öll 1 stk. í körfunni');
+    expect(purchaseNote({ cap: 1, inCart: 1, remaining: 0, soldOne: true, atMax: false }, 5)).toBeNull();
   });
 });
