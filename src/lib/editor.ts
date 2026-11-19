@@ -35,3 +35,8 @@ export function adminBarLinks(base: string, productId: number | null): AdminLink
   }
   return links;
 }
+
+/** Whether `document.cookie`-style text carries a cookie named exactly `name`. */
+export function hasCookie(cookies: string, name: string): boolean {
+  return cookies.split('; ').some((c) => c.startsWith(`${name}=`));
+}

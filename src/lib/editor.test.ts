@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminBarLinks, canEditProducts } from './editor';
+import { adminBarLinks, canEditProducts, hasCookie } from './editor';
 
 describe('canEditProducts', () => {
   it('is true only when WordPress lists edit_products as granted', () => {
@@ -46,5 +46,20 @@ describe('adminBarLinks', () => {
     expect(adminBarLinks('javascript:alert(1)', 5)).toEqual([]);
     expect(adminBarLinks('', 5)).toEqual([]);
     expect(adminBarLinks('not a url', 5)).toEqual([]);
+  });
+});
+
+describe('hasCookie', () => {
+  it('finds a cookie by its exact name, wherever it sits in the string', () => {
+    expect(hasCookie('mos_staff=1', 'mos_staff')).toBe(true);
+    expect(hasCookie('a=1; mos_staff=1; b=2', 'mos_staff')).toBe(true);
+    expect(hasCookie('a=1; mos_li=r', 'mos_li')).toBe(true);
+  });
+
+  it('is false for no cookies, another cookie, and a name that only starts or ends the same', () => {
+    expect(hasCookie('', 'mos_staff')).toBe(false);
+    expect(hasCookie('mos_li=1', 'mos_staff')).toBe(false);
+    expect(hasCookie('mos_staff_old=1', 'mos_staff')).toBe(false);
+    expect(hasCookie('x_mos_staff=1', 'mos_staff')).toBe(false);
   });
 });

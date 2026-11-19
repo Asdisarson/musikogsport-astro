@@ -19,6 +19,10 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
 - **mos-checkout-fields.php** — live's extra checkout fields for the headless checkout: Kennitala and
   "Viltu skiptimiða?" arrive as Store API `extensions.mos` and are saved as `_billing_ssn` / `skiptimidi`
   (the keys live's Checkout Field Editor uses). A kennitala that isn't 10 digits is rejected (400).
+- **mos-staff-flag.php** — tells the storefront's admin bar that the browser is signed in to wp-admin as
+  staff: a non-secret `mos_staff=1` cookie on the host the shop and WordPress share, for accounts that may
+  edit products, removed on sign-out. Without it the bar shows only after the storefront's own login.
+  Tests: `php tests/mos_staff_flag_test.php` (the cookie-domain rule).
 - **headless-bridge-local.php** — Local-dev-only shim: rewrites redirect hosts to
   the astro dev server (`http://localhost:10026`, Local's headless add-on port)
   and pins HTTPS for WC REST Basic Auth over HTTP. It does nothing unless `wp_get_environment_type()` is

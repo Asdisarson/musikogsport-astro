@@ -13,8 +13,10 @@ import LoginForm from './LoginForm.astro';
 </dialog>
 
 <script>
+  import { hasCookie } from '../lib/editor';
+
   const dialog = document.querySelector<HTMLDialogElement>('[data-login-dialog]');
-  const signedIn = document.cookie.split('; ').some((c) => c.startsWith('mos_li='));
+  const signedIn = hasCookie(document.cookie, 'mos_li');
   if (signedIn) {
     document.querySelectorAll<HTMLElement>('[data-login-label]').forEach((el) => (el.textContent = 'Mín síða'));
   }

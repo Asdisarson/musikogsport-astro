@@ -1,14 +1,23 @@
 ---
 // Staff admin bar: links into wp-admin for a signed-in account that may edit products ("Breyta vöru" on a
 // product page, then the sections). Public pages are the same for every visitor (lib/cachePolicy), so the bar
-// ships empty and hidden; the browser asks /api/account/editor/ — only when the `mos_li` flag says someone is
-// signed in — and fills it in. The answer is kept for the tab's session so customers cost one request.
+// ships empty and hidden and the browser fills it in, on either sign-in:
+// - wp-admin: WordPress leaves the `mos_staff` flag cookie on the shared host while staff are signed in
+//   (wp-mu-plugins/mos-staff-flag.php). No request: the bar carries wp-admin's origin, the same for everyone.
+// - the storefront login: when the `mos_li` flag says someone is signed in, /api/account/editor/ says whether
+//   they are staff. The answer is kept for the tab's session so customers cost one request.
+// Neither flag is a credential: the bar is only links, and wp-admin asks for its own login.
+import { MEDIA_BASE_URL } from '../lib/img';
+import { runtimeEnv } from '../lib/logger';
+
+// WordPress's public origin, as api/account/editor answers it: MOS_WP_ADMIN_URL where set, else the media host.
+const adminBase = runtimeEnv('MOS_WP_ADMIN_URL') || MEDIA_BASE_URL;
 ---
 
-<nav class="admin-bar" data-admin-bar aria-label="Stjórnun" hidden></nav>
+<nav class="admin-bar" data-admin-bar data-admin-base={adminBase} aria-label="Stjórnun" hidden></nav>
 
 <script>
-  import { adminBarLinks } from '../lib/editor';
+  import { adminBarLinks, hasCookie } from '../lib/editor';
 
   const KEY = 'mos_admin_bar'; // '' = not staff, otherwise WordPress's public origin
   const bar = document.querySelector<HTMLElement>('[data-admin-bar]');
@@ -49,8 +58,8 @@
   }
 
   async function init(): Promise<void> {
-    const signedIn = document.cookie.split('; ').some((c) => c.startsWith('mos_li='));
-    if (!signedIn) return write(null); // signed out: forget the last account's answer
+    if (hasCookie(document.cookie, 'mos_staff')) return show(bar?.dataset.adminBase ?? '');
+    if (!hasCookie(document.cookie, 'mos_li')) return write(null); // signed out: forget the last account's answer
     const known = read();
     if (known !== null) return known ? show(known) : undefined;
     try {
