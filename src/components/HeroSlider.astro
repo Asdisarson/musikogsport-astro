@@ -4,7 +4,7 @@
 // slides on #F5F5F5 (ink text, no gradient), stepped by two round arrows when there are several.
 // planHome() (lib/homeLayout) decides which.
 import { heroBannerSizes, type HeroPlan } from '../lib/homeLayout';
-import { lightSources, mediaUrl } from '../lib/img';
+import { lightSources, mediaUrl, phoneCropSources } from '../lib/img';
 import { photoBgFor } from '../lib/photoBgServer';
 
 interface Props {
@@ -18,6 +18,8 @@ const SLIDE_SIZES = '(min-width: 992px) 50vw, 100vw';
 // AVIF/WebP for the JPEG/PNG candidates; the <img> keeps its original src and srcset, and /img-fallback.js (data-fallback)
 // drops a failed source first, so a refused conversion shows the original photo.
 const heroLight = plan.kind === 'banner' ? lightSources({ src: plan.image.url, srcset: plan.image.srcset, width: plan.image.width }) : null;
+// A phone shows only the middle of the wide photo: it gets that part alone (lib/img phoneCropSources).
+const heroCrop = plan.kind === 'banner' && heroLight ? phoneCropSources({ src: plan.image.url, width: plan.image.width, height: plan.image.height }) : null;
 ---
 
 {
@@ -25,6 +27,8 @@ const heroLight = plan.kind === 'banner' ? lightSources({ src: plan.image.url, s
     <section class="hero hero--banner" data-hero>
       {heroLight ? (
         <picture>
+          {heroCrop && <source media={heroCrop.media} type="image/avif" srcset={heroCrop.avif} sizes={heroCrop.sizes} />}
+          {heroCrop && <source media={heroCrop.media} type="image/webp" srcset={heroCrop.webp} sizes={heroCrop.sizes} />}
           <source type="image/avif" srcset={heroLight.avif} sizes={plan.image.srcset ? heroBannerSizes(plan.image.width, plan.image.height) : undefined} />
           <source type="image/webp" srcset={heroLight.webp} sizes={plan.image.srcset ? heroBannerSizes(plan.image.width, plan.image.height) : undefined} />
           <img class="hero__img" src={plan.image.url} srcset={plan.image.srcset || undefined} sizes={plan.image.srcset ? heroBannerSizes(plan.image.width, plan.image.height) : undefined} alt="" width={plan.image.width} height={plan.image.height} loading="eager" fetchpriority="high" decoding="async" data-fallback />

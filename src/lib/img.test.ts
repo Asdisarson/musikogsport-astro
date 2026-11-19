@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('astro:env/client', () => ({ MOS_MEDIA_BASE_URL: 'https://musikogsport.is' }));
-import { lightSources, mainSources, mediaSrcset, modestCandidate, productImage, PLACEHOLDER } from './img';
+import { phoneCropSources, lightSources, mainSources, mediaSrcset, modestCandidate, productImage, PLACEHOLDER } from './img';
 
 describe('productImage', () => {
   it('gives the first image’s src and srcset, both on the media host', () => {
@@ -119,5 +119,28 @@ describe('modestCandidate', () => {
   it('falls back to the original when no candidate is wide enough or there is no srcset', () => {
     expect(modestCandidate('https://musikogsport.is/a-360x450.jpg 360w', 'https://musikogsport.is/a.jpg')).toBe('https://musikogsport.is/a.jpg');
     expect(modestCandidate('', 'https://musikogsport.is/a.jpg')).toBe('https://musikogsport.is/a.jpg');
+  });
+});
+
+describe('phoneCropSources', () => {
+  const src = 'https://wp.musikogsport.is/wp-content/uploads/2026/08/hero-scaled.jpg';
+
+  it('offers the 5:6 crop of the full photo at the widths it can fill, the last one at its own width', () => {
+    const got = phoneCropSources({ src, width: 2048, height: 1152 });
+    expect(got?.avif).toBe('/img/360c/avif/v2/2026/08/hero-scaled.jpg 360w, /img/450c/avif/v2/2026/08/hero-scaled.jpg 450w, /img/720c/avif/v2/2026/08/hero-scaled.jpg 720w, /img/1080c/avif/v2/2026/08/hero-scaled.jpg 960w');
+    expect(got?.webp).toContain('/img/720c/webp/v2/2026/08/hero-scaled.jpg 720w');
+    expect(got?.media).toBe('(max-width: 480px)');
+    expect(got?.sizes).toBe('min(488px, 125vw)');
+  });
+
+  it('gives nothing for a photo that is not wider than the crop, of unknown size, or not a JPEG or PNG', () => {
+    expect(phoneCropSources({ src, width: 800, height: 1200 })).toBeNull();
+    expect(phoneCropSources({ src, width: 0, height: 0 })).toBeNull();
+    expect(phoneCropSources({ src: src.replace('.jpg', '.webp'), width: 2048, height: 1152 })).toBeNull();
+    expect(phoneCropSources({ src: `${src}?x=1`, width: 2048, height: 1152 })).toBeNull();
+  });
+
+  it('gives nothing when the crop would be too small to be worth a source', () => {
+    expect(phoneCropSources({ src, width: 600, height: 300 })).toBeNull();
   });
 });

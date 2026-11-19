@@ -41,7 +41,26 @@ describe('parseLightRequest', () => {
   });
 });
 
+describe('parseLightRequest: the phone crop', () => {
+  it('reads a width followed by c as the phone crop of that width', () => {
+    expect(parseLightRequest('720c', 'avif', '2026/04/a.jpg')).toEqual({ width: 720, format: 'avif', rel: '2026/04/a.jpg', crop: true });
+    expect(parseLightRequest('720', 'avif', '2026/04/a.jpg')?.crop).toBeUndefined();
+  });
+
+  it('refuses any other suffix, and crop widths off the list', () => {
+    expect(parseLightRequest('720x', 'avif', '2026/04/a.jpg')).toBeNull();
+    expect(parseLightRequest('720cc', 'avif', '2026/04/a.jpg')).toBeNull();
+    expect(parseLightRequest('c', 'avif', '2026/04/a.jpg')).toBeNull();
+    expect(parseLightRequest('721c', 'avif', '2026/04/a.jpg')).toBeNull();
+    expect(parseLightRequest('2048c', 'avif', '2026/04/a.jpg')).toBeNull();
+  });
+});
+
 describe('cachePathFor', () => {
+  it('keeps a cropped picture apart from the uncropped one', () => {
+    expect(cachePathFor(dir, 720, 'avif', '2026/04/a.jpg', true)).not.toBe(cachePathFor(dir, 720, 'avif', '2026/04/a.jpg'));
+  });
+
   it('is stable per width, format and path, and stays inside the cache directory', () => {
     const a = cachePathFor(dir, 450, 'avif', '2026/04/a.jpg');
     expect(a).toBe(cachePathFor(dir, 450, 'avif', '2026/04/a.jpg'));
@@ -73,6 +92,33 @@ describe('encodeLight', () => {
   it('never enlarges: a source narrower than the width keeps its own width', async () => {
     const out = await encodeLight(png, 1536, 'webp');
     expect((await sharp(out.data).metadata()).width).toBe(1000);
+  });
+
+  it('crops for a phone: the top, centred, 5:6, then sized to the asked width', async () => {
+    // left third red, middle green, right third blue; 1800x600 gives a 500x600 crop out of the green middle
+    const strip = (c: string) => sharp({ create: { width: 600, height: 600, channels: 3, background: c } }).png().toBuffer();
+    const wide = await sharp({ create: { width: 1800, height: 600, channels: 3, background: '#000' } })
+      .composite([{ input: await strip('#ff0000'), left: 0, top: 0 }, { input: await strip('#00ff00'), left: 600, top: 0 }, { input: await strip('#0000ff'), left: 1200, top: 0 }])
+      .png().toBuffer();
+    const out = await encodeLight(wide, 360, 'webp', true);
+    const img = sharp(out.data);
+    const meta = await img.metadata();
+    expect([meta.width, meta.height]).toEqual([360, 432]);
+    const { data } = await img.raw().toBuffer({ resolveWithObject: true });
+    expect(data[1]).toBeGreaterThan(200); // green at the left edge: the red third is cut away
+    expect(data[0]).toBeLessThan(60);
+  });
+
+  it('never enlarges a crop: a short source keeps its own cropped size', async () => {
+    const out = await encodeLight(png, 1080, 'webp', true); // 1000x800 -> 667x800
+    const meta = await sharp(out.data).metadata();
+    expect([meta.width, meta.height]).toEqual([667, 800]);
+  });
+
+  it('leaves a photo narrower than 5:6 at its full width, cut from the top', async () => {
+    const tall = await sharp({ create: { width: 400, height: 1000, channels: 3, background: '#808080' } }).png().toBuffer();
+    const meta = await sharp((await encodeLight(tall, 360, 'webp', true)).data).metadata();
+    expect([meta.width, meta.height]).toEqual([360, 432]);
   });
 
   it('refuses a source that is not a JPEG or PNG', async () => {

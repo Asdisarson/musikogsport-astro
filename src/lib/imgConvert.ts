@@ -3,7 +3,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { LIGHT_WIDTHS } from './img';
+import { CROP_WIDTHS, LIGHT_WIDTHS, PHONE_CROP } from './img';
 import { log } from './logger';
 
 export type LightFormat = 'avif' | 'webp';
@@ -12,6 +12,8 @@ export interface LightRequest {
   format: LightFormat;
   /** The path under /wp-content/uploads/, e.g. 2026/04/a.jpg. */
   rel: string;
+  /** The phone crop (lib/img PHONE_CROP): the URL's width carries a trailing `c`. */
+  crop?: true;
 }
 
 const MAX_DEPTH = 6;
@@ -38,31 +40,45 @@ export class LightError extends Error {
 
 /** The request parts, validated; null for anything the endpoint does not serve. */
 export function parseLightRequest(width: string, format: string, rel: string): LightRequest | null {
-  if (!/^[1-9]\d*$/.test(width)) return null;
-  const w = Number(width);
-  if (!(LIGHT_WIDTHS as readonly number[]).includes(w)) return null;
+  const m = width.match(/^([1-9]\d*)(c?)$/);
+  if (!m) return null;
+  const w = Number(m[1]);
+  const crop = m[2] === 'c';
+  if (!((crop ? CROP_WIDTHS : LIGHT_WIDTHS) as readonly number[]).includes(w)) return null;
   if (format !== 'avif' && format !== 'webp') return null;
   if (!rel || rel.length > MAX_PATH || rel.startsWith('/') || /[\\%?#]|[\u0000-\u001f\u007f]/.test(rel)) return null;
   const parts = rel.split('/');
   if (parts.length > MAX_DEPTH) return null;
   for (const p of parts) if (!p || p === '.' || p === '..' || p.startsWith('.')) return null;
   if (!LIGHT_EXT.test(rel)) return null;
-  return { width: w, format, rel };
+  return crop ? { width: w, format, rel, crop: true } : { width: w, format, rel };
 }
 
-/** Where a conversion is kept: one folder per width and format, one file per path (hashed, so no name is unsafe). */
-export function cachePathFor(dir: string, width: number, format: LightFormat, rel: string): string {
+/** Where a conversion is kept: one folder per width (cropped or not) and format, one file per path (hashed, so no name is unsafe). */
+export function cachePathFor(dir: string, width: number, format: LightFormat, rel: string, crop = false): string {
   const name = createHash('sha256').update(rel).digest('hex').slice(0, 40);
-  return join(dir, `${width}-${format}`, `${name}.${format}`);
+  return join(dir, `${width}${crop ? 'c' : ''}-${format}`, `${name}.${format}`);
 }
 
-/** Re-encode a JPEG or PNG at `width` (never larger than the source). Throws for any other input. */
-export async function encodeLight(input: Buffer, width: number, format: LightFormat): Promise<{ data: Buffer; contentType: string }> {
+/** Re-encode a JPEG or PNG at `width` (never larger than the source), first cut to the phone crop when `crop`.
+ *  Throws for any other input. */
+export async function encodeLight(input: Buffer, width: number, format: LightFormat, crop = false): Promise<{ data: Buffer; contentType: string }> {
   // Loaded when first needed, as photoBgServer does: sharp is a native module the server should not load up front.
   const { default: sharp } = await import('sharp');
   const meta = await sharp(input, { limitInputPixels: 60_000_000 }).metadata();
   if (meta.format !== 'jpeg' && meta.format !== 'png') throw new LightError(404, 'not a jpeg or png');
-  const base = sharp(input, { limitInputPixels: 60_000_000 }).rotate().resize({ width, withoutEnlargement: true });
+  let upright = sharp(input, { limitInputPixels: 60_000_000 }).rotate();
+  if (crop) {
+    // the size as shown: EXIF orientations 5 to 8 lie on their side in the file
+    const turned = (meta.orientation ?? 1) >= 5;
+    const w = (turned ? meta.height : meta.width) ?? 0;
+    const h = (turned ? meta.width : meta.height) ?? 0;
+    if (!(w > 0 && h > 0)) throw new LightError(404, 'size unknown');
+    const cropW = Math.min(w, Math.round((h * PHONE_CROP.w) / PHONE_CROP.h));
+    const cropH = Math.min(h, Math.round((cropW * PHONE_CROP.h) / PHONE_CROP.w));
+    upright = upright.extract({ left: Math.floor((w - cropW) / 2), top: 0, width: cropW, height: cropH });
+  }
+  const base = upright.resize({ width, withoutEnlargement: true });
   if (format === 'avif') {
     return { data: await base.avif({ quality: 62, effort: 4 }).toBuffer(), contentType: 'image/avif' };
   }
@@ -149,10 +165,10 @@ export interface MakeDeps {
 
 /** Convert one request, keep the result on disk, and return it. Throws LightError (or a plain Error for the queue). */
 export async function makeLight(req: LightRequest, deps: MakeDeps): Promise<{ data: Buffer; contentType: string }> {
-  const file = cachePathFor(deps.dir, req.width, req.format, req.rel);
+  const file = cachePathFor(deps.dir, req.width, req.format, req.rel, req.crop);
   const work = async () => {
     const source = await fetchSource(deps.origin, req.rel, deps.fetchImpl ?? fetch);
-    const out = await encodeLight(source, req.width, req.format);
+    const out = await encodeLight(source, req.width, req.format, req.crop);
     await writeCached(file, out.data);
     return out;
   };

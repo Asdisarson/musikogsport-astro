@@ -1,5 +1,5 @@
 // /img/<width>/<avif|webp>/<version>/<uploads path>: a WordPress JPEG or PNG as AVIF or WebP at an allow-listed width (see
-// lib/img lightSources). Path only, no query string: a Cloudflare rule challenges query URLs for visitors outside
+// lib/img lightSources). A width followed by `c` is the phone crop of the photo (lib/img phoneCropSources). Path only, no query string: a Cloudflare rule challenges query URLs for visitors outside
 // Iceland. The result is kept on disk and served immutable; anything refused or failed answers with a short no-store
 // status, and the page's <img> falls back to the original (public/img-fallback.js).
 import type { APIRoute } from 'astro';
@@ -35,7 +35,7 @@ export const GET: APIRoute = async (ctx) => {
   if (!req) return refuse(404);
   const headers = { 'Content-Type': TYPE[req.format], 'Cache-Control': 'public, max-age=31536000, immutable' };
 
-  const kept = await readCached(cachePathFor(DIR, req.width, req.format, req.rel));
+  const kept = await readCached(cachePathFor(DIR, req.width, req.format, req.rel, req.crop));
   if (kept) return new Response(new Uint8Array(kept), { headers });
 
   if (!misses.take(visitorKey(ctx))) return refuse(429);

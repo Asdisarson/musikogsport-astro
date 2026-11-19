@@ -109,6 +109,35 @@ export function lightSources(input: { src?: string | null; srcset?: string | fal
   return { avif: build('avif'), webp: build('webp') };
 }
 
+/** The phone crop (src/pages/img, a width followed by `c`): the top of the photo, centred, at 5:6. The home hero on a
+ *  phone is a tall box that shows only the middle of its wide photo (global.css `.hero`: min(585px, 150vw) high, cover,
+ *  top centre), so the rest is never downloaded. 5:6 is that box at 480px wide, the widest screen that gets the crop;
+ *  a narrower screen cuts further in from the same crop. */
+export const PHONE_CROP = { w: 5, h: 6, maxScreen: 480 } as const;
+/** The widths a crop is served at. */
+export const CROP_WIDTHS = [360, 450, 720, 1080] as const;
+
+/** The crop's width for a photo of this height. */
+export const phoneCropWidth = (height: number): number => Math.round((height * PHONE_CROP.w) / PHONE_CROP.h);
+
+/** AVIF and WebP srcsets of the phone crop of one JPEG or PNG, with the `media` and `sizes` they are for; null when
+ *  the photo is not wider than the crop, too small, of unknown size, or not a media-library JPEG or PNG. Client-safe. */
+export function phoneCropSources(input: { src?: string | null; width?: number; height?: number }): { avif: string; webp: string; media: string; sizes: string } | null {
+  const { src, width = 0, height = 0 } = input;
+  const rel = src ? lightRel(src) : null;
+  if (rel === null || !(width > 0 && height > 0)) return null;
+  const full = phoneCropWidth(height);
+  if (width <= full || full < CROP_WIDTHS[0]) return null;
+  // every listed width the crop fills, then the crop at its own width (asked for by the next width up: never enlarged)
+  const pick: { ask: number; w: number }[] = CROP_WIDTHS.filter((w) => w <= full).map((w) => ({ ask: w, w }));
+  const up = CROP_WIDTHS.find((w) => w > full);
+  if (up !== undefined && !pick.some((p) => p.w === full)) pick.push({ ask: up, w: full });
+  const build = (format: 'avif' | 'webp') => pick.map((p) => `/img/${p.ask}c/${format}/${LIGHT_VERSION}/${rel} ${p.w}w`).join(', ');
+  // the width it is drawn at: the hero's height times 5:6
+  const drawn = (h: number) => (h * PHONE_CROP.w) / PHONE_CROP.h;
+  return { avif: build('avif'), webp: build('webp'), media: `(max-width: ${PHONE_CROP.maxScreen}px)`, sizes: `min(${Math.round(drawn(585))}px, ${Math.round(drawn(150))}vw)` };
+}
+
 interface HasImages {
   images?: WooImage[];
   name?: string;
