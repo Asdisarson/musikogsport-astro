@@ -47,9 +47,13 @@ proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
 | `MOS_SHELL` | runtime | Optional. `off` turns the rendered-page store off: every page is rendered on every request, as before. Default: on. |
 | `MOS_SHELL_DIR` | runtime | Optional. The folder the rendered pages are kept in. Default: `mos-shells` in the system temp directory, which a reboot can clear (the pages are then rendered again). Set a durable folder on the server. |
 | `MOS_SHELL_FRESH_MS` | runtime | Optional, milliseconds: overrides every stored page's lifetime. For tests and a quick check of the refresh path; leave unset in production. |
+| `MOS_SHELL_REBUILD_AT` | runtime | Optional, default `05:00`: the time of day (`HH:MM`, Atlantic/Reykjavik, which is UTC all year) at which every stored product page and listing is marked stale and walked again ("Nightly rebuild" below). `off` turns it off. A value that cannot be read gives 05:00 and a log line. |
+| `MOS_SHELL_REBUILD_BASE` | runtime | Optional, an `https://` (or `http://`, for a local run) origin: the one the nightly walk requests (only its origin is used). Default: `https://` plus the first host of `MOS_EXTRA_ALLOWED_HOSTS`, which must then also be in the run-time environment (set it here when it is not). Never the apex, which is behind the CDN cache. With neither, the nightly rebuild does nothing (the development server does nothing too). |
+| `MOS_SHELL_REBUILD_CONCURRENCY` | runtime | Optional, default `2`: how many pages the nightly walk renders at once, an integer `1` to `4`. Anything else gives `2` and a log line. Drops to `1` by itself while WordPress answers badly (see "Nightly rebuild"). |
+| `MOS_SHELL_REBUILD_PAUSE_MS` | runtime | Optional, default `100`: the base pause in milliseconds between renders, an integer `0` to `30000`. Anything else gives `100` and a log line. The pause doubles on each bad answer and halves back to this value. |
 | `MOS_IMG_CACHE_DIR` | runtime | Optional. The folder the converted `/img/` files (AVIF and WebP) are kept in. Default: `mos-img` in the system temp directory (a reboot clears it; the files are made again on the next request). |
 | `MOS_SHELL_BASE` | `npm run shells` only | Optional, default `http://127.0.0.1:10026`: the origin the pre-build script visits. The server does not read it. On the server, pass `--base` instead (see "Pre-building pages"). |
-| `MOS_SHELL_POKE_KEY` | runtime | Optional. A shared secret for `POST /api/shell-refresh`. Set the same value as the WordPress constant `MOS_SHELL_POKE_KEY` (in `wp-config.php`): WordPress then sends it as `X-Mos-Shell-Key`, and any other caller is refused (403) before it counts against a limit. Unset: the route stays open but bounded to a budget of path actions (see Rate limits). **Set it in production**: until it is set, any address can spend that budget. No secret is shared by WordPress and the storefront today (the only credential both hold is the WooCommerce key pair, which this route does not use), so generate a new one, for example `openssl rand -hex 32`, and put it in both places. Changing it needs a restart only. |
+| `MOS_SHELL_POKE_KEY` | runtime | Optional. A shared secret for `POST /api/shell-refresh` and for the admin endpoint `/api/shell-admin` (where, without it, every request is refused: 403). Set the same value as the WordPress constant `MOS_SHELL_POKE_KEY` (in `wp-config.php`): WordPress then sends it as `X-Mos-Shell-Key`, and any other caller is refused (403) before it counts against a limit. Unset: the route stays open but bounded to a budget of path actions (see Rate limits). **Set it in production**: until it is set, any address can spend that budget. No secret is shared by WordPress and the storefront today (the only credential both hold is the WooCommerce key pair, which this route does not use), so generate a new one, for example `openssl rand -hex 32`, and put it in both places. Changing it needs a restart only. |
 
 Run the built app with `node server.mjs` (graceful shutdown and headers on static files, see
 [Production hardening](#production-hardening)); `node dist/server/entry.mjs` still works for a quick local preview.
@@ -368,6 +372,56 @@ never kept: it is read live from `/api/live/` (`no-store`) and filled in the bro
 and corrected in the browser from the same live answer, so a changed price shows within about a tenth of a second
 of the page's arrival. Cart and checkout read WooCommerce live. A page rendered with content missing (a failed
 lookup, a product photo whose colour sampling timed out) is sent `no-store` and never held, neither by the CDN nor
+**Nightly rebuild.** Once a day, at `MOS_SHELL_REBUILD_AT` (05:00 by default), the storefront walks the product and category
+URLs of its own sitemap, marking each path stale just before it is requested (so only the pages the walk has reached are stale, and
+real visitors see the stored copy until then), by requesting their paths on `MOS_SHELL_REBUILD_BASE` (the storefront's own host;
+only the path of each sitemap URL is taken, and redirects are not followed). Two workers (`MOS_SHELL_REBUILD_CONCURRENCY`, default 2)
+take paths from one shared queue; each worker waits for its page's refresh to end before it takes the next, so at most two renders run at once.
+The pause between renders is `MOS_SHELL_REBUILD_PAUSE_MS` (100 ms by default) per worker.
+Fallback: a bad answer (5xx, a timeout, or a render over three seconds) drops the walk to one page at a time and doubles the pause
+(up to 30 s); a good answer halves it back. After 20 good answers in a row with the pause back at the base, the walk returns to its
+configured workers. Failures are counted across both workers, and five bad answers in a row stop the run, as before. The admin page
+shows the workers in use ("2 síður í einu", or "1 síða í einu (hægt á vegna svartíma)" while degraded).
+The run is logged: its start, a progress line every 500 pages, and an end line with
+the visited, hit, rendered, gone and failed counts, whether it stopped early, and its duration. A stamp file
+(`nightly-rebuild.json`, beside the stored pages under `MOS_SHELL_DIR`, which should be a durable folder) keeps the start and
+the end of the last run. A process that was down at 05:00 runs the walk when it is up again, if that is within three hours
+after 05:00 and today's run has not happened. The timer lives in the Node process, so a process that is not running at 05:00
+runs nothing until a request reaches it: keep the app process up (Passenger: a minimum of one instance, and no idle timeout)
+or the day's run is missed, which the log says ("the run due today was missed"). A run that started and never ended (the
+process stopped during it) is logged at the next start and is not resumed; it runs again at the next 05:00.
+The walk is set up only in production (`NODE_ENV` production build); `astro dev` never arms it. A run in progress is never joined by another.
+The expected duration is about 4,100 pages, two at a time, at about 1 s per round (render plus pause): about 35 minutes. This is an
+unmeasured estimate; the first real run's end line gives the true figure. It is longer when WordPress is slow, and the walk falls back to one
+page at a time while it is. Run it at the hour the shop is quietest and watch WordPress's response times for the first night after a change.
+
+**Admin endpoint and the "Síðugeymsla" page.** `GET /api/shell-admin` returns the store's and the nightly rebuild's status as
+JSON (`no-store`). `POST /api/shell-admin` takes `{"action": …}`:
+
+- `run`: starts the walk now (202). 409 with `error` `no-base` (no `MOS_SHELL_REBUILD_BASE` nor `MOS_EXTRA_ALLOWED_HOSTS`),
+  `store-off`, or `running` (never a second run). Works whether or not the nightly time is set.
+- `stop`: asks the walk to stop before its next page (202; the pause after the current page still runs first). 409 `not-running`.
+- `refresh` with `"path"`: marks one stored page stale, so the next visit renders it (200). The path must be a storefront
+  product or category path (`/vara/nafn/`, `/verslun/flokkur/nafn/`); anything else, a full URL included, is 400.
+- `clear`: drops every stored page of this build (200, `removed`). 409 while a run goes or the store is off.
+
+Without `MOS_SHELL_POKE_KEY` on the storefront every request answers 403, the GET and the POST alike. With it, WordPress sends the
+same value as `X-Mos-Shell-Key`. 120 keyed requests a minute per process (429 beyond); a body over 16 KB is refused (413).
+Disk counts are taken at most once a minute. The status fields: `store` (`on`, `build` (8 characters), `folder` (`durable` when
+`MOS_SHELL_DIR` is set, else `temp`; never the path), `pagesInMemory`, `pagesOnDisk`, `diskBytes`, `diskAt`, `fresh`),
+`scheduler` (`armed`, `why` (null when armed; else `store-off`, `off`, `no-base` or `waiting` for a first request),
+`at`, `hasBase`, `nextRunAt`, `lastStart`, `lastEnd`), `run` (`running`, `startedAt`, `total`, `visited`, `hits`, `rendered`,
+`gone`, `failures`, `pauseMs`, `lastPath`, `stopRequested`), `lastRun` (the last run of this process, or null: `startedAt`,
+`endedAt`, `durationMs`, the tally, `stoppedEarly`, `stoppedWhy`) and `failures` (the last 20 bad answers, newest first:
+`path`, `status`, `at`).
+
+The WordPress page "Síðugeymsla" (`wp-mu-plugins/mos-shell-admin.php`, a subpage of Stillingar, for those who may edit pages)
+reads that status with a 5 s timeout and sends the four actions through admin-post with nonces. It needs
+`MOS_SHELL_POKE_KEY` in `wp-config.php` (the same value as the storefront's) and `MOS_STOREFRONT_URL`. When the key is missing,
+the storefront does not answer, or it answers 403, the page explains what to set instead of the cards. The status is kept
+for 10 seconds in WordPress, and the page reloads itself every 15 seconds only while a run is going. Run now and clear need
+`manage_options` (administrators); stop and rebuild one page stay with editors.
+
 by the store.
 
 | Response | Cache-Control |
@@ -503,9 +557,9 @@ On the WordPress host, in this order. Each step has its check; stop at the first
 2. **Upload** to `wp-content/mu-plugins/`: `mos-posturinn-droppoints.php`, `headless-bridge.php`,
    `mos-headless-api.php`, `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`,
    `mos-size-index.php`, `mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`, `mos-instagram.php`,
-   `mos-newsletter.php`, `mos-search.php`, `mos-staff-flag.php` and `mos-shell-poke.php`. **Never
+   `mos-newsletter.php`, `mos-search.php`, `mos-staff-flag.php`, `mos-shell-poke.php` and `mos-shell-admin.php`. **Never
    `headless-bridge-local.php`** (the local-dev shim rewrites redirects to localhost).
-   Check: `wp plugin list --status=must-use` shows exactly those fifteen, and `ls wp-content/mu-plugins` has no
+   Check: `wp plugin list --status=must-use` shows exactly those sixteen, and `ls wp-content/mu-plugins` has no
    `-local` file. `mos-shell-poke.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), like
    `mos-headless-mode.php`; without it the storefront is not told when a product is saved, and its pages stay stale
    until their lifetime ends. `mos-headless-mode.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), so uploading

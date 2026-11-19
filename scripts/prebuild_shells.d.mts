@@ -23,3 +23,4 @@ export function isBad(r: ShellRender, slowMs: number): boolean;
 export function tally(r: ShellRender, slowMs: number): 'bad' | 'miss' | 'hit' | 'stale' | 'refused' | 'other' | null;
 export function nextPause(pause: number, bad: boolean, delayMs: number): number;
 export function storeProblem(r: ShellRender): string | null;
+export function sitemapPathsFrom(xml: string): string[];

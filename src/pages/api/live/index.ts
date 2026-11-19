@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getProductsByIds } from '../../../lib/woo';
+import { getProductsByIds, LIVE_PRODUCT_FIELDS } from '../../../lib/woo';
 import { jsonResponse, tooManyRequests } from '../../../lib/http';
 import { createLimiter } from '../../../lib/rateLimit';
 import { visitorKey } from '../../../lib/visitor';
@@ -22,7 +22,7 @@ export const GET: APIRoute = async (ctx) => {
   if (!ids) return jsonResponse({ message: 'Ógild auðkenni vara.' }, 400);
   if (!requests.take(visitorKey(ctx))) return tooManyRequests(WINDOW_MS / 1000);
   try {
-    const products = await coalesce(`list:${ids.join(',')}`, () => liveBudget.upstream(() => getProductsByIds(ids, ids.length)));
+    const products = await coalesce(`list:${ids.join(',')}`, () => liveBudget.upstream(() => getProductsByIds(ids, ids.length, LIVE_PRODUCT_FIELDS)));
     return jsonResponse({ products: products.map(liveProductOf) }, 200);
   } catch (err) {
     if (err instanceof LiveBudgetSpent) return budgetSpentResponse();

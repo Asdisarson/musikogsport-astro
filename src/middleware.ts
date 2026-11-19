@@ -11,6 +11,7 @@ import { NOTICE_PATH, PREVIEW_COOKIE, PREVIEW_PARAM, maintenanceDecision, mainte
 import { canStore, filterValuesKnown, freshFor, normalPath, refreshBackoffMs, replayHeaderNames, shellPolicy, shellKey, type ShellPolicy } from './lib/shellPolicy';
 import { loadCatalogTerms } from './lib/catalogTerms';
 import { shellBuildId, shellFreshOverride, getShell } from './lib/shellRuntime';
+import { armNightlyRebuild } from './lib/nightlyRebuildRuntime';
 import { isIncomplete, shellTierOf } from './lib/shellIncomplete';
 import type { ShellStore } from './lib/shellStore';
 
@@ -158,7 +159,11 @@ async function serveShell(ctx: APIContext, next: () => Promise<Response>, path: 
     const found = plan ? await plan.store.get(plan.key) : null;
     if (plan && found && found.entry.status === 200) {
       const res = new Response(method === 'HEAD' ? null : found.entry.body, { status: 200, headers: found.entry.headers });
-      if (found.state === 'stale') refreshInBackground(ctx, next, plan, path);
+      if (found.state === 'stale') {
+        refreshInBackground(ctx, next, plan, path);
+        // Whether a render is running now: the nightly walk waits on it (src/lib/nightlyRebuild.ts), and reads idle as done.
+        res.headers.set('X-Mos-Refresh', refreshing.has(plan.key) ? 'running' : 'idle');
+      }
       return { res, state: found.state === 'fresh' ? 'hit' : 'stale' };
     }
   } catch (err) {
@@ -192,6 +197,8 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
   // Prerendered pages run through here at build time only; their headers come from server.mjs.
   if (ctx.isPrerendered) return next();
   if (import.meta.env.PROD) installProcessHandlers(); // not under `astro dev`: Vite has its own
+  // The 05:00 walk of the shell store, once per process. Production only: a dev server must never walk the live host.
+  if (import.meta.env.PROD) armNightlyRebuild();
 
   const started = performance.now();
   const method = ctx.request.method;

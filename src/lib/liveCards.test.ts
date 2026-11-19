@@ -9,9 +9,11 @@ import type { LiveProduct } from './livePrices';
 const live = (over: Partial<LiveProduct> = {}): LiveProduct => ({
   id: 1,
   type: 'simple',
+  max: null,
   priceHtml: '<span class="amount">1.000 kr.</span>',
   percent: null,
   stock: 'instock',
+  soldOne: false,
   ...over,
 });
 const BAKED = '<span class="amount">1.000 kr.</span>';
@@ -25,9 +27,9 @@ describe('pendingIds', () => {
 describe('parseLiveAnswer', () => {
   it('maps a valid answer by id', () => {
     const m = parseLiveAnswer({
-      products: [{ id: 7, type: 'simple', priceHtml: '<span>x</span>', percent: 20, stock: 'onbackorder' }],
+      products: [{ id: 7, type: 'simple', priceHtml: '<span>x</span>', percent: 20, stock: 'onbackorder', max: 2 }],
     });
-    expect(m.get(7)).toEqual({ id: 7, type: 'simple', priceHtml: '<span>x</span>', percent: 20, stock: 'onbackorder' });
+    expect(m.get(7)).toEqual({ id: 7, type: 'simple', priceHtml: '<span>x</span>', percent: 20, stock: 'onbackorder', max: 2, soldOne: false });
   });
   it('skips malformed rows and returns an empty map for anything else', () => {
     expect(parseLiveAnswer(null).size).toBe(0);

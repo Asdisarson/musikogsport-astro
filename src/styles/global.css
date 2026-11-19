@@ -1006,6 +1006,8 @@
   .pdp-atc:disabled:not([aria-busy='true']) { background: var(--surface); color: var(--disabled-text); }
   .pdp-atc[aria-busy='true'] { opacity: 0.6; }
   .pdp-hint { margin: 8px 0 0; font-size: 16px; line-height: 24px; color: var(--text); text-align: center; }
+  .pdp-qty-note { margin: 8px 0 0; font-size: 15px; line-height: 22px; color: var(--text); }
+  .pdp-qty button[aria-disabled='true'] { opacity: 0.35; cursor: not-allowed; }
   /* phones: a bottom bar with the name, the choice and "Setja í körfu", sliding up once a variation is picked
      while the form's own button is out of sight, closable with × until another is picked (ProductPurchase); above the store notice when that shows; the back-to-top button moves over it */
   .pdp-bar { display: none; }
@@ -1217,6 +1219,8 @@
   .side-cart__item { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; padding: 20px 0; border-bottom: 1px solid var(--rule); }
   .side-cart__item:first-child { padding-top: 4px; }
   .side-cart__thumb { display: block; width: 96px; aspect-ratio: 1; background: var(--surface); }
+  .line-qty button[aria-disabled='true'] { color: var(--disabled-text); cursor: not-allowed; }
+  .line-qty button[aria-disabled='true']:hover { background: none; }
   .side-cart__thumb img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   .side-cart__details { position: relative; min-width: 0; padding-right: 40px; }
   .side-cart__name { display: block; font-size: 16px; font-weight: 500; line-height: 24px; color: var(--ink); }

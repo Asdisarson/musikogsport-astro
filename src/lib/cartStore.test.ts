@@ -190,3 +190,44 @@ describe('refresh on return (CO-05)', () => {
     expect(f).not.toHaveBeenCalled();
   });
 });
+
+describe('a cart line stops at its own maximum (WooCommerce quantity_limits)', () => {
+  const capped = (qty: number, max: number): Cart => ({
+    ...cartWith(qty),
+    items: [{ key: 'line1', id: 5, quantity: qty, quantity_limits: { minimum: 1, maximum: max, multiple_of: 1, editable: true } } as never],
+  });
+
+  it('a + at the maximum sends no call', async () => {
+    const fetchMock = vi.fn(async () => json(200, capped(10, 10)));
+    vi.stubGlobal('fetch', fetchMock);
+    const s = await freshStore();
+    s.cart.set(capped(10, 10));
+    await s.stepQty('line1', 1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a + below the maximum asks for +1 only, the maximum is never sent above', async () => {
+    const sent: number[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_p: string, init: RequestInit) => {
+      const q = JSON.parse(String(init.body)).quantity;
+      sent.push(q);
+      return json(200, capped(q, 10));
+    }));
+    const s = await freshStore();
+    s.cart.set(capped(9, 10));
+    await Promise.all([s.stepQty('line1', 1), s.stepQty('line1', 1), s.stepQty('line1', 1)]);
+    expect(sent).toEqual([10]);
+  });
+
+  it('without quantity_limits the line behaves as before (up to 99)', async () => {
+    const sent: number[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_p: string, init: RequestInit) => {
+      sent.push(JSON.parse(String(init.body)).quantity);
+      return json(200, cartWith(sent.at(-1)!));
+    }));
+    const s = await freshStore();
+    s.cart.set(cartWith(10));
+    await s.stepQty('line1', 1);
+    expect(sent).toEqual([11]);
+  });
+});

@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getProductsByIds, getVariationStock } from '../../../../lib/woo';
+import { getProductsByIds, getVariationStock, LIVE_PRODUCT_FIELDS } from '../../../../lib/woo';
 import { jsonResponse, tooManyRequests } from '../../../../lib/http';
 import { createLimiter } from '../../../../lib/rateLimit';
 import { visitorKey } from '../../../../lib/visitor';
@@ -23,9 +23,9 @@ export const GET: APIRoute = async (ctx) => {
   if (!requests.take(visitorKey(ctx))) return tooManyRequests(WINDOW_MS / 1000);
   try {
     const answer = await coalesce(`product:${id}`, async () => {
-      const [product] = await liveBudget.upstream(() => getProductsByIds([id], 1));
+      const [product] = await liveBudget.upstream(() => getProductsByIds([id], 1, LIVE_PRODUCT_FIELDS));
       if (!product) return null;
-      const variations = product.type === 'variable' ? (await liveBudget.upstream(() => getVariationStock(id))).map(liveVariationOf) : [];
+      const variations = product.type === 'variable' ? (await liveBudget.upstream(() => getVariationStock(id))).map((v) => liveVariationOf(v, product)) : [];
       return { product: liveProductOf(product), variations };
     });
     if (!answer) return jsonResponse({ message: 'Vara fannst ekki.' }, 404);

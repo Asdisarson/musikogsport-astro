@@ -51,6 +51,9 @@ export interface WooProduct {
   stock_status: StockStatus;
   stock_quantity?: number | null;
   manage_stock?: boolean;
+  backorders?: string;
+  backorders_allowed?: boolean;
+  sold_individually?: boolean;
   purchasable?: boolean;
   images: WooImage[];
   categories: WooCategoryRef[];
@@ -83,6 +86,11 @@ export interface WooVariation {
   on_sale: boolean;
   stock_status: StockStatus;
   stock_quantity?: number | null;
+  /** true, false, or 'parent' (the variable product's setting decides). */
+  manage_stock?: boolean | 'parent';
+  backorders?: string;
+  backorders_allowed?: boolean;
+  sold_individually?: boolean;
   image?: WooImage | null;
   purchasable?: boolean;
   sku?: string;
@@ -133,6 +141,8 @@ export interface CartItem {
   permalink?: string;
   images: WooImage[];
   variation: { attribute: string; value: string }[];
+  /** WooCommerce's limits for this line (Store API quantity_limits); absent on answers that predate it. */
+  quantity_limits?: { minimum: number; maximum: number; multiple_of: number; editable: boolean };
   prices: CartItemPrices;
   totals: StoreCurrency & {
     line_total: string;
@@ -277,6 +287,10 @@ export interface PdpVariation {
   on_sale: boolean;
   /** Never set on the page: stock is not baked in. It comes from /api/live/product (lib/liveStore). */
   stock_status?: string;
+  /** Never set on the page either: the most one customer may buy (lib/livePrices purchasableMax). From the live answer only. */
+  max?: number | null;
+  /** From the live answer only: sold individually (one per cart), which is not a stock shortage. */
+  soldOne?: boolean;
   sku?: string;
   image?: { src: string; alt: string } | null;
 }

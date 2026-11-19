@@ -318,4 +318,25 @@ describe('shellStore: a render in flight counts as known to the unkeyed poke (ad
     end();
     expect(await s.knowsPath('/vara/y/')).toBe(false);
   });
+
+  it('counts the pages in memory and on disk (this build only, no marks file), and clears them all', async () => {
+    const s = createShellStore({ dir, build: 'b1', now: () => NOW });
+    await s.put(base());
+    await s.put(base({ key: 'b1|/vara/y/', path: '/vara/y/', body: '<html>yy</html>' }));
+    await s.invalidate(['/vara/y/']);
+    await s.flush();
+    expect(s.memoryCount()).toBe(2);
+    const disk = await s.diskStats();
+    expect(disk.files).toBe(2);
+    expect(disk.bytes).toBeGreaterThan(0);
+    const other = createShellStore({ dir, build: 'b2', now: () => NOW });
+    expect((await other.diskStats()).files).toBe(0);
+
+    expect(await s.clear()).toBe(2);
+    expect(s.memoryCount()).toBe(0);
+    expect(await s.diskStats()).toEqual({ files: 0, bytes: 0 });
+    expect(await s.get('b1|/vara/x/', NOW)).toBeNull();
+    const names = await readdir(join(dir, 'b1'));
+    expect(names).toContain('invalidated.json');
+  });
 });

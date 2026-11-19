@@ -94,6 +94,11 @@ export function shellFreshOverride(): number | null {
   return runtimeEnv('MOS_SHELL_FRESH_MS') && Number.isFinite(n) && n >= 0 ? n : null;
 }
 
+/** The folder the pages are kept in (MOS_SHELL_DIR, default: the system temp directory's mos-shells). */
+export function shellDir(): string {
+  return runtimeEnv('MOS_SHELL_DIR') || join(tmpdir(), 'mos-shells');
+}
+
 let storePromise: Promise<ShellStore> | null = null;
 
 /** The store, initialised once (old builds removed); null when the store is switched off. Never throws. */
@@ -101,7 +106,7 @@ export async function getShell(): Promise<ShellStore | null> {
   if (!shellEnabled()) return null;
   storePromise ??= (async () => {
     const store = createShellStore({
-      dir: runtimeEnv('MOS_SHELL_DIR') || join(tmpdir(), 'mos-shells'),
+      dir: shellDir(),
       build: shellBuildId(),
       pruneOtherBuilds: true,
     });

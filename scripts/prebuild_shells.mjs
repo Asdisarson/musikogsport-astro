@@ -118,10 +118,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (msg) => console.log(`${new Date().toISOString().slice(11, 19)} ${msg}`);
 let cfg = null;
 
-async function sitemapPaths() {
-  const res = await fetch(new URL('/sitemap.xml', cfg.base), { signal: AbortSignal.timeout(cfg.timeoutMs) });
-  if (!res.ok) throw new Error(`sitemap answered ${res.status}`);
-  const xml = await res.text();
+/** Pure: the product and category paths in a sitemap's XML, each once, in order (no pagination pages). The nightly
+ *  rebuild (src/lib/nightlyRebuild.ts) walks the same list. */
+export function sitemapPathsFrom(xml) {
   const seen = new Set();
   for (const m of xml.matchAll(/<loc>([^<]+)<\/loc>/g)) {
     let path;
@@ -133,6 +132,12 @@ async function sitemapPaths() {
     if (PREFIXES.some((p) => path.startsWith(p)) && !/\/page\/\d+\/?$/.test(path) && path.endsWith('/')) seen.add(path);
   }
   return [...seen];
+}
+
+async function sitemapPaths() {
+  const res = await fetch(new URL('/sitemap.xml', cfg.base), { signal: AbortSignal.timeout(cfg.timeoutMs) });
+  if (!res.ok) throw new Error(`sitemap answered ${res.status}`);
+  return sitemapPathsFrom(await res.text());
 }
 
 async function render(path) {

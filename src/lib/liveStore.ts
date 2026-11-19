@@ -33,18 +33,28 @@ export function snapshotFor(productId: number, answer: LiveAnswer | null): LiveS
 
 /** A variation with the live price and stock laid over its baked data. Without a live entry (pending, failed, or a
  *  variation the answer does not name) the baked price stays and stock stays unknown (undefined), so nothing is guessed. */
-export function withLive<T extends { id: number; price: string; regular_price: string; sale_price: string; on_sale: boolean; stock_status?: string }>(
+export function withLive<T extends { id: number; price: string; regular_price: string; sale_price: string; on_sale: boolean; stock_status?: string; max?: number | null; soldOne?: boolean }>(
   v: T,
   live: Record<number, LiveVariation> | undefined,
 ): T {
   const l = live?.[v.id];
-  if (!l) return { ...v, stock_status: undefined };
-  return { ...v, price: l.price, regular_price: l.regular_price, sale_price: l.sale_price, on_sale: l.on_sale, stock_status: l.stock ?? undefined };
+  if (!l) return { ...v, stock_status: undefined, max: undefined, soldOne: undefined };
+  return { ...v, price: l.price, regular_price: l.regular_price, sale_price: l.sale_price, on_sale: l.on_sale, stock_status: l.stock ?? undefined, max: l.max, soldOne: l.soldOne };
 }
 
 /** The stock of the product itself, once known (null while pending or failed). */
 export function productStock(s: LiveSnapshot): LiveStock | undefined {
   return s.state === 'ready' ? s.product?.stock ?? null : undefined;
+}
+
+/** The most the product itself may be bought at once: a number or null (no cap), undefined while unknown (no cap shown). */
+export function productMax(s: LiveSnapshot): number | null | undefined {
+  return s.state === 'ready' ? s.product?.max ?? null : undefined;
+}
+
+/** Whether the product itself is sold individually, once known (undefined while pending or failed). */
+export function productSoldOne(s: LiveSnapshot): boolean | undefined {
+  return s.state === 'ready' ? s.product?.soldOne === true : undefined;
 }
 
 let inFlight: AbortController | null = null;

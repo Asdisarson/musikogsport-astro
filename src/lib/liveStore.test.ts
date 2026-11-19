@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { productStock, snapshotFor, withLive } from './liveStore';
+import { productMax, productSoldOne, productStock, snapshotFor, withLive } from './liveStore';
 
 const answer = {
-  product: { id: 5, type: 'variable', priceHtml: '<span>1</span>', percent: null, stock: 'instock' as const },
+  product: { id: 5, type: 'variable', priceHtml: '<span>1</span>', percent: null, stock: 'instock' as const, max: 7, soldOne: false },
   variations: [
-    { id: 11, price: '4500', regular_price: '9990', sale_price: '4500', on_sale: true, stock: 'onbackorder' as const },
-    { id: 12, price: '9990', regular_price: '9990', sale_price: '', on_sale: false, stock: null },
+    { id: 11, price: '4500', regular_price: '9990', sale_price: '4500', on_sale: true, stock: 'onbackorder' as const, max: null, soldOne: false },
+    { id: 12, price: '9990', regular_price: '9990', sale_price: '', on_sale: false, stock: null, max: 3, soldOne: false },
   ],
 };
 
@@ -23,11 +23,17 @@ describe('snapshotFor', () => {
 });
 
 describe('withLive', () => {
-  const baked = { id: 11, price: '9990', regular_price: '9990', sale_price: '', on_sale: false, stock_status: 'instock' };
+  const baked = { id: 11, price: '9990', regular_price: '9990', sale_price: '', on_sale: false, stock_status: 'instock', max: null as number | null | undefined };
 
   it('lays the live price and stock over the baked variation', () => {
     const s = snapshotFor(5, answer);
     expect(withLive(baked, s.variations)).toMatchObject({ price: '4500', sale_price: '4500', on_sale: true, stock_status: 'onbackorder' });
+  });
+
+  it('lays the live cap over the baked variation, and drops it while pending', () => {
+    const s = snapshotFor(5, answer);
+    expect(withLive({ ...baked, id: 12 }, s.variations).max).toBe(3);
+    expect(withLive(baked, undefined).max).toBeUndefined();
   });
 
   it('drops baked stock while pending: unknown, not instock', () => {
@@ -45,5 +51,28 @@ describe('productStock', () => {
     expect(productStock({ state: 'pending', productId: 5 })).toBeUndefined();
     expect(productStock(snapshotFor(5, null))).toBeUndefined();
     expect(productStock(snapshotFor(5, answer))).toBe('instock');
+  });
+});
+
+describe('productMax', () => {
+  it('is the live cap once ready, null for no cap, undefined while pending or failed', () => {
+    expect(productMax(snapshotFor(5, answer))).toBe(7);
+    expect(productMax(snapshotFor(5, { ...answer, product: { ...answer.product, max: undefined } } as unknown as typeof answer))).toBeNull();
+    expect(productMax({ state: 'pending', productId: 5 })).toBeUndefined();
+    expect(productMax(snapshotFor(5, null))).toBeUndefined();
+  });
+});
+
+describe('sold individually through the live snapshot', () => {
+  it('withLive carries the flag over a variation, and drops it while pending', () => {
+    const s = snapshotFor(5, { ...answer, variations: [{ ...answer.variations[1], soldOne: true }] } as unknown as typeof answer);
+    const bare: { id: number; price: string; regular_price: string; sale_price: string; on_sale: boolean; soldOne?: boolean } = { id: 12, price: '1', regular_price: '1', sale_price: '', on_sale: false };
+    expect(withLive(bare, s.variations).soldOne).toBe(true);
+    expect(withLive(bare, undefined).soldOne).toBeUndefined();
+  });
+  it('productSoldOne reads the product flag once ready', () => {
+    const s = snapshotFor(5, { ...answer, product: { ...answer.product, soldOne: true } } as unknown as typeof answer);
+    expect(productSoldOne(s)).toBe(true);
+    expect(productSoldOne({ state: 'pending', productId: 5 })).toBeUndefined();
   });
 });

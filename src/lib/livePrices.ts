@@ -19,6 +19,10 @@ export interface LiveProduct {
   percent: number | null;
   /** WooCommerce stock status, or null when the product is not in the answer. */
   stock: LiveStock;
+  /** Most the customer may buy at once (purchasableMax): a number, or null for no cap. */
+  max: number | null;
+  /** Sold individually: one per cart, whatever the stock (soldIndividually). Not a stock shortage. */
+  soldOne: boolean;
 }
 
 export interface LiveVariation {
@@ -28,6 +32,10 @@ export interface LiveVariation {
   sale_price: string;
   on_sale: boolean;
   stock: LiveStock;
+  /** Most the customer may buy at once (purchasableMax), or null for no cap. */
+  max: number | null;
+  /** Sold individually: one per cart, whatever the stock (soldIndividually). */
+  soldOne: boolean;
 }
 
 /** The ids of a `?ids=1,2,3` query, or null when any token is not a positive integer or the list is empty or too long. */
@@ -89,6 +97,41 @@ function stockOf(v: { stock_status?: string }): LiveStock {
   return STOCKS.includes(v.stock_status as StockStatus) ? (v.stock_status as StockStatus) : null;
 }
 
+/** The WooCommerce stock fields the purchasable maximum reads (REST: manage_stock, stock_quantity, backorders,
+ *  backorders_allowed, sold_individually). A variation may say manage_stock 'parent': then its parent's decide. */
+export interface StockRules {
+  manage_stock?: boolean | 'parent';
+  stock_quantity?: number | null;
+  backorders?: string;
+  backorders_allowed?: boolean;
+  sold_individually?: boolean;
+}
+
+/** The most one customer may put in the cart, or null when there is no cap (not managed, backorders allowed, or a
+ *  field missing: nothing is guessed). Managed with a quantity and no backorders: the quantity, floored, never below 0.
+ *  Sold individually caps it at 1. `parent` is the variable product: its stock is read when the variation says 'parent', its sold-individually flag always. */
+export function purchasableMax(v: StockRules, parent?: StockRules): number | null {
+  const src = v.manage_stock === 'parent' ? parent : v;
+  let max: number | null = null;
+  if (src && src.manage_stock === true && typeof src.stock_quantity === 'number' && Number.isFinite(src.stock_quantity)) {
+    const allowed = src.backorders_allowed === true || src.backorders === 'yes' || src.backorders === 'notify';
+    if (!allowed) max = Math.max(0, Math.floor(src.stock_quantity));
+  }
+  if (soldIndividually(v, parent)) max = max === null ? 1 : Math.min(max, 1);
+  return max;
+}
+
+/** Sold individually (one per cart). A variation does not carry the flag itself: the variable product's counts for every variation. */
+export function soldIndividually(v: StockRules, parent?: StockRules): boolean {
+  const src = v.manage_stock === 'parent' ? parent : v;
+  return v.sold_individually === true || src?.sold_individually === true || parent?.sold_individually === true;
+}
+
+/** The counter's value held under the cap: no cap leaves it as it is; a cap of 0 still shows 1 (the button is off). */
+export function clampQty(qty: number, max: number | null): number {
+  return max === null ? qty : Math.min(qty, Math.max(1, max));
+}
+
 /** One product as the live answer carries it. */
 export function liveProductOf(p: WooProduct): LiveProduct {
   return {
@@ -97,11 +140,13 @@ export function liveProductOf(p: WooProduct): LiveProduct {
     priceHtml: sanitizeHtml(p.price_html),
     percent: salePercent(p.price_html),
     stock: stockOf(p),
+    max: purchasableMax(p),
+    soldOne: soldIndividually(p),
   };
 }
 
-/** One variation's price and stock, straight from WooCommerce. */
-export function liveVariationOf(v: WooVariation): LiveVariation {
+/** One variation's price, stock and cap, straight from WooCommerce. `parent` is the variable product (for 'parent'). */
+export function liveVariationOf(v: WooVariation, parent?: WooProduct): LiveVariation {
   return {
     id: v.id,
     price: v.price,
@@ -109,5 +154,7 @@ export function liveVariationOf(v: WooVariation): LiveVariation {
     sale_price: v.sale_price,
     on_sale: Boolean(v.on_sale),
     stock: stockOf(v),
+    max: purchasableMax(v, parent),
+    soldOne: soldIndividually(v, parent),
   };
 }

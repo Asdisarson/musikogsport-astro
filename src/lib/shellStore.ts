@@ -63,6 +63,12 @@ export interface ShellStore {
   flush(): Promise<void>;
   /** How many paths are marked stale (tests and the poke's log line). */
   markCount(): number;
+  /** Pages held in memory (not the filtered ones). */
+  memoryCount(): number;
+  /** Stored pages of this build on disk, and their bytes (a directory walk: callers cache it). */
+  diskStats(): Promise<{ files: number; bytes: number }>;
+  /** Drops every stored page of this build, in memory and on disk; returns how many files were removed. */
+  clear(): Promise<number>;
 }
 
 const PAGE_LIMIT = 120; // a product page is about 0.5 MB: 120 of them is about 60 MB at most
@@ -373,6 +379,54 @@ export function createShellStore(opts: ShellStoreOptions): ShellStore {
 
     markCount() {
       return Object.keys(marks).length;
+    },
+
+    memoryCount() {
+      return pages.size;
+    },
+
+    async diskStats() {
+      let files = 0;
+      let bytes = 0;
+      try {
+        for (const n of await readdir(buildDir)) {
+          if (!n.endsWith('.json') || n === 'invalidated.json') continue;
+          const at = await stat(join(buildDir, n)).catch(() => null);
+          if (at) {
+            files += 1;
+            bytes += at.size;
+          }
+        }
+      } catch {
+        // no folder yet: nothing is stored
+      }
+      return { files, bytes };
+    },
+
+    async clear() {
+      // Writes already queued finish first, so none of them lands after the removal below.
+      await store.flush();
+      pages.clear();
+      filtered.clear();
+      filteredBytes = 0;
+      pending.clear();
+      let removed = 0;
+      let names: string[] = [];
+      try {
+        names = await readdir(buildDir);
+      } catch {
+        return 0;
+      }
+      for (const n of names) {
+        if (!n.endsWith('.json') || n === 'invalidated.json') continue;
+        try {
+          await rm(join(buildDir, n), { force: true });
+          removed += 1;
+        } catch (err) {
+          log.warn('[shell] page not removed', { err });
+        }
+      }
+      return removed;
     },
 
     async prune() {

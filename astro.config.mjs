@@ -49,6 +49,9 @@ export default defineConfig({
     port: 4321,
   },
   vite: {
+    // The extra hosts as given to the build, for the nightly rebuild's own address (lib/nightlyRebuildRuntime): the
+    // run-time environment does not carry them.
+    define: { 'import.meta.env.MOS_BUILD_EXTRA_HOSTS': JSON.stringify(buildEnv('MOS_EXTRA_ALLOWED_HOSTS') ?? '') },
     server: {
       // Local's router proxies astro-ms.local (formerly musikogsport.local) → the dev server; Vite
       // rejects proxied Host headers unless they're allowlisted.

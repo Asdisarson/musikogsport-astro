@@ -62,6 +62,8 @@ export function parseLiveAnswer(body: unknown): Map<number, LiveProduct> {
       priceHtml: r.priceHtml,
       percent: typeof r.percent === 'number' ? r.percent : null,
       stock: stockOf(r.stock),
+      max: typeof r.max === 'number' ? r.max : null,
+      soldOne: r.soldOne === true,
     });
   }
   return out;

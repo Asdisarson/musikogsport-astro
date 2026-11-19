@@ -9,6 +9,7 @@ import { jsonResponse, tooManyRequests } from './http';
 import { createLimiter } from './rateLimit';
 import { STORE_API_TIMEOUT_MS, storeBudgetLeft } from './timeouts';
 import { visitorKey } from './visitor';
+import { cartErrorText } from './cartErrors';
 
 const COOKIE = 'wc_cart_token';
 
@@ -110,12 +111,18 @@ export async function readCart(ctx: APIContext): Promise<Response> {
 
 /** Persist any rotated token and return the Store API result as a JSON Response. */
 export function respondCart(ctx: APIContext, result: StoreResult<unknown>): Response {
+  let data = result.data;
   if (!result.ok) {
     const detail = typeof result.data === 'object' ? JSON.stringify(result.data).slice(0, 300) : String(result.data);
     console.warn(`[store-api] ${result.status}: ${detail}`);
+    // stock and quantity refusals reach the shopper in Icelandic (lib/cartErrors); the Store API code stays
+    if (data && typeof data === 'object') {
+      const d = data as { code?: unknown; message?: unknown };
+      data = { ...d, message: cartErrorText(d.code, typeof d.message === 'string' ? d.message : '') };
+    }
   }
   writeToken(ctx, result.cartToken);
-  return new Response(JSON.stringify(result.data), {
+  return new Response(JSON.stringify(data), {
     status: result.status,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });

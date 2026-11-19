@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useStore } from '@nanostores/react';
-import { addToCart, openCart } from '../lib/cartStore';
-import { buyable, stockLabel } from '../lib/livePrices';
-import { liveStore, productStock, retryLive, startLive, withLive } from '../lib/liveStore';
+import { addToCart, cart, ensureLoaded, openCart } from '../lib/cartStore';
+import { inCartQty, purchaseNote, stillAddable } from '../lib/cartQty';
+import { buyable, clampQty, stockLabel } from '../lib/livePrices';
+import { liveStore, productMax, productSoldOne, productStock, retryLive, startLive, withLive } from '../lib/liveStore';
 import { formatISK } from '../lib/format';
 import { gridStep } from '../lib/gridNav';
 import { mainSources } from '../lib/img';
@@ -87,6 +88,9 @@ function StockLine({ state, stock, hasChoice }: { state: 'pending' | 'ready' | '
   );
 }
 
+/** At or under this many left, the quiet line says how many are on stock. */
+const LOW_STOCK = 5;
+
 const Minus = () => (
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12h14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
 );
@@ -116,9 +120,14 @@ export default function ProductPurchase({
   const liveVars = useMemo(() => variations.map((v) => withLive(v, live.state === 'ready' ? live.variations : undefined)), [variations, live]);
   // The product's own stock: undefined while pending, null once failed (no guess either way).
   const simpleStock = productStock(live);
+  const simpleMax = productMax(live);
+  const simpleSoldOne = productSoldOne(live);
   const [selected, setSelected] = useState<Record<string, string>>({});
   // The field's raw text, so clearing it to type a new number works; read through qtyFromInput.
   const [qtyText, setQtyText] = useState('1');
+  // The cart's own lines: what is already in it counts against the live cap (a rise or fall updates this page).
+  const cartNow = useStore(cart);
+  useEffect(() => ensureLoaded(), []);
   const qty = qtyFromInput(qtyText);
   const [adding, setAdding] = useState(false);
   const [justAdded, setJustAdded] = useState(false);
@@ -208,9 +217,27 @@ export default function ProductPurchase({
   // The stock this selection shows: a variation's, or the product's. undefined = not known yet (pending or failed).
   const stock = isVariable ? resolved?.stock_status : simpleStock;
   const known = stock !== undefined && stock !== null;
+  // The most this selection may take (the live cap). null: no cap, while pending, failed, or not managed. Stock is never
+  // kept from an earlier answer, so a pending refetch leaves no cap rather than a stale one (WooCommerce checks on add).
+  const liveCap = isVariable ? resolved?.max : simpleMax;
+  const cap = liveCap ?? null;
+  const soldOne = (isVariable ? resolved?.soldOne : simpleSoldOne) === true;
+  // What this selection already has in the cart: a variable product counts only the chosen variation (its own id).
+  const inCart = isVariable ? (resolved ? inCartQty(cartNow?.items ?? [], resolved.id) : 0) : inCartQty(cartNow?.items ?? [], productId);
+  const remaining = stillAddable(cap, inCart);
+  // Nothing more can be added: the counter shows 1 and the button is off.
+  const none = remaining === 0;
+  const limit = remaining === null ? null : Math.max(1, remaining);
+  const addQty = limit === null ? qty : Math.min(qty, limit);
+  const atMax = limit !== null && qty >= limit;
+  const note = purchaseNote({ cap, inCart, remaining, soldOne, atMax }, LOW_STOCK);
+  // The cap moved under the counter (another variation, or the answer came in): hold the value under it.
+  useEffect(() => {
+    if (limit !== null && qty > limit) setQtyText(String(limit));
+  }, [limit, qty]);
   // Pending stays pressable: WooCommerce checks stock when the item is added. Only a known sold-out choice is blocked.
   const pending = live.state === 'pending' && (!isVariable || !!resolved);
-  const canAdd = !adding && !(known && !buyable(stock as 'instock'));
+  const canAdd = !adding && !none && !(known && !buyable(stock as 'instock'));
   // Guidance under the button until every attribute is chosen ("Veldu stærð"); the button stays pressable then and
   // points at the missing choice instead of doing nothing.
   // Only when the missing attribute has an option left to pick: a hint over all-crossed-out swatches can't be acted on.
@@ -243,8 +270,8 @@ export default function ProductPurchase({
       // By variation id: an "any size" variation can't be found again from the attributes alone (Woo may
       // pick a sold-out exact one). Its wildcard attributes still need the chosen values.
       const variation = isVariable && resolved ? attrNames.map((n) => ({ attribute: n, value: selected[n] })) : undefined;
-      setQtyText(String(qty));
-      await addToCart(isVariable && resolved ? resolved.id : productId, qty, variation);
+      setQtyText(String(addQty));
+      await addToCart(isVariable && resolved ? resolved.id : productId, addQty, variation);
       setJustAdded(true);
       openCart();
     } catch (e) {
@@ -343,12 +370,22 @@ export default function ProductPurchase({
             type="number"
             inputMode="numeric"
             min={1}
+            max={limit ?? undefined}
             value={qtyText}
-            onChange={(e) => setQtyText(e.target.value)}
-            onBlur={() => setQtyText(String(qty))}
+            onChange={(e) => {
+              // typed above the cap: held at the cap
+              const typed = qtyFromInput(e.target.value);
+              setQtyText(limit !== null && typed > limit ? String(limit) : e.target.value);
+            }}
+            onBlur={() => setQtyText(String(clampQty(qty, cap)))}
             aria-label="Fjöldi"
           />
-          <button type="button" onClick={() => setQtyText(String(qtyFromInput(String(qty + 1))))} aria-label="Fjölga">
+          <button
+            type="button"
+            onClick={() => { if (!atMax) setQtyText(String(clampQty(qtyFromInput(String(qty + 1)), cap))); }}
+            aria-disabled={atMax}
+            aria-label={atMax ? 'Fjölga (hámarki náð)' : 'Fjölga'}
+          >
             <Plus />
           </button>
         </div>
@@ -363,6 +400,7 @@ export default function ProductPurchase({
           Setja í körfu
         </button>
       </div>
+      {note && <p className="pdp-qty-note" aria-live="polite">{note}</p>}
       {hint && (
         <p className={`pdp-hint${nudged ? ' is-error' : ''}`} id={hintId} role={nudged ? 'alert' : undefined}>
           {hint}

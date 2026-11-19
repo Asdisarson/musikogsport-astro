@@ -3,6 +3,7 @@
 import { atom, computed } from 'nanostores';
 import { decodeEntities } from './decode';
 import type { Cart } from './types';
+import { clampLineQty, lineMax } from './cartQty';
 import { createSerial } from './serial';
 import { CART_CLIENT_TIMEOUT_MS } from './timeouts';
 import { onPageRestored, onTabVisible } from './pageLifecycle';
@@ -127,9 +128,11 @@ const QTY_MAX = 99; // the server clamps to 1-99 (validate.clampQty)
 
 /** One stepper click: +1 or -1 on a cart line. Resolves without a call when the line is already at the bound. */
 export async function stepQty(key: string, delta: 1 | -1): Promise<Cart | null> {
-  const base = pendingQty.get(key) ?? cart.get()?.items.find((i) => i.key === key)?.quantity;
+  const line = cart.get()?.items.find((i) => i.key === key);
+  const base = pendingQty.get(key) ?? line?.quantity;
   if (base === undefined) return cart.get();
-  const target = Math.min(QTY_MAX, Math.max(1, base + delta));
+  // held under the line's own maximum (WooCommerce's quantity_limits): a + at the maximum is no call
+  const target = clampLineQty(Math.min(QTY_MAX, Math.max(1, base + delta)), line ? lineMax(line) : null);
   if (target === base) return cart.get();
   pendingQty.set(key, target);
   try {

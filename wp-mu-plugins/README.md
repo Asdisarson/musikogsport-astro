@@ -76,6 +76,15 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
   Tests: `php tests/mos_shell_poke_test.php` (path rule, body, bulk mark, moved path, editor guard, scheduled saves,
   path cap, one-time captures). **Deploy by hand:** copy the file to
   `app/public/wp-content/mu-plugins/` (this repo is not loaded from here).
+- **mos-shell-admin.php** — the "Síðugeymsla" subpage under Stillingar (capability: edit pages; run now and clear need administrators): an overview of the
+  storefront's rendered-page store (on or off, pages kept, disk use, build, freshness), the nightly rebuild card (next run, last
+  run with its tally and duration, progress while it runs, recent failures) and four actions: run now, stop, rebuild one page
+  (a URL or a path), clear the store (with a confirm box). It reads and drives the storefront's `/api/shell-admin` with the
+  shared key `MOS_SHELL_POKE_KEY` (define it in `wp-config.php`, the same value as on the storefront) and
+  `mos_headless_target_base()` (`MOS_STOREFRONT_URL`). Without the key, or when the storefront does not answer or answers 403, the
+  page explains what to set instead. Everything the storefront sends is checked before it is shown and escaped. The page reloads
+  every 15 seconds only while a run is going. Tests: `php tests/mos_shell_admin_test.php` (sizes, durations, the path rule, the
+  status narrowing, outcomes and notices). Endpoint contract: DEPLOY.md, "Admin endpoint".
 - **mos-search.php** — the product search behind the storefront's `/?s=` page and the live results in its search
   sheet. It swaps the search clause of the Store API's `search` (and WordPress's `s`) for its own: every word has to
   match, in the title, the SKU or a term name (category, brand, tag, attribute); words match by their stem

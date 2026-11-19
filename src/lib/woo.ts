@@ -20,6 +20,10 @@ const BASE = `${WP_INTERNAL_URL}/wp-json/wc/v3`;
 
 // Fields needed by product cards/grids (keeps the 3,812-product payloads small).
 const LIST_FIELDS = 'id,name,slug,permalink,type,price,regular_price,sale_price,on_sale,price_html,stock_status,images,categories';
+/** The stock fields the live answer needs for the purchasable maximum (livePrices.purchasableMax), on top of the card's. */
+export const LIVE_STOCK_FIELDS = 'manage_stock,stock_quantity,backorders,backorders_allowed,sold_individually';
+/** A live product lookup's fields: the card's plus LIVE_STOCK_FIELDS. Only the uncached live lookups use it. */
+export const LIVE_PRODUCT_FIELDS = `${LIST_FIELDS},${LIVE_STOCK_FIELDS}`;
 
 type Params = Record<string, string | number | boolean | number[] | undefined | null>;
 
@@ -253,7 +257,7 @@ export async function getVariationStock(productId: number): Promise<WooVariation
     status: 'publish',
     orderby: 'menu_order',
     order: 'asc',
-    _fields: 'id,menu_order,price,regular_price,sale_price,on_sale,stock_status',
+    _fields: `id,menu_order,price,regular_price,sale_price,on_sale,stock_status,${LIVE_STOCK_FIELDS}`,
   });
   return [...data].sort((a, b) => (a.menu_order ?? 0) - (b.menu_order ?? 0) || a.id - b.id);
 }
@@ -265,7 +269,7 @@ export async function getVariationStock(productId: number): Promise<WooVariation
  * hard-caps `per_page` at 100 and silently drops ids past that — so a wishlist of >100
  * items would otherwise lose its oldest saves.
  */
-export async function getProductsByIds(ids: number[], limit = 8): Promise<WooProduct[]> {
+export async function getProductsByIds(ids: number[], limit = 8, fields: string = LIST_FIELDS): Promise<WooProduct[]> {
   // De-dupe first: WC `include` collapsed duplicates, so a dirty related_ids list like [5,5,7]
   // must not re-emit product 5 twice now that we re-key the result ourselves.
   const wanted = [...new Set(ids.filter(isPosInt))].slice(0, limit);
@@ -277,7 +281,7 @@ export async function getProductsByIds(ids: number[], limit = 8): Promise<WooPro
     batches.map((batch) =>
       wooGet<WooProduct[]>('/products', {
         status: 'publish',
-        _fields: LIST_FIELDS,
+        _fields: fields,
         include: batch,
         per_page: batch.length,
         orderby: 'include',

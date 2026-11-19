@@ -10,8 +10,11 @@ import {
   chunkIds,
   liveProductOf,
   liveVariationOf,
+  clampQty,
   parseLiveIds,
   pdpPriceFill,
+  purchasableMax,
+  soldIndividually,
   type LiveProduct,
   priceChanged,
   stockLabel,
@@ -89,7 +92,7 @@ const base = {
 describe('liveProductOf', () => {
   it('returns id, type, sanitised price html, sale percent and raw stock; no other fields', () => {
     const out = liveProductOf(base);
-    expect(out).toEqual({ id: 7, type: 'simple', priceHtml: expect.any(String), percent: null, stock: 'instock' });
+    expect(out).toEqual({ id: 7, type: 'simple', priceHtml: expect.any(String), percent: null, stock: 'instock', max: null, soldOne: false });
     expect(out.priceHtml).not.toContain('<script');
     expect(out.priceHtml).toContain('1.000');
   });
@@ -105,13 +108,22 @@ describe('liveProductOf', () => {
 describe('liveVariationOf', () => {
   it('keeps prices and stock of one variation', () => {
     const v = { id: 9, price: '900', regular_price: '1000', sale_price: '900', on_sale: true, stock_status: 'outofstock', attributes: [], menu_order: 0 } as unknown as WooVariation;
-    expect(liveVariationOf(v)).toEqual({ id: 9, price: '900', regular_price: '1000', sale_price: '900', on_sale: true, stock: 'outofstock' });
+    expect(liveVariationOf(v)).toEqual({ id: 9, price: '900', regular_price: '1000', sale_price: '900', on_sale: true, stock: 'outofstock', max: null, soldOne: false });
+  });
+  it('carries the purchasable maximum, read from the parent when the variation inherits stock management', () => {
+    const v = { id: 9, price: '900', regular_price: '1000', sale_price: '', on_sale: false, stock_status: 'instock', manage_stock: 'parent' } as unknown as WooVariation;
+    const parent = { ...base, type: 'variable', manage_stock: true, stock_quantity: 4, backorders: 'no' } as unknown as WooProduct;
+    expect(liveVariationOf(v, parent).max).toBe(4);
+    expect(liveVariationOf(v).max).toBeNull();
+  });
+  it('carries the cap of a managed simple product', () => {
+    expect(liveProductOf({ ...base, manage_stock: true, stock_quantity: 2, backorders: 'no' } as unknown as WooProduct).max).toBe(2);
   });
 });
 
 describe('pdpPriceFill (the product page price, corrected from the live answer)', () => {
   const shown = '<span class="amount">1.000 kr.</span>';
-  const liveOf = (over: Partial<LiveProduct> = {}): LiveProduct => ({ id: 1, type: 'simple', priceHtml: shown, percent: null, stock: 'instock', ...over });
+  const liveOf = (over: Partial<LiveProduct> = {}): LiveProduct => ({ id: 1, type: 'simple', priceHtml: shown, percent: null, stock: 'instock', max: null, soldOne: false, ...over });
   it('keeps the shown price and draws no badge when the live price is the same', () => {
     expect(pdpPriceFill(shown, liveOf())).toEqual({ priceHtml: null, percent: null });
   });
@@ -124,5 +136,86 @@ describe('pdpPriceFill (the product page price, corrected from the live answer)'
   });
   it('does nothing while the live answer is missing', () => {
     expect(pdpPriceFill(shown, undefined)).toBeNull();
+  });
+});
+
+describe('purchasableMax (the most one customer may buy; null = no cap)', () => {
+  it('managed with a quantity and no backorders: the quantity', () => {
+    expect(purchasableMax({ manage_stock: true, stock_quantity: 5, backorders: 'no' })).toBe(5);
+  });
+  it('managed with a quantity but backorders allowed: no cap', () => {
+    expect(purchasableMax({ manage_stock: true, stock_quantity: 5, backorders: 'notify' })).toBeNull();
+    expect(purchasableMax({ manage_stock: true, stock_quantity: 5, backorders: 'yes' })).toBeNull();
+    expect(purchasableMax({ manage_stock: true, stock_quantity: 5, backorders_allowed: true })).toBeNull();
+  });
+  it('not managed: no cap', () => {
+    expect(purchasableMax({ manage_stock: false, stock_quantity: 5, backorders: 'no' })).toBeNull();
+  });
+  it('parent-managed variation: the parent quantity decides, and the variation own (unmanaged) fields do not', () => {
+    expect(purchasableMax({ manage_stock: 'parent' }, { manage_stock: true, stock_quantity: 3, backorders: 'no' })).toBe(3);
+    expect(purchasableMax({ manage_stock: 'parent' }, { manage_stock: true, stock_quantity: 3, backorders: 'yes' })).toBeNull();
+    expect(purchasableMax({ manage_stock: 'parent' }, { manage_stock: false })).toBeNull();
+    expect(purchasableMax({ manage_stock: 'parent' })).toBeNull();
+  });
+  it('sold individually: at most 1, and 0 when the managed stock is empty', () => {
+    expect(purchasableMax({ sold_individually: true })).toBe(1);
+    expect(purchasableMax({ sold_individually: true, manage_stock: true, stock_quantity: 5, backorders: 'no' })).toBe(1);
+    expect(purchasableMax({ sold_individually: true, manage_stock: true, stock_quantity: 0, backorders: 'no' })).toBe(0);
+  });
+  it('quantity 0 or negative: 0; a fraction is floored', () => {
+    expect(purchasableMax({ manage_stock: true, stock_quantity: 0, backorders: 'no' })).toBe(0);
+    expect(purchasableMax({ manage_stock: true, stock_quantity: -3, backorders: 'no' })).toBe(0);
+    expect(purchasableMax({ manage_stock: true, stock_quantity: 2.7, backorders: 'no' })).toBe(2);
+  });
+  it('missing fields: no cap, nothing guessed', () => {
+    expect(purchasableMax({})).toBeNull();
+    expect(purchasableMax({ manage_stock: true, backorders: 'no' })).toBeNull();
+    expect(purchasableMax({ manage_stock: true, stock_quantity: null, backorders: 'no' })).toBeNull();
+    expect(purchasableMax({ manage_stock: true, stock_quantity: 4 })).toBe(4);
+  });
+});
+
+describe('purchasableMax, variable product sold individually', () => {
+  it('caps every variation at 1, whatever the variation itself says', () => {
+    expect(purchasableMax({ manage_stock: false }, { sold_individually: true })).toBe(1);
+    expect(purchasableMax({ manage_stock: true, stock_quantity: 7, backorders: 'no' }, { sold_individually: true })).toBe(1);
+    expect(purchasableMax({ manage_stock: true, stock_quantity: 7, backorders: 'no' }, { sold_individually: false })).toBe(7);
+  });
+});
+
+describe('clampQty', () => {
+  it('leaves the value alone with no cap, and holds it at the cap', () => {
+    expect(clampQty(7, null)).toBe(7);
+    expect(clampQty(7, 3)).toBe(3);
+    expect(clampQty(2, 3)).toBe(2);
+  });
+  it('never goes below 1, even for a cap of 0 (the button is off then)', () => {
+    expect(clampQty(4, 0)).toBe(1);
+  });
+});
+
+describe('soldIndividually (one per cart: a limit of the product, not of its stock)', () => {
+  it('true when the variation or the parent is sold individually', () => {
+    expect(soldIndividually({ sold_individually: true })).toBe(true);
+    expect(soldIndividually({ manage_stock: 'parent' }, { sold_individually: true })).toBe(true);
+    expect(soldIndividually({ manage_stock: true, stock_quantity: 7 }, { sold_individually: false })).toBe(false);
+    expect(soldIndividually({})).toBe(false);
+  });
+});
+
+describe('sold individually does not read as stock', () => {
+  it('a managed stock of 50 with sold individually: the flag is set, and the stock is not reported as the cap', () => {
+    const p = { ...base, sold_individually: true, manage_stock: true, stock_quantity: 50, backorders: 'no' } as unknown as WooProduct;
+    const out = liveProductOf(p);
+    expect(out.max).toBe(1);
+    expect(out.soldOne).toBe(true);
+  });
+  it('a plain managed product is not flagged', () => {
+    const p = { ...base, manage_stock: true, stock_quantity: 50, backorders: 'no' } as unknown as WooProduct;
+    expect(liveProductOf(p).soldOne).toBe(false);
+  });
+  it('a variation carries the flag too', () => {
+    const v = { id: 9, price: '900', regular_price: '900', sale_price: '', on_sale: false, stock_status: 'instock', manage_stock: 'parent', attributes: [], menu_order: 0 } as unknown as WooVariation;
+    expect(liveVariationOf(v, { sold_individually: true } as unknown as WooProduct).soldOne).toBe(true);
   });
 });
