@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { headingKind, isShoe, parseWant, pickSections, sizeChartFor, sizeIndex, transpose, wantAttr, type SizeWant } from './sizeGuide';
+import { audienceGroups, chartFromRows, headingKind, isShoe, sectionLabel, sectionSlug, parseWant, pickSections, sizeChartFor, sizeIndex, transpose, wantAttr, type SizeWant } from './sizeGuide';
 
 // The /staerdir/ WordPress page's headings, in page order (2026-10-30).
 const HEADINGS = [
@@ -208,5 +208,71 @@ describe('isShoe', () => {
     expect(isShoe([['fatnadur', 'efri-likami']])).toBe(false);
     expect(isShoe([['skorpa']])).toBe(false);
     expect(isShoe([])).toBe(false);
+  });
+});
+
+describe('sectionLabel: a /staerdir/ heading as a tab label', () => {
+  it('sentence-cases each part and joins them with a middle dot', () => {
+    expect(sectionLabel('KONUR / EFRI LÍKAMI')).toBe('Konur · Efri líkami');
+    expect(sectionLabel('STRÁKAR / UNISEX / STÓRIR KRAKKAR / FATNAÐUR')).toBe('Strákar · Unisex · Stórir krakkar · Fatnaður');
+  });
+
+  it('keeps Icelandic capitals and drops empty parts', () => {
+    expect(sectionLabel(' ÞÓR /  / ÆFINGAFÖT ')).toBe('Þór · Æfingaföt');
+  });
+});
+
+describe('chartFromRows: one WordPress table as a chart', () => {
+  it('lifts a one-cell row over a wider table out as the caption', () => {
+    expect(chartFromRows([['Alpha Sizing'], ['Size', 'S', 'M'], ['Chest', '90', '98']])).toEqual({
+      caption: 'Alpha Sizing',
+      rows: [['Size', 'S', 'M'], ['Chest', '90', '98']],
+    });
+  });
+
+  it('joins several title rows and drops empty rows', () => {
+    expect(chartFromRows([['A'], ['Size', 'S'], ['', ''], ['B'], ['Chest', '90']])).toEqual({
+      caption: 'A · B',
+      rows: [['Size', 'S'], ['Chest', '90']],
+    });
+  });
+
+  it('keeps the rows of a one-column table', () => {
+    expect(chartFromRows([['Size'], ['S']])).toEqual({ caption: '', rows: [['Size'], ['S']] });
+  });
+});
+
+describe('sectionSlug: a /staerdir/ heading as the anchor of its chart on the page', () => {
+  it('is ASCII, lower case and hyphenated', () => {
+    expect(sectionSlug('KONUR / EFRI LÍKAMI')).toBe('konur-efri-likami');
+    expect(sectionSlug('KARLAR / NÚMERAÐAR STÆRÐIR')).toBe('karlar-numeradar-staerdir');
+    expect(sectionSlug('STRÁKAR / UNISEX / STÓRIR KRAKKAR / FATNAÐUR')).toBe('strakar-unisex-storir-krakkar-fatnadur');
+  });
+
+  it('drops anything that is not a letter or digit', () => {
+    expect(sectionSlug('  Þór & Æfingaföt (3–4 ára) / ')).toBe('thor-aefingafot-3-4-ara');
+    expect(sectionSlug(' / ')).toBe('');
+  });
+});
+
+describe('audienceGroups: the /staerdir/ page\'s overview (Börn · Karlar · Konur)', () => {
+  it('gathers the charts by who they are for, in page order', () => {
+    expect(audienceGroups(HEADINGS)).toEqual([
+      { id: 'born', label: 'Börn', indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] },
+      { id: 'karlar', label: 'Karlar', indices: [10, 11, 12, 13, 14] },
+      { id: 'konur', label: 'Konur', indices: [15, 16, 17, 18, 19] },
+    ]);
+  });
+
+  it('keeps one group per audience when the page mixes them, and puts unknown charts last', () => {
+    expect(audienceGroups(['KONUR / EFRI LÍKAMI', 'SKÓR', 'KARLAR / EFRI LÍKAMI', 'KONUR / SUNDFATNAÐUR'])).toEqual([
+      { id: 'konur', label: 'Konur', indices: [0, 3] },
+      { id: 'karlar', label: 'Karlar', indices: [2] },
+      { id: 'annad', label: 'Annað', indices: [1] },
+    ]);
+  });
+
+  it('is empty for no charts', () => {
+    expect(audienceGroups([])).toEqual([]);
   });
 });

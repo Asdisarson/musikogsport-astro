@@ -1,0 +1,72 @@
+---
+// Stærðartafla: the WordPress page's size charts (still edited in wp-admin) drawn like the product page's size
+// chart popup (SizeGuide.astro) — the same chart cards from lib/sizeGuideView, every chart down the page under its
+// heading instead of behind tabs in a dialog, gathered as Börn, Karlar and Konur with the popup's pills on top as an
+// overview that jumps to each (/staerdir/#karlar; one chart: /staerdir/#konur-efri-likami). The WordPress content stays in the page as `.wp-page`: the popup lifts its charts from there, and
+// it is what shows when the charts can't be drawn (no JavaScript, or no chart found). Takes precedence over
+// [slug].astro.
+import Base from '../layouts/Base.astro';
+import NotFound from '../components/NotFound.astro';
+import WpContent from '../components/WpContent.astro';
+import { markUnavailable } from '../lib/http';
+import { getWpPage, WpUnavailable } from '../lib/wp';
+
+export const prerender = false;
+
+let down = false;
+const page = await getWpPage('staerdir').catch((err) => {
+  if (!(err instanceof WpUnavailable)) throw err;
+  down = true;
+  return null;
+});
+if (down) markUnavailable(Astro.response);
+else if (!page) Astro.response.status = 404;
+---
+
+{
+  page ? (
+    <Base title={page.title}>
+      <header class="page-header">
+        <h1 class="page-title">{page.title}</h1>
+      </header>
+      <div class="sizeguide-page container" data-sizeguide-page>
+        <nav class="sizeguide__tabs" aria-label="Stærðartöflur" data-sizeguide-tabs hidden />
+        <div class="sizeguide__body" data-sizeguide-body />
+        <div class="wp-page sizeguide-page__source" data-sizeguide-source>
+          <WpContent rows={page.rows} />
+        </div>
+        <noscript>
+          <style is:inline>.sizeguide-page__source { display: block; padding-top: 0; }</style>
+        </noscript>
+      </div>
+    </Base>
+  ) : (
+    <Base title={down ? 'Tímabundin bilun' : 'Síða fannst ekki'}>
+      <NotFound unavailable={down} title="Síða fannst ekki" message="Þessi síða er ekki til." />
+    </Base>
+  )
+}
+
+<script>
+  import { mountSizeGuide, splitSections } from '../lib/sizeGuideView';
+
+  const root = document.querySelector<HTMLElement>('[data-sizeguide-page]');
+  const tabs = root?.querySelector<HTMLElement>('[data-sizeguide-tabs]');
+  const body = root?.querySelector<HTMLElement>('[data-sizeguide-body]');
+  const source = root?.querySelector<HTMLElement>('[data-sizeguide-source]');
+  if (root && tabs && body && source) {
+    // nothing read as a chart, or drawing failed: the page as written in WordPress
+    try {
+      const sections = splitSections(source);
+      if (!sections.length) throw new Error('no charts');
+      mountSizeGuide(tabs, body, 'staerdir').render(sections, '', { stacked: true });
+    } catch {
+      tabs.hidden = true;
+      body.replaceChildren();
+      root.classList.add('is-plain');
+    }
+    // the charts are drawn after the browser looked for the address's #anchor: go there now
+    const anchor = location.hash.slice(1);
+    if (anchor) document.getElementById(anchor)?.scrollIntoView();
+  }
+</script>

@@ -1,7 +1,8 @@
 // The product page's size chart ("Stærðartafla"): which of the /staerdir/ WordPress page's charts a product needs.
 // The page is a run of `<h4>AUDIENCE / … / GARMENT</h4>` headings, each followed by its table(s); the owner edits it
 // in WordPress, so charts are matched by reading the heading words, not by position. Pure; the product page runs
-// sizeChartFor on the server, SizeGuide.astro's script runs pickSections in the browser.
+// sizeChartFor on the server, SizeGuide.astro's script runs pickSections in the browser, and lib/sizeGuideView draws
+// the charts (the popup and the /staerdir/ page alike).
 
 export type Audience = 'karlar' | 'konur' | 'born';
 /** efri: upper body · nedri: lower body · naerfot: underwear · toppar: tops / sport bras · sund: swim · lid: team kit
@@ -144,4 +145,59 @@ export function parseWant(value: string | undefined): SizeWant | null {
   if (!GARMENTS.includes(garment as SizeWant['garment'])) return null;
   const audiences = AUDIENCES.filter((a) => who.split(',').includes(a));
   return { audiences, garment: garment as SizeWant['garment'] };
+}
+
+/** One WordPress table as cell text: an optional title ("Alpha Sizing"), then the size row and the measures. */
+export interface Chart {
+  caption: string;
+  rows: string[][];
+}
+
+/** A chart from a table's rows of cell text: a one-cell row over a wider table is the table's own title ("Alpha
+ *  Sizing", "NÚMERAÐAR STÆRÐIR"), and empty rows are dropped. */
+export function chartFromRows(rows: string[][]): Chart {
+  const width = Math.max(0, ...rows.map((r) => r.length));
+  const isTitle = (r: string[]) => r.length === 1 && width > 1;
+  return { caption: rows.filter(isTitle).map((r) => r[0]).join(' · '), rows: rows.filter((r) => !isTitle(r) && r.some(Boolean)) };
+}
+
+/** A heading as its tab label: "KONUR / EFRI LÍKAMI" → "Konur · Efri líkami". */
+export function sectionLabel(heading: string): string {
+  return heading
+    .split('/')
+    .map((p) => p.trim().toLocaleLowerCase('is'))
+    .filter(Boolean)
+    .map((p) => p.charAt(0).toLocaleUpperCase('is') + p.slice(1))
+    .join(' · ');
+}
+
+/** A heading as the anchor of its chart on the /staerdir/ page: "KONUR / EFRI LÍKAMI" → "konur-efri-likami". */
+export function sectionSlug(heading: string): string {
+  return fold(heading)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+export interface AudienceGroup {
+  /** The group's anchor on the page: an audience, or "annad" for charts whose heading names none. */
+  id: Audience | 'annad';
+  label: string;
+  /** The headings' indices, in page order. */
+  indices: number[];
+}
+
+const GROUP_LABELS: Record<AudienceGroup['id'], string> = { born: 'Börn', karlar: 'Karlar', konur: 'Konur', annad: 'Annað' };
+
+/** The page's charts gathered by who they are for, in the order each audience first appears; charts for no known
+ *  audience come last. */
+export function audienceGroups(headings: string[]): AudienceGroup[] {
+  const groups = new Map<AudienceGroup['id'], number[]>();
+  headings.forEach((h, i) => {
+    const id = headingKind(h).audience ?? 'annad';
+    groups.set(id, [...(groups.get(id) ?? []), i]);
+  });
+  const rest = groups.get('annad');
+  groups.delete('annad');
+  if (rest) groups.set('annad', rest);
+  return [...groups].map(([id, indices]) => ({ id, label: GROUP_LABELS[id], indices }));
 }

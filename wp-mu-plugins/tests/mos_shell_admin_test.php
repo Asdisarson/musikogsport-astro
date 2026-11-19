@@ -223,7 +223,7 @@ check('per page: no measure', mos_shell_admin_per_page(null, null), null);
 check('stop: an ordinary end', mos_shell_admin_stop_text(false, null), '–');
 check('stop: the failure run', mos_shell_admin_stop_text(true, 'failures'), 'stöðvaðist eftir röð villna');
 check('why: saved off names the form', str_contains((string) mos_shell_admin_why_text('off', 'saved'), 'hér að neðan'), true);
-check('why: env off names the variable', str_contains((string) mos_shell_admin_why_text('off', 'env/default'), 'MOS_SHELL_REBUILD_AT'), true);
+check('why: off by default points at the settings', str_contains((string) mos_shell_admin_why_text('off', 'env/default'), 'sjálfgefið'), true);
 
 // Who may change the settings: administrators only.
 check('allowed: an administrator may save settings', mos_shell_admin_allowed('settings', true), true);

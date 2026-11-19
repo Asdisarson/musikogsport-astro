@@ -598,7 +598,7 @@ function mos_shell_admin_card_nightly(array $s): void {
 }
 
 function mos_shell_admin_why_text(?string $why, string $source = 'env/default'): ?string {
-    $off = $source === 'saved' ? 'Slökkt í stillingunum hér að neðan.' : 'Slökkt með MOS_SHELL_REBUILD_AT=off.';
+    $off = $source === 'saved' ? 'Slökkt í stillingunum hér að neðan.' : 'Slökkt (sjálfgefið). Kveiktu á henni í stillingunum hér til hliðar.';
     return [
         'store-off' => 'Geymslan er slökkt, svo næturkeyrslan gerir ekkert.',
         'off' => $off,
