@@ -237,7 +237,9 @@ export default function ProductPurchase({
   }, [limit, qty]);
   // Pending stays pressable: WooCommerce checks stock when the item is added. Only a known sold-out choice is blocked.
   const pending = live.state === 'pending' && (!isVariable || !!resolved);
-  const canAdd = !adding && !none && !(known && !buyable(stock as 'instock'));
+  // A known sold-out choice: nothing to count, so the quantity box is not shown at all.
+  const soldOut = known && !buyable(stock as 'instock');
+  const canAdd = !adding && !none && !soldOut;
   // Guidance under the button until every attribute is chosen ("Veldu stærð"); the button stays pressable then and
   // points at the missing choice instead of doing nothing.
   // Only when the missing attribute has an option left to pick: a hint over all-crossed-out swatches can't be acted on.
@@ -362,7 +364,7 @@ export default function ProductPurchase({
       <StockLine state={live.state} stock={stock} hasChoice={!isVariable || !!resolved} />
 
       <div className="pdp-cart" ref={cartRef}>
-        <div className="pdp-qty" role="group" aria-label="Fjöldi">
+        {!soldOut && <div className="pdp-qty" role="group" aria-label="Fjöldi">
           <button type="button" onClick={() => setQtyText(String(Math.max(1, qty - 1)))} aria-label="Fækka">
             <Minus />
           </button>
@@ -388,7 +390,7 @@ export default function ProductPurchase({
           >
             <Plus />
           </button>
-        </div>
+        </div>}
         <button
           type="button"
           className="pdp-atc"
