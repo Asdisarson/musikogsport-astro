@@ -1,8 +1,8 @@
 // The admin endpoint's process side: gathers the status from the store, the nightly rebuild and the environment, and
 // runs the store actions (refresh one path, clear every page). SERVER-ONLY.
-import { msUntilNextRun, parseRebuildAt, scheduleWhy } from './nightlyRebuild';
-import { lastNightlyEnd, lastNightlyStart, rebuildBase, scheduleArmed } from './nightlyRebuildRuntime';
-import { beginRun, endRun, lastRun, recentFailures, runView } from './nightlyRebuildState';
+import { msUntilNextRun, scheduleWhy } from './nightlyRebuild';
+import { lastNightlyEnd, lastNightlyStart, nightlySettingsView, rebuildBase, scheduleArmed } from './nightlyRebuildRuntime';
+import { beginRun, endRun, recentFailures, runView } from './nightlyRebuildState';
 import { buildShellAdminStatus, createTtlCache, type ShellAdminStatus } from './shellAdmin';
 import { FRESH_MS, HARD_MAX_AGE_MS } from './shellPolicy';
 import { getShell, invalidatePaths, shellBuildId, shellEnabled, shellFreshOverride } from './shellRuntime';
@@ -20,12 +20,13 @@ const disk = createTtlCache(async () => {
 /** The status the WordPress page reads (GET /api/shell-admin). */
 export async function shellAdminStatus(now: number = Date.now()): Promise<ShellAdminStatus> {
   const store = shellEnabled() ? await getShell() : null;
-  const at = parseRebuildAt(runtimeEnv('MOS_SHELL_REBUILD_AT')).at;
-  const minutes = at.kind === 'at' ? at.minutes : null;
+  // The effective settings: saved over the environment (src/lib/nightlySettings.ts). The schedule follows them.
+  const settings = await nightlySettingsView();
+  const eff = settings.effective;
+  const minutes = eff.enabled ? Number(eff.at.slice(0, 2)) * 60 + Number(eff.at.slice(3, 5)) : null;
   const hasBase = rebuildBase().origin !== null;
-  const why = scheduleWhy({ storeOn: store !== null, atOff: at.kind === 'off', hasBase, armed: scheduleArmed() });
+  const why = scheduleWhy({ storeOn: store !== null, atOff: !eff.enabled, hasBase, armed: scheduleArmed() });
   const d = store ? await disk.get() : null;
-  const last = lastRun();
   return buildShellAdminStatus({
     now,
     store: {
@@ -45,14 +46,15 @@ export async function shellAdminStatus(now: number = Date.now()): Promise<ShellA
     },
     scheduler: {
       why,
-      at: minutes === null ? null : `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`,
+      at: minutes === null ? null : eff.at,
       hasBase,
       nextRunAt: minutes !== null && (why === null || why === 'waiting') ? now + msUntilNextRun(now, minutes) : null,
       lastStart: lastNightlyStart(),
       lastEnd: lastNightlyEnd(),
     },
+    settings: { effective: settings.effective, source: settings.source, saved: settings.saved },
+    runs: settings.runs,
     run: runView(),
-    lastRun: last,
     failures: recentFailures(),
   });
 }

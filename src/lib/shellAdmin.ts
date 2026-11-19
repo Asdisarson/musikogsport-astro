@@ -2,18 +2,27 @@
 // (wp-mu-plugins/mos-shell-admin.php) reads and drives. Pure: the clock, the store and the walk are passed in, so the
 // parsing, the shape of the status and the cache are tested without a server. SERVER-ONLY by use.
 import { parseShellPoke } from './shellPoke';
-import type { FailureEntry, FinishedRun, RunView } from './nightlyRebuildState';
+import type { FailureEntry, RunView } from './nightlyRebuildState';
 import type { ScheduleWhy } from './nightlyRebuild';
+import { estimateMs, perPage, type NightlySettings, type RunRecord, type SavedSettings, type SettingKey, type SettingSource } from './nightlySettings';
 
-export type ShellAdminAction = { action: 'run' | 'stop' | 'clear' } | { action: 'refresh'; path: string };
+export type ShellAdminAction =
+  | { action: 'run' | 'stop' | 'clear' }
+  | { action: 'refresh'; path: string }
+  | { action: 'settings'; settings: unknown };
 
-/** The POST body {action} (and {path} for "refresh"), or null when it is not one of this shape. The path takes the same
- *  rule as the poke route (src/lib/shellPoke.ts): a storefront product or category path, nothing else. */
+/** The POST body {action} (and {path} for "refresh", {settings} for "settings", where null drops the saved copy), or null
+ *  when it is not one of this shape. The path takes the same rule as the poke route (src/lib/shellPoke.ts): a storefront
+ *  product or category path, nothing else. The settings are checked by validateSettings, not here. */
 export function parseShellAdminAction(body: unknown): ShellAdminAction | null {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
   const b = body as Record<string, unknown>;
   const action = b.action;
   if (action === 'run' || action === 'stop' || action === 'clear') return { action };
+  if (action === 'settings') {
+    if (!('settings' in b)) return null;
+    return { action: 'settings', settings: b.settings === undefined ? null : b.settings };
+  }
   if (action === 'refresh') {
     if (typeof b.path !== 'string') return null;
     const poke = parseShellPoke({ stale: [b.path] });
@@ -56,9 +65,34 @@ export interface ShellAdminInput {
     lastStart: number | null;
     lastEnd: number | null;
   };
+  /** The effective settings, where each comes from, the saved copy (null when none), and the last runs (newest first). */
+  settings: {
+    effective: NightlySettings;
+    source: Record<SettingKey, SettingSource>;
+    saved: SavedSettings | null;
+  };
+  runs: RunRecord[];
   run: RunView;
-  lastRun: FinishedRun | null;
   failures: FailureEntry[];
+}
+
+/** One finished run, as the status shows it: the tally, the way it ended and the measured per-page time. */
+export interface RunStatus {
+  startedAt: number;
+  endedAt: number;
+  durationMs: number;
+  total: number | null;
+  visited: number;
+  hits: number;
+  rendered: number;
+  gone: number;
+  failures: number;
+  stoppedEarly: boolean;
+  stoppedWhy: string | null;
+  concurrency: number | null;
+  /** Measured average ms per visited page; null when the run visited none or took no time. */
+  msPerPage: number | null;
+  pagesPerMinute: number | null;
 }
 
 /** The status JSON (GET /api/shell-admin). Field names are the contract the WordPress page reads. */
@@ -101,25 +135,45 @@ export interface ShellAdminStatus {
     /** The configured workers (MOS_SHELL_REBUILD_CONCURRENCY); null when no run is going. */
     concurrency: number | null;
   };
-  lastRun: {
-    startedAt: number;
-    endedAt: number;
-    durationMs: number;
-    visited: number;
-    hits: number;
-    rendered: number;
-    gone: number;
-    failures: number;
-    stoppedEarly: boolean;
-    stoppedWhy: string | null;
-  } | null;
+  settings: {
+    effective: NightlySettings;
+    source: Record<SettingKey, SettingSource>;
+    /** The saved copy, or null when none is saved (the WordPress page compares its option with this). */
+    saved: SavedSettings | null;
+    /** The estimated duration (ms) of a run of every page at the effective concurrency, from the last run's measured time
+     *  per page; null when there is no last run to measure from. */
+    estimateMs: number | null;
+  };
+  /** The last run (the newest of recentRuns), or null. */
+  lastRun: RunStatus | null;
+  /** The last 7 runs, newest first. */
+  recentRuns: RunStatus[];
   failures: { path: string; status: number; at: number }[];
+}
+
+function runStatus(r: RunRecord): RunStatus {
+  const p = perPage(r);
+  return {
+    startedAt: r.startedAt,
+    endedAt: r.endedAt,
+    durationMs: r.durationMs,
+    total: r.total,
+    visited: r.visited,
+    hits: r.hits,
+    rendered: r.rendered,
+    gone: r.gone,
+    failures: r.failures,
+    stoppedEarly: r.stoppedEarly,
+    stoppedWhy: r.stoppedWhy,
+    concurrency: r.concurrency,
+    msPerPage: p.msPerPage,
+    pagesPerMinute: p.pagesPerMinute,
+  };
 }
 
 /** The status, as JSON-ready data. Pure. */
 export function buildShellAdminStatus(i: ShellAdminInput): ShellAdminStatus {
   const r = i.run;
-  const last = i.lastRun;
   return {
     ok: true,
     at: i.now,
@@ -142,6 +196,12 @@ export function buildShellAdminStatus(i: ShellAdminInput): ShellAdminStatus {
       lastStart: i.scheduler.lastStart,
       lastEnd: i.scheduler.lastEnd,
     },
+    settings: {
+      effective: { ...i.settings.effective },
+      source: { ...i.settings.source },
+      saved: i.settings.saved ? { ...i.settings.saved } : null,
+      estimateMs: estimateMs(i.runs[0] ?? null, i.settings.effective.concurrency),
+    },
     run: {
       running: r.running,
       startedAt: r.startedAt,
@@ -157,20 +217,8 @@ export function buildShellAdminStatus(i: ShellAdminInput): ShellAdminStatus {
       workers: r.workers,
       concurrency: r.concurrency,
     },
-    lastRun: last
-      ? {
-          startedAt: last.startedAt,
-          endedAt: last.endedAt,
-          durationMs: last.durationMs,
-          visited: last.visited,
-          hits: last.hits,
-          rendered: last.rendered,
-          gone: last.gone,
-          failures: last.failures,
-          stoppedEarly: last.stoppedEarly,
-          stoppedWhy: last.stoppedWhy,
-        }
-      : null,
+    lastRun: i.runs[0] ? runStatus(i.runs[0]) : null,
+    recentRuns: i.runs.map(runStatus),
     failures: i.failures.map((f) => ({ path: f.path, status: f.status, at: f.at })),
   };
 }

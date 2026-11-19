@@ -1,17 +1,18 @@
-// The nightly rebuild's process side: arms one timer per process (from the middleware's first request), keeps the
-// stamp file of the last run beside the store's files, and runs the walk (src/lib/nightlyRebuild.ts). Each path is
-// invalidated just before the walk requests it, so the store never holds more stale pages than the walk is at.
-// SERVER-ONLY.
+// The nightly rebuild's process side: arms one timer per process (from the middleware's first production request), keeps
+// the stamp file of the last run beside the store's files, keeps the saved settings and the last runs in one persisted
+// file, and runs the walk (src/lib/nightlyRebuild.ts). Each path is invalidated just before the walk requests it, so the
+// store never holds more stale pages than the walk is at. SERVER-ONLY.
 //
-// Run-time switches (see DEPLOY.md, "Nightly rebuild"):
+// Settings (see DEPLOY.md, "Nightly rebuild"): the WordPress page saves them and sends them to POST /api/shell-admin
+// (action "settings"). A saved field wins; a field not saved falls back to the environment, then to the default:
 //   MOS_SHELL_REBUILD_AT=<HH:MM|off>     default 05:00 (Atlantic/Reykjavik); off disables the nightly rebuild
 //   MOS_SHELL_REBUILD_BASE=<origin>      the origin the walk requests; default https://<first MOS_EXTRA_ALLOWED_HOSTS host>
 //   MOS_SHELL_REBUILD_CONCURRENCY=<1..4> default 2: pages walked at once (one while the walk is degraded)
 //   MOS_SHELL_REBUILD_PAUSE_MS=<0..30000> default 100: the base pause between renders
 //   MOS_SHELL=off, or no origin, means nothing is armed.
 //
-// The timer lives in the process: a process that is not running at 05:00 runs nothing until a request reaches it
-// (within CATCH_UP_MS of 05:00, or the run is missed for the day; see DEPLOY.md).
+// The timer lives in the process: a process that is not running at the time runs nothing until a request reaches it
+// (within the catch-up window of the time, or the run is missed for the day; see DEPLOY.md).
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { sitemapPathsFrom } from '../../scripts/prebuild_shells.mjs';
@@ -22,19 +23,36 @@ import {
   isWalkablePath,
   missedRun,
   msUntilNextRun,
-  parseConcurrency,
-  parsePauseMs,
-  parseRebuildAt,
   rebuildOrigin,
   runDue,
+  CATCH_UP_MS,
+  ON_TIME_GRACE_MS,
   walkStorefront,
   type WalkOptions,
   type WalkTally,
 } from './nightlyRebuild';
+import {
+  envDefaults,
+  mergeSettings,
+  parseStored,
+  RUNS_KEPT,
+  validateSettings,
+  type NightlySettings,
+  type RunRecord,
+  type SavedSettings,
+  type SettingKey,
+  type SettingSource,
+} from './nightlySettings';
 import { beginRun, endRun, isRunning, lastRun, recordStep, requestStop, setRunConcurrency, setRunTotal, stopRequested, type StopWhy } from './nightlyRebuildState';
 import { getShell, invalidatePaths, shellDir, shellEnabled } from './shellRuntime';
 
+/** The origin a run walks, from the environment (MOS_SHELL_REBUILD_BASE, else the first MOS_EXTRA_ALLOWED_HOSTS host). */
+export function rebuildBase(): { origin: string | null; problem: string | null } {
+  return rebuildOrigin(runtimeEnv('MOS_SHELL_REBUILD_BASE'), runtimeEnv('MOS_EXTRA_ALLOWED_HOSTS') || (import.meta.env.MOS_BUILD_EXTRA_HOSTS as string | undefined));
+}
+
 const STAMP = 'nightly-rebuild.json';
+const SETTINGS_FILE = 'nightly-settings.json';
 const MAX_TIMER_MS = 2 ** 31 - 1;
 const SITEMAP_TIMEOUT_MS = 20_000;
 /** A probe gives up after this long (no headers, or a render that never ends): the walk gives up on a page at the same
@@ -48,7 +66,7 @@ export interface RebuildStamp {
   lastEnd?: number | null;
 }
 
-/** What a run touches outside the walk: the store, the stamp and the network. Tests replace these. */
+/** What a run touches outside the walk: the store, the stamp, the settings file and the network. Tests replace these. */
 export interface RunIo {
   /** Whether the shell store is there to walk (false when it is off or cannot be opened). */
   storeReady(): Promise<boolean>;
@@ -60,9 +78,37 @@ export interface RunIo {
   probe(origin: string, path: string): Promise<{ status: number; shell: string | null; refreshing: boolean }>;
   sleep(ms: number): Promise<void>;
   now(): number;
+  /** The persisted settings file (the saved settings and the last runs). */
+  settings: SettingsIo;
+}
+
+/** The persisted file: { settings, runs }. Written whole, through one writer (see persistStored). */
+export interface SettingsIo {
+  read(): Promise<unknown>;
+  write(data: unknown): Promise<void>;
 }
 
 const stampFile = () => join(shellDir(), STAMP);
+const settingsFile = () => join(shellDir(), SETTINGS_FILE);
+
+const defaultSettingsIo: SettingsIo = {
+  async read() {
+    try {
+      return JSON.parse(await readFile(settingsFile(), 'utf8')) as unknown;
+    } catch (err) {
+      // A missing file is the first run's normal state; anything else (unreadable, not JSON) is logged, so the fall back
+      // to the environment is not silent.
+      if ((err as { code?: string }).code !== 'ENOENT') log.warn('[rebuild] settings file not read; the environment applies', { err });
+      return null;
+    }
+  },
+  async write(data) {
+    await mkdir(shellDir(), { recursive: true });
+    const partial = `${settingsFile()}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    await writeFile(partial, JSON.stringify(data));
+    await rename(partial, settingsFile());
+  },
+};
 
 const defaultIo: RunIo = {
   async storeReady() {
@@ -112,19 +158,123 @@ const defaultIo: RunIo = {
   },
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now: () => Date.now(),
+  settings: defaultSettingsIo,
 };
+
+// ---- the persisted settings and runs: one in-memory copy, loaded once, written through one serialized writer ----
+
+let persisted: { saved: SavedSettings | null; runs: RunRecord[] } | null = null;
+let loading: Promise<void> | null = null;
+let writeChain: Promise<void> = Promise.resolve();
+
+/** Loads the persisted file once per process (the first caller's io). Problems in it are logged, and the bad values dropped. */
+function loadStored(io: SettingsIo): Promise<void> {
+  loading ??= (async () => {
+    const p = parseStored(await io.read());
+    for (const problem of p.problems) log.warn(`[rebuild] saved setting dropped: ${problem}`);
+    persisted = { saved: p.saved, runs: p.runs };
+  })();
+  return loading;
+}
+
+/** Writes the whole persisted file. Writes are queued one after another, so two never overlap; true when this one landed. */
+function persistStored(io: SettingsIo): Promise<boolean> {
+  const snapshot = { settings: persisted?.saved ?? null, runs: persisted?.runs ?? [] };
+  const job = writeChain.then(async () => {
+    try {
+      await io.write(snapshot);
+      return true;
+    } catch (err) {
+      log.warn('[rebuild] settings not written', { err });
+      return false;
+    }
+  });
+  writeChain = job.then(() => undefined);
+  return job;
+}
+
+/** The environment's values, with the saved ones over them (see src/lib/nightlySettings.ts). */
+function nightlyEffective(): { values: NightlySettings; source: Record<SettingKey, SettingSource> } {
+  const env = envDefaults({
+    at: runtimeEnv('MOS_SHELL_REBUILD_AT'),
+    concurrency: runtimeEnv('MOS_SHELL_REBUILD_CONCURRENCY'),
+    pauseMs: runtimeEnv('MOS_SHELL_REBUILD_PAUSE_MS'),
+  });
+  return mergeSettings(env.values, persisted?.saved ?? null);
+}
+
+/** The settings as the status shows them: the effective values, where each comes from, the saved copy and the last runs. */
+export async function nightlySettingsView(): Promise<{
+  effective: NightlySettings;
+  source: Record<SettingKey, SettingSource>;
+  saved: SavedSettings | null;
+  runs: RunRecord[];
+}> {
+  await loadStored(defaultSettingsIo);
+  const e = nightlyEffective();
+  return { effective: e.values, source: e.source, saved: persisted?.saved ?? null, runs: (persisted?.runs ?? []).map((r) => ({ ...r })) };
+}
+
+/** The walk's workers and base pause as they are now (saved, else environment, else default). */
+function walkSettings(): { concurrency: number; pauseMs: number } {
+  const e = nightlyEffective().values;
+  return { concurrency: e.concurrency, pauseMs: e.pauseMs };
+}
+
+/** Saves the settings a request sent (null drops the saved copy, so the environment's values apply again). Validation is
+ *  strict: a refused request changes nothing and returns the problems. The schedule follows at once, but a run is never
+ *  started by a save: a new time only moves the next run. A walk already going keeps the settings it started with. */
+export async function applyNightlySettings(
+  input: unknown,
+  io: SettingsIo = defaultSettingsIo,
+): Promise<{ ok: true; settings: Awaited<ReturnType<typeof nightlySettingsView>>; persisted: boolean } | { ok: false; problems: string[]; stored?: false }> {
+  let value: SavedSettings | null = null;
+  if (input !== null) {
+    const v = validateSettings(input);
+    if (!v.ok) return { ok: false, problems: v.problems };
+    value = Object.keys(v.value).length > 0 ? v.value : null;
+  }
+  await loadStored(io);
+  const before = persisted?.saved ?? null;
+  persisted = { saved: value, runs: persisted?.runs ?? [] };
+  const landed = await persistStored(io);
+  if (!landed) {
+    // Not on disk: the save is refused and the copy in memory goes back to the one on disk, so the run and the page
+    // follow what a restart would read.
+    persisted = { saved: before, runs: persisted?.runs ?? [] };
+    if (armed) reschedule(false);
+    log.warn('[rebuild] settings save refused: not written to disk');
+    return { ok: false, problems: ['Ekki tókst að skrifa stillingarnar á disk: þær eru ekki vistaðar.'], stored: false };
+  }
+  if (armed) reschedule(false);
+  log.info('[rebuild] settings saved', { saved: value !== null, persisted: landed });
+  return { ok: true, settings: await nightlySettingsView(), persisted: landed };
+}
+
+/** Marks the schedule as armed, as the first production request does, without the stamp read. Tests only. */
+export function armForTests(): void {
+  armed = true;
+}
+
+/** Clears the in-memory state of the settings and timer. Tests only. */
+export function resetNightlyForTests(): void {
+  persisted = null;
+  loading = null;
+  writeChain = Promise.resolve();
+  if (timer) clearTimeout(timer);
+  timer = null;
+  schedule = null;
+  lastStart = null;
+  armed = false;
+}
+
+// ---- the walk ----
 
 /** When the last run started (from the stamp at arm time, then from each run). */
 let lastStart: number | null = null;
 let armed = false;
-let schedule: { minutes: number; origin: string } | null = null;
-
-/** The walk's workers and base pause from the environment, with a problem line for each value that could not be read. */
-export function walkEnv(): { concurrency: number; pauseMs: number; problems: string[] } {
-  const c = parseConcurrency(runtimeEnv('MOS_SHELL_REBUILD_CONCURRENCY'));
-  const p = parsePauseMs(runtimeEnv('MOS_SHELL_REBUILD_PAUSE_MS'));
-  return { concurrency: c.value, pauseMs: p.value, problems: [c.problem, p.problem].filter((x): x is string => x !== null) };
-}
+let schedule: { minutes: number; origin: string; catchUp: boolean } | null = null;
+let timer: ReturnType<typeof setTimeout> | null = null;
 
 /** Whether a walk is running now (the admin page's "Keyra núna" is refused meanwhile). */
 export function nightlyRunning(): boolean {
@@ -147,11 +297,11 @@ export function lastNightlyEnd(): number | null {
 }
 
 /** One walk: check the store, stamp the start, read the sitemap, walk it (each path invalidated just before its
- *  request), stamp the end. Never throws; the end is logged with its tally and kept for the admin page. Returns null
- *  when it did not run (another run is in progress, or the store is not there) or stopped on an error. */
+ *  request), stamp the end, and keep the run for the status. Never throws. Returns null when it did not run (another run
+ *  is in progress, or the store is not there) or stopped on an error. The concurrency and pause are read when the run
+ *  starts: a later save does not change a run going. */
 export async function runNightlyRebuild(origin: string, options: Partial<WalkOptions> = {}, io: Partial<RunIo> = {}): Promise<WalkTally | null> {
   const d: RunIo = { ...defaultIo, ...io };
-  const env = walkEnv();
   const started = d.now();
   // Synchronous up to here: a second call in the same tick is refused, not queued.
   if (!beginRun(started)) {
@@ -161,19 +311,25 @@ export async function runNightlyRebuild(origin: string, options: Partial<WalkOpt
   let begun = false;
   let errored = false;
   let tally: WalkTally | null = null;
+  let total: number | null = null;
+  let concurrency: number | null = null;
   try {
     if (!(await d.storeReady())) {
       log.warn('[rebuild] skipped: the shell store is not available');
       return null;
     }
+    await loadStored(d.settings);
     lastStart = started;
     begun = true;
     await d.writeStamp({ lastStart: started, lastEnd: null });
     log.info('[rebuild] started', { base: origin });
     const paths = sitemapPathsFrom(await d.fetchSitemap(origin));
-    setRunTotal(paths.filter(isWalkablePath).length);
+    total = paths.filter(isWalkablePath).length;
+    setRunTotal(total);
     log.info('[rebuild] sitemap read', { pages: paths.length });
+    const env = walkSettings();
     const walk: WalkOptions = { ...WALK_DEFAULTS, concurrency: env.concurrency, delayMs: env.pauseMs, ...options };
+    concurrency = walk.concurrency;
     setRunConcurrency(walk.concurrency);
     tally = await walkStorefront(paths, walk, {
       before: (path) => d.invalidatePath(path),
@@ -195,20 +351,37 @@ export async function runNightlyRebuild(origin: string, options: Partial<WalkOpt
   } finally {
     if (begun) await d.writeStamp({ lastStart: started, lastEnd: d.now() });
     const why: StopWhy | null = errored ? 'error' : tally?.stoppedBy ?? null;
+    const endedAt = d.now();
     endRun({
-      endedAt: d.now(),
+      endedAt,
       record: begun,
       tally: tally ?? undefined,
       stoppedEarly: tally?.stoppedEarly ?? errored,
       stoppedWhy: begun ? why : null,
     });
+    if (begun && persisted) {
+      const t = tally ?? { visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0 };
+      const record: RunRecord = {
+        startedAt: started,
+        endedAt,
+        durationMs: Math.max(0, endedAt - started),
+        total,
+        visited: t.visited,
+        hits: t.hits,
+        rendered: t.rendered,
+        gone: t.gone,
+        failures: t.failures,
+        stoppedEarly: tally?.stoppedEarly ?? errored,
+        stoppedWhy: why,
+        concurrency,
+      };
+      persisted.runs = [record, ...persisted.runs].slice(0, RUNS_KEPT);
+      await persistStored(d.settings);
+    }
   }
 }
 
-/** The origin a run walks, from the environment (MOS_SHELL_REBUILD_BASE, else the first MOS_EXTRA_ALLOWED_HOSTS host). */
-export function rebuildBase(): { origin: string | null; problem: string | null } {
-  return rebuildOrigin(runtimeEnv('MOS_SHELL_REBUILD_BASE'), runtimeEnv('MOS_EXTRA_ALLOWED_HOSTS') || (import.meta.env.MOS_BUILD_EXTRA_HOSTS as string | undefined));
-}
+// ---- the schedule ----
 
 /** Whether the timer is armed in this process (it arms on the first request; see armNightlyRebuild). */
 export function scheduleArmed(): boolean {
@@ -222,36 +395,84 @@ export function armNightlyRebuild(): void {
   void arm().catch((err) => log.warn('[rebuild] not armed', { err }));
 }
 
+function minutesOf(at: string): number {
+  const [h, m] = at.split(':').map(Number);
+  return h * 60 + m;
+}
+
+/** The catch-up window of a schedule: CATCH_UP_MS, or the short on-time grace when catch-up is off. */
+function windowOf(catchUp: boolean): number {
+  return catchUp ? CATCH_UP_MS : ON_TIME_GRACE_MS;
+}
+
 async function arm(): Promise<void> {
   if (!shellEnabled()) return;
-  const at = parseRebuildAt(runtimeEnv('MOS_SHELL_REBUILD_AT'));
-  if (at.problem) log.warn(`[rebuild] ${at.problem}`);
-  for (const problem of walkEnv().problems) log.warn(`[rebuild] ${problem}`);
-  if (at.at.kind === 'off') return;
+  await loadStored(defaultSettingsIo);
+  for (const problem of envDefaults({
+    at: runtimeEnv('MOS_SHELL_REBUILD_AT'),
+    concurrency: runtimeEnv('MOS_SHELL_REBUILD_CONCURRENCY'),
+    pauseMs: runtimeEnv('MOS_SHELL_REBUILD_PAUSE_MS'),
+  }).problems) {
+    log.warn(`[rebuild] ${problem}`);
+  }
+  const s = nightlyEffective().values;
+  if (!s.enabled) {
+    log.info('[rebuild] off: the settings or MOS_SHELL_REBUILD_AT turn it off');
+    return;
+  }
   const base = rebuildBase();
   if (base.problem) log.warn(`[rebuild] ${base.problem}`);
   if (!base.origin) return;
-  schedule = { minutes: at.at.minutes, origin: base.origin };
   const stamp = await defaultIo.readStamp();
   lastStart = stamp?.lastStart ?? null;
   // A stamp that never got its end: the process stopped during that run. It is not resumed; the walk starts again
-  // only when it is due (the next run, or this one if still within CATCH_UP_MS).
+  // only when it is due (the next run, or this one if still within the window).
   if (stamp && stamp.lastEnd === null) log.warn('[rebuild] the last run did not finish (the process stopped during it); it is not resumed', { lastStart: stamp.lastStart });
-  const now = Date.now();
-  if (missedRun(now, at.at.minutes, lastStart)) log.warn('[rebuild] the run due today was missed: no process was up within the catch-up window (see DEPLOY.md)', { at: formatAt(at.at.minutes) });
-  log.info('[rebuild] armed', { at: formatAt(at.at.minutes), base: base.origin });
-  tick(); // a run missed while the process was down (within CATCH_UP_MS of its time) starts now
+  const minutes = minutesOf(s.at);
+  if (missedRun(Date.now(), minutes, lastStart, windowOf(s.catchUp))) log.warn('[rebuild] the run due today was missed: no process was up within the catch-up window (see DEPLOY.md)', { at: formatAt(minutes) });
+  log.info('[rebuild] armed', { at: s.at, base: base.origin, catchUp: s.catchUp });
+  reschedule(true); // a run missed while the process was down (within the window of its time) starts now
 }
 
-/** Starts the run when one is due, then arms the timer for the next time. A due run while one is still going is
- *  skipped with a log line. */
+/** Sets the timer from the current settings. `check` true also runs a due walk first (arm time); false only moves the next
+ *  run (a save), so a new time that has already passed today does not start a walk. */
+function reschedule(check: boolean): void {
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  schedule = null;
+  if (!shellEnabled()) return;
+  const s = nightlyEffective().values;
+  if (!s.enabled) return;
+  const base = rebuildBase();
+  if (!base.origin) return;
+  schedule = { minutes: minutesOf(s.at), origin: base.origin, catchUp: s.catchUp };
+  if (check) tick();
+  else scheduleNext();
+}
+
+/** Starts the walk when one is due, then arms the timer for the next time. A due walk while one is still going is skipped
+ *  with a log line. */
 function tick(): void {
+  timer = null;
   if (!schedule) return;
-  const now = Date.now();
-  if (runDue(now, schedule.minutes, lastStart)) {
+  if (runDue(Date.now(), schedule.minutes, lastStart, windowOf(schedule.catchUp))) {
     if (isRunning()) log.warn('[rebuild] due while the previous run is still in progress: skipped');
     else void runNightlyRebuild(schedule.origin);
   }
-  const wait = Math.min(MAX_TIMER_MS, msUntilNextRun(now, schedule.minutes));
-  setTimeout(tick, wait).unref();
+  scheduleNext();
+}
+
+function scheduleNext(): void {
+  if (!schedule) return;
+  if (timer) clearTimeout(timer);
+  const wait = Math.min(MAX_TIMER_MS, msUntilNextRun(Date.now(), schedule.minutes));
+  timer = setTimeout(tick, wait);
+  timer.unref?.();
+}
+
+/** The current schedule, for the status: the next run (ms) when the timer is armed, and the state of the schedule. */
+export function nightlySchedule(): { minutes: number | null; armed: boolean } {
+  return { minutes: schedule?.minutes ?? null, armed: schedule !== null };
 }

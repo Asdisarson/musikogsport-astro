@@ -38,7 +38,12 @@ const input = (over: Partial<ShellAdminInput> = {}): ShellAdminInput => ({
   },
   scheduler: { why: null, at: '05:00', hasBase: true, nextRunAt: 2_000_000, lastStart: 900_000, lastEnd: 905_000 },
   run: { running: false, startedAt: null, total: null, visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0, pauseMs: null, lastPath: null, stopRequested: false, workers: null, concurrency: null },
-  lastRun: null,
+  settings: {
+    effective: { enabled: true, at: '05:00', concurrency: 2, pauseMs: 100, catchUp: true },
+    source: { enabled: 'env/default', at: 'env/default', concurrency: 'env/default', pauseMs: 'env/default', catchUp: 'env/default' },
+    saved: null,
+  },
+  runs: [],
   failures: [],
   ...over,
 });
@@ -61,7 +66,14 @@ describe('buildShellAdminStatus', () => {
       },
       scheduler: { armed: true, why: null, at: '05:00', hasBase: true, nextRunAt: 2_000_000, lastStart: 900_000, lastEnd: 905_000 },
       run: { running: false, startedAt: null, total: null, visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0, pauseMs: null, lastPath: null, stopRequested: false, workers: null, concurrency: null },
+      settings: {
+        effective: { enabled: true, at: '05:00', concurrency: 2, pauseMs: 100, catchUp: true },
+        source: { enabled: 'env/default', at: 'env/default', concurrency: 'env/default', pauseMs: 'env/default', catchUp: 'env/default' },
+        saved: null,
+        estimateMs: null,
+      },
       lastRun: null,
+      recentRuns: [],
       failures: [],
     });
   });
@@ -80,11 +92,20 @@ describe('buildShellAdminStatus', () => {
   it('carries the last run and the failures as they are given (newest first is the caller\'s order)', () => {
     const s = buildShellAdminStatus(
       input({
-        lastRun: { startedAt: 1, endedAt: 4001, durationMs: 4000, visited: 5, hits: 2, rendered: 2, gone: 1, failures: 1, stoppedEarly: true, stoppedWhy: 'failures' },
+        runs: [
+          { startedAt: 1, endedAt: 4001, durationMs: 4000, total: 10, visited: 5, hits: 2, rendered: 2, gone: 1, failures: 1, stoppedEarly: true, stoppedWhy: 'failures', concurrency: 2 },
+        ],
+        settings: {
+          ...input().settings,
+          effective: { enabled: true, at: '05:00', concurrency: 4, pauseMs: 100, catchUp: true },
+        },
         failures: [{ path: '/vara/a/', status: 500, at: 7 }],
       }),
     );
-    expect(s.lastRun).toMatchObject({ durationMs: 4000, visited: 5, stoppedWhy: 'failures' });
+    expect(s.lastRun).toMatchObject({ durationMs: 4000, visited: 5, stoppedWhy: 'failures', msPerPage: 800, pagesPerMinute: 75, concurrency: 2 });
+    expect(s.recentRuns).toHaveLength(1);
+    // 10 pages at 800 ms each, measured at 2 workers, estimated at 4 workers: 10 * 800 * 2 / 4 = 4000 ms.
+    expect(s.settings.estimateMs).toBe(4000);
     expect(s.failures).toEqual([{ path: '/vara/a/', status: 500, at: 7 }]);
   });
 

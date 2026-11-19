@@ -161,5 +161,100 @@ check('timeout: a clear waits longer', mos_shell_admin_timeout('clear') > 5, tru
 check('timeout: the other calls keep 5 s', mos_shell_admin_timeout('run'), 5);
 check('timeout: a status read keeps 5 s', mos_shell_admin_timeout('get'), 5);
 
+// The nightly settings: one bound per field, refused and never clamped (the same bounds as src/lib/nightlySettings.ts).
+check('settings: a valid time', mos_shell_settings_problem('at', '23:59'), null);
+check('settings: an hour of 24 is refused', mos_shell_settings_problem('at', '24:00') !== null, true);
+check('settings: a time without a leading zero is refused', mos_shell_settings_problem('at', '5:00') !== null, true);
+check('settings: concurrency 1 and 4 are fine', [mos_shell_settings_problem('concurrency', 1), mos_shell_settings_problem('concurrency', 4)], [null, null]);
+check('settings: concurrency 5 is refused', mos_shell_settings_problem('concurrency', 5) !== null, true);
+check('settings: a string concurrency is refused', mos_shell_settings_problem('concurrency', '2') !== null, true);
+check('settings: pause 30000 is fine', mos_shell_settings_problem('pauseMs', 30000), null);
+check('settings: pause 30001 is refused', mos_shell_settings_problem('pauseMs', 30001) !== null, true);
+check('settings: enabled must be a bool', mos_shell_settings_problem('enabled', 1) !== null, true);
+
+// The form: checkboxes not ticked are false; a bad number is a problem, not a clamp.
+$form = mos_shell_settings_from_form(['at' => '06:30', 'concurrency' => '3', 'pauseMs' => '250', 'enabled' => '1']);
+check('form: values typed', $form['values'], ['enabled' => true, 'at' => '06:30', 'concurrency' => 3, 'pauseMs' => 250, 'catchUp' => false]);
+check('form: no problems', $form['problems'], []);
+$bad = mos_shell_settings_from_form(['at' => '06:30', 'concurrency' => '5', 'pauseMs' => '30001', 'catchUp' => '1']);
+check('form: two problems for the two bad numbers', count($bad['problems']), 2);
+check('form: a bad value is kept as typed, not clamped (the problem refuses the save)', $bad['values']['concurrency'], 5);
+$junk = mos_shell_settings_from_form(['concurrency' => '2.5', 'pauseMs' => '-1', 'at' => 'x']);
+check('form: fractions and minus signs are refused', count($junk['problems']) >= 3, true);
+
+// The canonical forms and the comparison the self-heal makes.
+$full = ['enabled' => true, 'at' => '05:00', 'concurrency' => 2, 'pauseMs' => 100, 'catchUp' => true];
+check('full: a complete option is kept', mos_shell_settings_full($full), $full);
+check('full: a partial one is not a full option', mos_shell_settings_full(['at' => '05:00']), null);
+check('full: a non-array is not', mos_shell_settings_full('x'), null);
+check('canon: unknown keys dropped', mos_shell_settings_canon(['at' => '05:00', 'speed' => 9]), ['at' => '05:00']);
+check('differs: no option, nothing to send', mos_shell_settings_differs(null, null), false);
+check('differs: an option and no copy', mos_shell_settings_differs($full, null), true);
+check('differs: the same copy', mos_shell_settings_differs($full, $full), false);
+check('differs: the same values in another order', mos_shell_settings_differs($full, array_reverse($full, true)), false);
+check('differs: one field changed', mos_shell_settings_differs($full, array_merge($full, ['concurrency' => 4])), true);
+check('differs: a partial copy differs from a full option', mos_shell_settings_differs($full, ['at' => '05:00']), true);
+
+// The self-heal decision: push when they differ, never twice within a minute.
+check('push: a lost copy is sent', mos_shell_settings_should_push($full, null, null, 1000), true);
+check('push: nothing to send, nothing sent', mos_shell_settings_should_push(null, null, null, 1000), false);
+check('push: the same copy is not sent again', mos_shell_settings_should_push($full, $full, null, 1000), false);
+check('push: a failure in the last minute waits', mos_shell_settings_should_push($full, null, 990, 1000), false);
+check('push: a failure a minute ago may be tried again', mos_shell_settings_should_push($full, null, 940, 1000), true);
+check('push: a reset in progress holds the heal', mos_shell_settings_should_push($full, null, null, 1000, true), false);
+check('push: a reset in progress holds it even for a lost copy', mos_shell_settings_should_push($full, $full, null, 1000, true), false);
+check('push body: the saved values', mos_shell_settings_body($full), ['action' => 'settings', 'settings' => $full]);
+check('push body: null drops the copy', mos_shell_settings_body(null), ['action' => 'settings', 'settings' => null]);
+
+// The notices of a save and a reset.
+check('notice: saved and sent', mos_shell_settings_notice('settings', 200), 'settings-saved');
+check('notice: saved here, not sent', mos_shell_settings_notice('settings', 0), 'settings-saved-unsent');
+check('notice: answered 200 but not kept on disk', mos_shell_settings_notice('settings', 200, false), 'settings-saved-unsent');
+check('notice: answered 200 and kept on disk', mos_shell_settings_notice('settings', 200, true), 'settings-saved');
+check('notice: a refused write (503) is not saved', mos_shell_settings_notice('settings', 503), 'settings-saved-unsent');
+check('notice: reset done', mos_shell_settings_notice('defaults', 200), 'settings-defaults');
+check('notice: reset refused keeps the option', mos_shell_settings_notice('defaults', 500), 'settings-defaults-failed');
+check('texts: the new notices have one', mos_shell_admin_text('settings-invalid')[0], 'error');
+check('texts: the resent notice is info', mos_shell_admin_text('settings-resent')[0], 'info');
+
+// The per-page figures and the stop reason, as text.
+check('per page: 800 ms and 75 a minute', mos_shell_admin_per_page(800.0, 75.0), '0,8 sek á síðu, 75 síður á mínútu');
+check('per page: no measure', mos_shell_admin_per_page(null, null), null);
+check('stop: an ordinary end', mos_shell_admin_stop_text(false, null), '–');
+check('stop: the failure run', mos_shell_admin_stop_text(true, 'failures'), 'stöðvaðist eftir röð villna');
+check('why: saved off names the form', str_contains((string) mos_shell_admin_why_text('off', 'saved'), 'hér að neðan'), true);
+check('why: env off names the variable', str_contains((string) mos_shell_admin_why_text('off', 'env/default'), 'MOS_SHELL_REBUILD_AT'), true);
+
+// Who may change the settings: administrators only.
+check('allowed: an administrator may save settings', mos_shell_admin_allowed('settings', true), true);
+check('allowed: an editor may not save settings', mos_shell_admin_allowed('settings', false), false);
+check('allowed: an editor may not reset settings', mos_shell_admin_allowed('defaults', false), false);
+
+// The status: the settings and the runs are narrowed; a storefront without them gives null.
+$withSettings = $good + [
+    'settings' => [
+        'effective' => ['enabled' => true, 'at' => '06:30', 'concurrency' => 3, 'pauseMs' => 250, 'catchUp' => false],
+        'source' => ['enabled' => 'env/default', 'at' => 'saved', 'concurrency' => 'saved', 'pauseMs' => 'saved', 'catchUp' => 'env/default'],
+        'saved' => ['at' => '06:30', 'concurrency' => 3, 'pauseMs' => 250, 'junk' => 1],
+        'estimateMs' => 9000,
+    ],
+    'recentRuns' => [
+        ['startedAt' => 5, 'endedAt' => 9, 'durationMs' => 4000, 'total' => 10, 'visited' => 5, 'hits' => 1, 'rendered' => 4, 'gone' => 0, 'failures' => 0, 'stoppedEarly' => false, 'stoppedWhy' => null, 'concurrency' => 2, 'msPerPage' => 800.0, 'pagesPerMinute' => 75.0],
+        'not a run',
+    ],
+];
+$ps = mos_shell_admin_parse($withSettings);
+check('status: effective settings', $ps['settings']['effective'], ['enabled' => true, 'at' => '06:30', 'concurrency' => 3, 'pauseMs' => 250, 'catchUp' => false]);
+check('status: sources kept', $ps['settings']['source']['at'], 'saved');
+check('status: the saved copy keeps only known values', $ps['settings']['saved'], ['at' => '06:30', 'concurrency' => 3, 'pauseMs' => 250]);
+check('status: the estimate', $ps['settings']['estimateMs'], 9000);
+check('status: one run, the bad entry dropped', count($ps['runs']), 1);
+check('status: per page kept as a float', $ps['runs'][0]['msPerPage'], 800.0);
+check('status: a last run without a measure has no per-page figure', $ps['lastRun']['msPerPage'], null);
+check('status: no settings from an older storefront', mos_shell_admin_parse($good)['settings'], null);
+$noCopy = $withSettings;
+$noCopy['settings']['saved'] = [];
+check('status: an empty saved copy is no copy', mos_shell_admin_parse($noCopy)['settings']['saved'], null);
+
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

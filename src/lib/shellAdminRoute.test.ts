@@ -25,6 +25,18 @@ vi.mock('../lib/nightlyRebuildRuntime', () => ({
     m.calls.push('stop');
     return m.stopOk;
   },
+  // The real validator, so a refused value reaches the route as the runtime reports it.
+  applyNightlySettings: async (input: unknown) => {
+    const { validateSettings } = await import('./nightlySettings');
+    if (input === null) {
+      m.calls.push('settings:null');
+      return { ok: true, settings: { effective: {}, source: {}, saved: null, runs: [] }, persisted: true };
+    }
+    const v = validateSettings(input);
+    if (!v.ok) return { ok: false, problems: v.problems };
+    m.calls.push(`settings:${JSON.stringify(v.value)}`);
+    return { ok: true, settings: { effective: { concurrency: 2 }, source: { concurrency: 'saved' }, saved: v.value, runs: [] }, persisted: true };
+  },
 }));
 vi.mock('../lib/shellAdminRuntime', () => ({
   shellAdminStatus: async () => ({ ok: true, at: 1 }),
@@ -167,5 +179,36 @@ describe('POST actions', () => {
     let last = 0;
     for (let i = 0; i < 121; i++) last = (await get(keyed)).status;
     expect(last).toBe(429);
+  });
+});
+
+describe('POST settings', () => {
+  it('a valid set is applied and answered with the effective values, their sources and the persisted flag', async () => {
+    const r = await post({ action: 'settings', settings: { concurrency: 2, at: '05:00' } });
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body).toMatchObject({ ok: true, settings: { concurrency: 2 }, source: { concurrency: 'saved' }, persisted: true });
+    expect(m.calls).toEqual(['settings:{"concurrency":2,"at":"05:00"}']);
+  });
+
+  it('an out-of-range value is 400 with the problem lines, and nothing is applied', async () => {
+    const r = await post({ action: 'settings', settings: { concurrency: 5, pauseMs: 30001 } });
+    expect(r.status).toBe(400);
+    const body = await r.json();
+    expect(body.error).toBe('invalid');
+    expect(body.problems).toHaveLength(2);
+    expect(m.calls).toEqual([]);
+  });
+
+  it('null drops the saved copy; a body with no settings key is not an action (400)', async () => {
+    expect((await post({ action: 'settings', settings: null })).status).toBe(200);
+    expect(m.calls).toEqual(['settings:null']);
+    expect((await post({ action: 'settings' })).status).toBe(400);
+  });
+
+  it('needs the key, like every other action', async () => {
+    delete process.env.MOS_SHELL_POKE_KEY;
+    expect((await post({ action: 'settings', settings: null }, keyed)).status).toBe(403);
+    expect(m.calls).toEqual([]);
   });
 });

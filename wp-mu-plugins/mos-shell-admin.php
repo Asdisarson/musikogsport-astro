@@ -8,8 +8,12 @@
  *  with the shared key MOS_SHELL_POKE_KEY (X-Mos-Shell-Key). Without the key, or when the storefront does not answer or
  *  refuses it, the page explains what to set instead of the cards.
  *
+ *  The nightly rebuild's settings (on or off, time, pages at a time, pause, catch-up) are saved here, in the option
+ *  mos_shell_settings (never autoloaded), and sent to the storefront; the page re-sends them when the storefront has lost
+ *  its copy (see mos_shell_admin_heal).
+ *
  * Author: Músík og Sport
- * Version: 1.0.0
+ * Version: 1.1.0
  */
 
 declare(strict_types=1);
@@ -28,6 +32,21 @@ const MOS_SHELL_ADMIN_TTL = 10;
 /** The page reloads itself this often (ms) while a run is going. */
 const MOS_SHELL_ADMIN_RELOAD_MS = 15000;
 const MOS_SHELL_ADMIN_CACHE = 'mos_shell_admin_status';
+/** The saved nightly settings: one option, never autoloaded (the page's source of truth; the storefront holds a copy). */
+const MOS_SHELL_ADMIN_SETTINGS = 'mos_shell_settings';
+/** Set when a push of the settings failed: the next push waits this long (seconds), so a broken storefront is not hammered. */
+const MOS_SHELL_ADMIN_PUSH_FAILED = 'mos_shell_settings_push_failed';
+const MOS_SHELL_ADMIN_PUSH_WAIT = 60;
+/** Set while a reset is on its way to the storefront: the self-heal holds off, so it does not send back the copy the reset
+ *  is removing (seconds; the reset clears it when done). */
+const MOS_SHELL_ADMIN_RESETTING = 'mos_shell_settings_resetting';
+const MOS_SHELL_ADMIN_RESET_HOLD = 60;
+const MOS_SHELL_ADMIN_SETTING_KEYS = ['enabled', 'at', 'concurrency', 'pauseMs', 'catchUp'];
+/** The finished runs the storefront keeps and the page lists (the same bound as src/lib/nightlySettings.ts RUNS_KEPT). */
+const MOS_SHELL_ADMIN_RUNS = 7;
+/** The bounds of the settings (the same as src/lib/nightlySettings.ts). */
+const MOS_SHELL_ADMIN_PAUSE_MAX = 30000;
+const MOS_SHELL_ADMIN_CONCURRENCY_MAX = 4;
 
 /** Bytes as Icelandic text (1536 is "1,5 KB"). Pure. */
 function mos_shell_admin_bytes(int $bytes): string {
@@ -80,6 +99,129 @@ function mos_shell_admin_str($v, int $max = 200): ?string {
     return function_exists('mb_substr') ? mb_substr($v, 0, $max, 'UTF-8') : substr($v, 0, $max);
 }
 
+/** The problem with one setting's value, as Icelandic text, or null when it is fine (the same bounds and words as
+ *  src/lib/nightlySettings.ts). Pure. */
+function mos_shell_settings_problem(string $key, $v): ?string {
+    switch ($key) {
+        case 'enabled':
+        case 'catchUp':
+            return is_bool($v) ? null : ($key === 'enabled' ? 'Kveikt' : 'Bæta upp keyrslu') . ' þarf að vera true eða false.';
+        case 'at':
+            return is_string($v) && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $v) === 1 ? null : 'Tíminn þarf að vera á forminu HH:MM (00:00 til 23:59).';
+        case 'concurrency':
+            return is_int($v) && $v >= 1 && $v <= MOS_SHELL_ADMIN_CONCURRENCY_MAX ? null : 'Fjöldi síðna í einu þarf að vera heiltala frá 1 til ' . MOS_SHELL_ADMIN_CONCURRENCY_MAX . '.';
+        case 'pauseMs':
+            return is_int($v) && $v >= 0 && $v <= MOS_SHELL_ADMIN_PAUSE_MAX ? null : 'Hlé milli síðna þarf að vera heiltala frá 0 til ' . MOS_SHELL_ADMIN_PAUSE_MAX . ' millisekúndur.';
+    }
+    return 'Óþekktur reitur.';
+}
+
+/** The values a settings form posted, typed and checked: ['values' => all five, 'problems' => [...]]. A checkbox that is
+ *  not ticked is false. Pure. */
+function mos_shell_settings_from_form(array $post): array {
+    $cRaw = is_string($post['concurrency'] ?? null) ? $post['concurrency'] : '';
+    $pRaw = is_string($post['pauseMs'] ?? null) ? trim($post['pauseMs']) : '';
+    $values = [
+        'enabled' => (string) ($post['enabled'] ?? '') === '1',
+        'at' => is_string($post['at'] ?? null) ? trim($post['at']) : '',
+        'concurrency' => preg_match('/^\d+$/', $cRaw) === 1 ? (int) $cRaw : null,
+        'pauseMs' => preg_match('/^\d{1,6}$/', $pRaw) === 1 ? (int) $pRaw : null,
+        'catchUp' => (string) ($post['catchUp'] ?? '') === '1',
+    ];
+    $problems = [];
+    foreach (MOS_SHELL_ADMIN_SETTING_KEYS as $key) {
+        $p = mos_shell_settings_problem($key, $values[$key]);
+        if ($p !== null) { $problems[] = $p; }
+    }
+    return ['values' => $values, 'problems' => $problems];
+}
+
+/** The known settings only, valid ones only, in key order: what is compared and kept. Pure. */
+function mos_shell_settings_canon(array $s): array {
+    $out = [];
+    foreach (MOS_SHELL_ADMIN_SETTING_KEYS as $key) {
+        if (array_key_exists($key, $s) && mos_shell_settings_problem($key, $s[$key]) === null) { $out[$key] = $s[$key]; }
+    }
+    return $out;
+}
+
+/** The option's value when it holds all five settings, valid, or null. Pure. */
+function mos_shell_settings_full($v): ?array {
+    if (!is_array($v)) { return null; }
+    $c = mos_shell_settings_canon($v);
+    return count($c) === count(MOS_SHELL_ADMIN_SETTING_KEYS) ? $c : null;
+}
+
+/** Whether the storefront's copy differs from the saved option. No option means nothing to send: false. A missing copy
+ *  differs. Pure. */
+function mos_shell_settings_differs(?array $option, ?array $remote): bool {
+    if ($option === null) { return false; }
+    if ($remote === null) { return true; }
+    return mos_shell_settings_canon($option) !== mos_shell_settings_canon($remote);
+}
+
+/** The self-heal decision: push the option when it differs from the storefront's copy, no push failed within the last
+ *  MOS_SHELL_ADMIN_PUSH_WAIT seconds, and no reset is in progress (`held`). Pure. */
+function mos_shell_settings_should_push(?array $option, ?array $remote, ?int $failedAt, int $now, bool $held = false): bool {
+    if ($held) { return false; }
+    if (!mos_shell_settings_differs($option, $remote)) { return false; }
+    return $failedAt === null || $now - $failedAt >= MOS_SHELL_ADMIN_PUSH_WAIT;
+}
+
+/** The request that sends the saved settings, or clears the storefront's copy (null). Pure. */
+function mos_shell_settings_body(?array $values): array {
+    return ['action' => 'settings', 'settings' => $values];
+}
+
+/** The notice key for a settings save or a reset, from the storefront's code and whether it kept the copy on disk (null when
+ *  it did not say). A save is always kept here, even when the storefront did not take it: the self-heal sends it again.
+ *  Pure. */
+function mos_shell_settings_notice(string $do, int $code, ?bool $persisted = true): string {
+    if ($do === 'settings') { return $code === 200 && $persisted !== false ? 'settings-saved' : 'settings-saved-unsent'; }
+    return $code === 200 ? 'settings-defaults' : 'settings-defaults-failed';
+}
+
+/** How a finished run ended, as Icelandic text; '' when it ended on its own. Pure. */
+function mos_shell_admin_stop_text(bool $early, ?string $why): string {
+    if (!$early) { return '–'; }
+    return [
+        'failures' => 'stöðvaðist eftir röð villna',
+        'stopped' => 'stöðvuð handvirkt',
+        'error' => 'stöðvaðist vegna villu',
+    ][$why ?? ''] ?? 'stöðvaðist snemma';
+}
+
+/** The measured time per page and the pages per minute of a run, as Icelandic text, or null when there is no measure. Pure. */
+function mos_shell_admin_per_page(?float $msPerPage, ?float $pagesPerMinute): ?string {
+    if ($msPerPage === null) { return null; }
+    $sec = number_format($msPerPage / 1000, 1, ',', '.') . ' sek á síðu';
+    if ($pagesPerMinute === null) { return $sec; }
+    return $sec . ', ' . number_format($pagesPerMinute, 0, ',', '.') . ' síður á mínútu';
+}
+
+/** One run as the status gives it, narrowed. Null when it is not a run. Pure. */
+function mos_shell_admin_run($l): ?array {
+    if (!is_array($l)) { return null; }
+    $stoppedWhy = $l['stoppedWhy'] ?? null;
+    $num = static fn($v): ?float => is_int($v) || is_float($v) ? (float) $v : null;
+    return [
+        'startedAt' => mos_shell_admin_int($l['startedAt'] ?? null) ?? 0,
+        'endedAt' => mos_shell_admin_int($l['endedAt'] ?? null),
+        'durationMs' => mos_shell_admin_int($l['durationMs'] ?? null) ?? 0,
+        'total' => mos_shell_admin_int($l['total'] ?? null),
+        'visited' => mos_shell_admin_int($l['visited'] ?? null) ?? 0,
+        'hits' => mos_shell_admin_int($l['hits'] ?? null) ?? 0,
+        'rendered' => mos_shell_admin_int($l['rendered'] ?? null) ?? 0,
+        'gone' => mos_shell_admin_int($l['gone'] ?? null) ?? 0,
+        'failures' => mos_shell_admin_int($l['failures'] ?? null) ?? 0,
+        'stoppedEarly' => ($l['stoppedEarly'] ?? false) === true,
+        'stoppedWhy' => in_array($stoppedWhy, MOS_SHELL_ADMIN_STOPPED, true) ? $stoppedWhy : null,
+        'concurrency' => mos_shell_admin_int($l['concurrency'] ?? null),
+        'msPerPage' => $num($l['msPerPage'] ?? null),
+        'pagesPerMinute' => $num($l['pagesPerMinute'] ?? null),
+    ];
+}
+
 /** The storefront's status JSON, checked and narrowed to the values the page uses. Anything that is not of the expected
  *  shape is dropped (null or the default), so nothing the storefront sends reaches the page unchecked. Null when the
  *  answer is not a status at all. Pure. */
@@ -93,21 +235,34 @@ function mos_shell_admin_parse($json): ?array {
 
     $why = $sch['why'] ?? null;
     $folder = $store['folder'] ?? null;
-    $last = null;
-    if (is_array($json['lastRun'] ?? null)) {
-        $l = $json['lastRun'];
-        $stoppedWhy = $l['stoppedWhy'] ?? null;
-        $last = [
-            'startedAt' => mos_shell_admin_int($l['startedAt'] ?? null) ?? 0,
-            'endedAt' => mos_shell_admin_int($l['endedAt'] ?? null),
-            'durationMs' => mos_shell_admin_int($l['durationMs'] ?? null) ?? 0,
-            'visited' => mos_shell_admin_int($l['visited'] ?? null) ?? 0,
-            'hits' => mos_shell_admin_int($l['hits'] ?? null) ?? 0,
-            'rendered' => mos_shell_admin_int($l['rendered'] ?? null) ?? 0,
-            'gone' => mos_shell_admin_int($l['gone'] ?? null) ?? 0,
-            'failures' => mos_shell_admin_int($l['failures'] ?? null) ?? 0,
-            'stoppedEarly' => ($l['stoppedEarly'] ?? false) === true,
-            'stoppedWhy' => in_array($stoppedWhy, MOS_SHELL_ADMIN_STOPPED, true) ? $stoppedWhy : null,
+    $last = mos_shell_admin_run($json['lastRun'] ?? null);
+    $runs = [];
+    foreach (is_array($json['recentRuns'] ?? null) ? array_slice($json['recentRuns'], 0, MOS_SHELL_ADMIN_RUNS) : [] as $r) {
+        $run = mos_shell_admin_run($r);
+        if ($run !== null) { $runs[] = $run; }
+    }
+
+    // The storefront's settings: the effective values, where each comes from, its saved copy, the estimate. Null for a
+    // storefront that does not report them (an older one).
+    $settings = null;
+    if (is_array($json['settings'] ?? null)) {
+        $set = $json['settings'];
+        $eff = is_array($set['effective'] ?? null) ? $set['effective'] : [];
+        $src = is_array($set['source'] ?? null) ? $set['source'] : [];
+        $source = [];
+        foreach (MOS_SHELL_ADMIN_SETTING_KEYS as $key) { $source[$key] = ($src[$key] ?? null) === 'saved' ? 'saved' : 'env/default'; }
+        $saved = is_array($set['saved'] ?? null) ? mos_shell_settings_canon($set['saved']) : [];
+        $settings = [
+            'effective' => [
+                'enabled' => ($eff['enabled'] ?? false) === true,
+                'at' => mos_shell_admin_str($eff['at'] ?? null, 5) ?? '05:00',
+                'concurrency' => mos_shell_admin_int($eff['concurrency'] ?? null) ?? 2,
+                'pauseMs' => mos_shell_admin_int($eff['pauseMs'] ?? null) ?? 100,
+                'catchUp' => ($eff['catchUp'] ?? true) === true,
+            ],
+            'source' => $source,
+            'saved' => $saved === [] ? null : $saved,
+            'estimateMs' => mos_shell_admin_int($set['estimateMs'] ?? null),
         ];
     }
 
@@ -156,6 +311,8 @@ function mos_shell_admin_parse($json): ?array {
         'lastPath' => mos_shell_admin_str($run['lastPath'] ?? null),
         'stopRequested' => ($run['stopRequested'] ?? false) === true,
         'lastRun' => $last,
+        'runs' => $runs,
+        'settings' => $settings,
         'failureList' => $failures,
     ];
 }
@@ -189,7 +346,7 @@ function mos_shell_admin_outcome(string $do, int $code): string {
 /** Whether the user may send an action. Run and clear are for administrators (they walk every page, or empty the
  *  store); stop and a single page refresh stay with editors. Pure. */
 function mos_shell_admin_allowed(string $do, bool $manage): bool {
-    if ($do === 'run' || $do === 'clear') { return $manage; }
+    if ($do === 'run' || $do === 'clear' || $do === 'settings' || $do === 'defaults') { return $manage; }
     return in_array($do, ['stop', 'refresh'], true);
 }
 
@@ -219,6 +376,12 @@ function mos_shell_admin_text(string $key): ?array {
         'stop-sent' => ['success', 'Beðið um stöðvun. Keyrslan stöðvast eftir núverandi síðu.'],
         'stop-refused' => ['warning', 'Engin keyrsla er í gangi.'],
         'refresh-done' => ['success', 'Síðan er merkt til endurbyggingar við næstu heimsókn.'],
+        'settings-saved' => ['success', 'Stillingarnar eru vistaðar og komnar til vefsins.'],
+        'settings-saved-unsent' => ['warning', 'Stillingarnar eru vistaðar hér, en vefurinn tók þær ekki. Þær eru sendar aftur við næstu uppfærslu síðunnar.'],
+        'settings-invalid' => ['error', 'Stillingarnar eru ekki gildar: athugaðu að tíminn sé HH:MM, fjöldinn 1 til 4 og hléið 0 til 30000 ms.'],
+        'settings-defaults' => ['success', 'Vistuðu stillingunum er eytt. Vefurinn notar nú gildi umhverfisins eða sjálfgefin gildi.'],
+        'settings-defaults-failed' => ['warning', 'Ekki tókst að eyða stillingunum á vefnum. Vistuðu stillingarnar gilda enn hér.'],
+        'settings-resent' => ['info', 'Vefurinn hafði ekki vistuðu stillingarnar, svo þær voru sendar aftur.'],
         'refresh-refused' => ['warning', 'Ekki var hægt að merkja síðuna: geymslan er slökkt.'],
         'refresh-bad-path' => ['warning', 'Slóðin er ekki vörusíða eða flokkssíða vefsins, til dæmis /vara/nafn/ eða /verslun/flokkur/nafn/.'],
         'clear-done' => ['success', 'Geymslan var tæmd. Síðurnar endurbyggjast við heimsóknir.'],
@@ -288,6 +451,8 @@ function mos_shell_admin_css(): string {
 .mos-sg td, .mos-sg th { text-align: left; padding: 4px 6px; border-bottom: 1px solid #f0f0f1; vertical-align: top; }
 .mos-sg__warn { color: #8a2424; }
 .mos-sg form { margin: 0 0 12px; }
+.mos-sg__field { margin: 0 0 14px; }
+.mos-sg__field .mos-sg__meta { margin: 4px 0 0; }
 ';
 }
 
@@ -295,15 +460,37 @@ function mos_shell_admin_css(): string {
 function mos_shell_admin_fetch(): array {
     // A status read shortly before is shown again: every open tab reloads, so this keeps the storefront calls to a few a minute.
     $cached = get_transient(MOS_SHELL_ADMIN_CACHE);
-    if (is_array($cached)) { return ['status' => $cached, 'problem' => null]; }
+    if (is_array($cached)) { return ['status' => $cached, 'problem' => null, 'pushed' => false]; }
     $res = mos_shell_admin_call('GET');
     if ($res['code'] === 200) {
         $status = mos_shell_admin_parse($res['json']);
-        if ($status === null) { return ['status' => null, 'problem' => 'bad']; }
+        if ($status === null) { return ['status' => null, 'problem' => 'bad', 'pushed' => false]; }
+        // Checked on a fresh read only (never on the cached one): a stale copy must not cause a push on every render.
+        $pushed = mos_shell_admin_heal($status);
         set_transient(MOS_SHELL_ADMIN_CACHE, $status, MOS_SHELL_ADMIN_TTL);
-        return ['status' => $status, 'problem' => null];
+        return ['status' => $status, 'problem' => null, 'pushed' => $pushed];
     }
-    return ['status' => null, 'problem' => mos_shell_admin_problem($res['code'])];
+    return ['status' => null, 'problem' => mos_shell_admin_problem($res['code']), 'pushed' => false];
+}
+
+/** Re-sends the saved settings when the storefront's copy differs from the option: its copy is lost when its temp folder
+ *  is cleared by a reboot. At most one push per status fetch, and none while a push failed in the last minute. Returns
+ *  true when one was sent; the status is then updated to the copy that was sent. A storefront that reports no settings
+ *  is not pushed to. */
+function mos_shell_admin_heal(array &$status): bool {
+    if ($status['settings'] === null) { return false; }
+    $option = mos_shell_settings_full(get_option(MOS_SHELL_ADMIN_SETTINGS, null));
+    $failed = get_transient(MOS_SHELL_ADMIN_PUSH_FAILED);
+    $held = get_transient(MOS_SHELL_ADMIN_RESETTING) !== false;
+    if (!mos_shell_settings_should_push($option, $status['settings']['saved'], is_int($failed) ? $failed : null, time(), $held)) { return false; }
+    $res = mos_shell_admin_call('POST', mos_shell_settings_body($option));
+    if ($res['code'] === 200) {
+        delete_transient(MOS_SHELL_ADMIN_PUSH_FAILED);
+        $status['settings']['saved'] = $option;
+        return true;
+    }
+    set_transient(MOS_SHELL_ADMIN_PUSH_FAILED, time(), MOS_SHELL_ADMIN_PUSH_WAIT);
+    return false;
 }
 
 function mos_shell_admin_notice_html(string $type, string $text): string {
@@ -326,9 +513,14 @@ function mos_shell_admin_render(): void {
     }
     $s = $state['status'];
     $running = $s['running'];
+    if ($state['pushed']) {
+        $resent = mos_shell_admin_text('settings-resent');
+        echo mos_shell_admin_notice_html($resent[0], $resent[1]);
+    }
     echo '<div class="mos-sg__cards">';
     mos_shell_admin_card_overview($s);
     mos_shell_admin_card_nightly($s);
+    mos_shell_admin_card_settings($s, current_user_can('manage_options'));
     mos_shell_admin_card_actions($s);
     echo '</div>';
     if ($running) {
@@ -364,7 +556,8 @@ function mos_shell_admin_card_overview(array $s): void {
 
 function mos_shell_admin_card_nightly(array $s): void {
     echo '<section class="mos-sg__card"><h2>Næturkeyrsla' . ($s['at'] !== null ? ' (' . esc_html($s['at']) . ')' : '') . '</h2>';
-    $state = $s['armed'] ? 'Virk.' : (mos_shell_admin_why_text($s['why']) ?? 'Óvirk.');
+    $source = $s['settings']['source']['enabled'] ?? 'env/default';
+    $state = $s['armed'] ? 'Virk.' : (mos_shell_admin_why_text($s['why'], $source) ?? 'Óvirk.');
     echo '<p>' . esc_html($state) . '</p><dl class="mos-sg__rows">';
     echo mos_shell_admin_row('Næsta keyrsla', $s['nextRunAt'] === null ? '–' : mos_shell_admin_when($s['nextRunAt']));
     if ($s['lastRun'] !== null) {
@@ -373,6 +566,8 @@ function mos_shell_admin_card_nightly(array $s): void {
         $tally = $l['visited'] . ' síður: ' . $l['rendered'] . ' endurbyggðar, ' . $l['hits'] . ' í geymslu, ' . $l['gone'] . ' horfnar, ' . $l['failures'] . ' villur.' . $why;
         echo mos_shell_admin_row('Síðasta keyrsla', mos_shell_admin_when($l['startedAt']) . ', tók ' . mos_shell_admin_duration($l['durationMs']));
         echo mos_shell_admin_row('Niðurstaða', $tally);
+        $per = mos_shell_admin_per_page($l['msPerPage'], $l['pagesPerMinute']);
+        if ($per !== null) { echo mos_shell_admin_row('Mælt', $per); }
     } elseif ($s['lastStart'] !== null) {
         echo mos_shell_admin_row('Síðasta keyrsla', 'Hófst ' . mos_shell_admin_when($s['lastStart']) . '. Lokin eru ekki skráð í þessu ferli.');
     } else {
@@ -380,6 +575,16 @@ function mos_shell_admin_card_nightly(array $s): void {
     }
     echo '</dl>';
     if ($s['running']) { mos_shell_admin_progress($s); }
+    if ($s['runs'] !== []) {
+        echo '<h3>Síðustu keyrslur</h3><table><thead><tr><th>Byrjun</th><th>Tími</th><th>Síður</th><th>Endurbyggðar</th><th>Villur</th><th>Stöðvun</th></tr></thead><tbody>';
+        foreach ($s['runs'] as $r) {
+            $stop = mos_shell_admin_stop_text($r['stoppedEarly'], $r['stoppedWhy']);
+            echo '<tr><td>' . esc_html(mos_shell_admin_when($r['startedAt'])) . '</td><td>' . esc_html(mos_shell_admin_duration($r['durationMs'])) . '</td>'
+                . '<td>' . esc_html((string) $r['visited']) . '</td><td>' . esc_html((string) $r['rendered']) . '</td>'
+                . '<td>' . esc_html((string) $r['failures']) . '</td><td>' . esc_html($stop) . '</td></tr>';
+        }
+        echo '</tbody></table>';
+    }
     if ($s['failureList'] !== []) {
         echo '<h3>Nýlegar villur</h3><table><thead><tr><th>Slóð</th><th>Svar</th><th>Tími</th></tr></thead><tbody>';
         foreach ($s['failureList'] as $f) {
@@ -392,10 +597,11 @@ function mos_shell_admin_card_nightly(array $s): void {
     echo '</section>';
 }
 
-function mos_shell_admin_why_text(?string $why): ?string {
+function mos_shell_admin_why_text(?string $why, string $source = 'env/default'): ?string {
+    $off = $source === 'saved' ? 'Slökkt í stillingunum hér að neðan.' : 'Slökkt með MOS_SHELL_REBUILD_AT=off.';
     return [
         'store-off' => 'Geymslan er slökkt, svo næturkeyrslan gerir ekkert.',
-        'off' => 'Slökkt með MOS_SHELL_REBUILD_AT=off.',
+        'off' => $off,
         'no-base' => 'Engin grunnslóð: stilltu MOS_SHELL_REBUILD_BASE eða MOS_EXTRA_ALLOWED_HOSTS í umhverfi vefsins.',
         'waiting' => 'Bíður eftir fyrstu beiðni í vefnum (hún ræsir tímateljarann).',
     ][$why ?? ''] ?? null;
@@ -422,6 +628,62 @@ function mos_shell_admin_progress(array $s): void {
     if ($s['pauseMs'] !== null) { echo 'Hlé: ' . esc_html(mos_shell_admin_duration($s['pauseMs'])) . '. '; }
     if ($s['stopRequested']) { echo '<span class="mos-sg__warn">Stöðvun beðin: stöðvast eftir núverandi síðu.</span>'; }
     echo '</p>';
+}
+
+/** One settings control with its one-sentence explanation under it. */
+function mos_shell_admin_field(string $control, string $help): string {
+    return '<div class="mos-sg__field">' . $control . '<p class="mos-sg__meta">' . esc_html($help) . '</p></div>';
+}
+
+function mos_shell_admin_card_settings(array $s, bool $manage): void {
+    echo '<section class="mos-sg__card"><h2>Stillingar næturkeyrslu</h2>';
+    if ($s['settings'] === null) {
+        echo '<p class="mos-sg__meta">Vefurinn sendir ekki stillingar: uppfærðu hann til að stilla keyrsluna hér.</p></section>';
+        return;
+    }
+    $option = mos_shell_settings_full(get_option(MOS_SHELL_ADMIN_SETTINGS, null));
+    $v = $option ?? $s['settings']['effective'];
+    $url = esc_url(admin_url('admin-post.php'));
+    $nonce = wp_nonce_field('mos_shell_admin_do', '_wpnonce', true, false);
+    $dis = $manage ? '' : ' disabled';
+    echo '<p class="mos-sg__meta">' . ($option !== null ? 'Sýnd gildi eru vistuð hér.' : 'Engin stilling er vistuð hér: sýnd eru gildi vefsins.') . '</p>';
+    if (!$manage) { echo '<p class="mos-sg__meta">Aðeins stjórnendur geta breytt stillingunum.</p>'; }
+    echo '<form method="post" action="' . $url . '">' . $nonce . '<input type="hidden" name="action" value="mos_shell_admin_do">';
+    echo mos_shell_admin_field(
+        '<label><input type="checkbox" name="enabled" value="1"' . ($v['enabled'] ? ' checked' : '') . $dis . '> Næturkeyrsla er kveikt</label>',
+        'Slökkt: engin næturkeyrsla. Keyrsla sem er þegar í gangi heldur áfram þangað til hún er stöðvuð með „Stöðva keyrslu“.'
+    );
+    echo mos_shell_admin_field(
+        '<label for="mos-sg-at">Tími (Reykjavík)</label> <input type="time" id="mos-sg-at" name="at" value="' . esc_attr($v['at']) . '" required'
+        . ' pattern="([01][0-9]|2[0-3]):[0-5][0-9]"' . $dis . '>',
+        'Hvenær síðurnar eru endurbyggðar á hverri nóttu. Ný stilling færir næstu keyrslu en ræsir ekki keyrslu strax.'
+    );
+    $select = '<label for="mos-sg-concurrency">Síður í einu</label> <select id="mos-sg-concurrency" name="concurrency"' . $dis . '>';
+    for ($n = 1; $n <= MOS_SHELL_ADMIN_CONCURRENCY_MAX; $n++) {
+        $select .= '<option value="' . $n . '"' . ($v['concurrency'] === $n ? ' selected' : '') . '>' . $n . '</option>';
+    }
+    $select .= '</select>';
+    echo mos_shell_admin_field($select, 'Hversu margar síður eru endurbyggðar í einu. Vefurinn lækkar sig sjálfur í eina síðu meðan hann svarar illa.');
+    echo mos_shell_admin_field(
+        '<label for="mos-sg-pause">Hlé milli síðna (ms)</label> <input type="number" id="mos-sg-pause" name="pauseMs" min="0" max="' . MOS_SHELL_ADMIN_PAUSE_MAX
+        . '" step="1" value="' . (int) $v['pauseMs'] . '" class="small-text" required' . $dis . '>',
+        'Í millisekúndum, 0 til ' . MOS_SHELL_ADMIN_PAUSE_MAX . '. Tvöfaldast við hverja slæma svörun og lækkar aftur í þetta gildi.'
+    );
+    echo mos_shell_admin_field(
+        '<label><input type="checkbox" name="catchUp" value="1"' . ($v['catchUp'] ? ' checked' : '') . $dis . '> Bæta upp keyrslu sem missist</label>',
+        'Ef enginn vefþjónn var uppi um tímann keyrir hann næturkeyrsluna þegar hann vaknar, innan þriggja klukkustunda. Slökkt: aðeins fimm mínútur eftir tímann.'
+    );
+    $est = $s['settings']['estimateMs'];
+    if ($est !== null) {
+        echo '<p class="mos-sg__meta">Áætluð lengd keyrslu: ' . esc_html(mos_shell_admin_duration($est))
+            . ', miðað við síðustu keyrslu og ' . (int) $s['settings']['effective']['concurrency'] . ' síður í einu.</p>';
+    }
+    echo '<button type="submit" name="do" value="settings" class="button button-primary"' . $dis . '>Vista stillingar</button></form>';
+    echo '<form method="post" action="' . $url . '">' . $nonce
+        . '<input type="hidden" name="action" value="mos_shell_admin_do"><input type="hidden" name="do" value="defaults">'
+        . '<button type="submit" class="button"' . $dis . '>Nota sjálfgefin gildi</button>'
+        . '<p class="mos-sg__meta">Eyðir vistuðu stillingunum hér og á vefnum. Þá gilda gildi umhverfisins (MOS_SHELL_REBUILD_*) eða sjálfgefin gildi.</p></form>';
+    echo '</section>';
 }
 
 function mos_shell_admin_card_actions(array $s): void {
@@ -454,6 +716,36 @@ function mos_shell_admin_card_actions(array $s): void {
     echo '</section>';
 }
 
+/** Saves the posted settings (checked first; a refused set changes nothing), then sends them to the storefront. The option
+ *  is written before the push, so a push that fails is sent again by the self-heal. Returns the notice key. */
+function mos_shell_admin_save_settings(): string {
+    $form = mos_shell_settings_from_form(wp_unslash($_POST));
+    if ($form['problems'] !== []) { return 'settings-invalid'; }
+    update_option(MOS_SHELL_ADMIN_SETTINGS, $form['values'], false);
+    $res = mos_shell_admin_call('POST', mos_shell_settings_body($form['values']));
+    if ($res['code'] === 200) { delete_transient(MOS_SHELL_ADMIN_PUSH_FAILED); }
+    else { set_transient(MOS_SHELL_ADMIN_PUSH_FAILED, time(), MOS_SHELL_ADMIN_PUSH_WAIT); }
+    delete_transient(MOS_SHELL_ADMIN_CACHE);
+    $persisted = is_array($res['json']) && array_key_exists('persisted', $res['json']) ? (bool) $res['json']['persisted'] : null;
+    return mos_shell_settings_notice('settings', $res['code'], $persisted);
+}
+
+/** Drops the saved settings: the storefront's copy first, and the option only once it has gone (if the storefront cannot
+ *  take the reset, the option stays, so the self-heal does not restore the copy it had). Returns the notice key. */
+function mos_shell_admin_reset_settings(): string {
+    // Held before the request, so a status read in the gap between the storefront's answer and the option's removal does
+    // not push the old copy back.
+    set_transient(MOS_SHELL_ADMIN_RESETTING, time(), MOS_SHELL_ADMIN_RESET_HOLD);
+    $res = mos_shell_admin_call('POST', mos_shell_settings_body(null));
+    if ($res['code'] === 200) {
+        delete_option(MOS_SHELL_ADMIN_SETTINGS);
+        delete_transient(MOS_SHELL_ADMIN_PUSH_FAILED);
+    }
+    delete_transient(MOS_SHELL_ADMIN_RESETTING);
+    delete_transient(MOS_SHELL_ADMIN_CACHE);
+    return mos_shell_settings_notice('defaults', $res['code']);
+}
+
 /** Admin-post handler for every form on the page: checks the nonce and the right, sends the storefront's request and
  *  redirects back with a notice key (never the storefront's own words). */
 function mos_shell_admin_handle(): void {
@@ -465,6 +757,10 @@ function mos_shell_admin_handle(): void {
     $req = mos_shell_admin_request($do, $path, $confirmed);
     if (!mos_shell_admin_allowed($do, current_user_can('manage_options'))) {
         $key = 'not-allowed';
+    } elseif ($do === 'settings') {
+        $key = mos_shell_admin_save_settings();
+    } elseif ($do === 'defaults') {
+        $key = mos_shell_admin_reset_settings();
     } elseif (isset($req['notice'])) {
         $key = $req['notice'];
     } else {

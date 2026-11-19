@@ -83,7 +83,13 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
   shared key `MOS_SHELL_POKE_KEY` (define it in `wp-config.php`, the same value as on the storefront) and
   `mos_headless_target_base()` (`MOS_STOREFRONT_URL`). Without the key, or when the storefront does not answer or answers 403, the
   page explains what to set instead. Everything the storefront sends is checked before it is shown and escaped. The page reloads
-  every 15 seconds only while a run is going. Tests: `php tests/mos_shell_admin_test.php` (sizes, durations, the path rule, the
+  every 15 seconds only while a run is going.
+  The card "Stillingar næturkeyrslu" saves the nightly settings (on or off, time, pages at a time, pause in milliseconds, catch-up)
+  in the option `mos_shell_settings` (autoload off; administrators only, others see the values read-only) and sends them to the
+  storefront at once; "Nota sjálfgefin gildi" removes the option and the storefront's copy. The page checks on each fresh status
+  read that the storefront holds the saved copy, and re-sends it when it does not (at most once per read, and not again within a
+  minute of a failed push), then says so. Any page viewer can trigger that re-send, because it only repeats the administrator's
+  saved option. The overview shows the last run's time per page and pages per minute, and the list of the last seven runs. Tests: `php tests/mos_shell_admin_test.php` (sizes, durations, the path rule, the
   status narrowing, outcomes and notices). Endpoint contract: DEPLOY.md, "Admin endpoint".
 - **mos-search.php** — the product search behind the storefront's `/?s=` page and the live results in its search
   sheet. It swaps the search clause of the Store API's `search` (and WordPress's `s`) for its own: every word has to

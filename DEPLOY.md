@@ -47,7 +47,7 @@ proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
 | `MOS_SHELL` | runtime | Optional. `off` turns the rendered-page store off: every page is rendered on every request, as before. Default: on. |
 | `MOS_SHELL_DIR` | runtime | Optional. The folder the rendered pages are kept in. Default: `mos-shells` in the system temp directory, which a reboot can clear (the pages are then rendered again). Set a durable folder on the server. |
 | `MOS_SHELL_FRESH_MS` | runtime | Optional, milliseconds: overrides every stored page's lifetime. For tests and a quick check of the refresh path; leave unset in production. |
-| `MOS_SHELL_REBUILD_AT` | runtime | Optional, default `05:00`: the time of day (`HH:MM`, Atlantic/Reykjavik, which is UTC all year) at which every stored product page and listing is marked stale and walked again ("Nightly rebuild" below). `off` turns it off. A value that cannot be read gives 05:00 and a log line. |
+| `MOS_SHELL_REBUILD_AT` | runtime | Optional. **The nightly rebuild is off by default**: it runs only when this holds a time, or when it is switched on in wp-admin (Stillingar → Síðugeymsla). The time of day (`HH:MM`, Atlantic/Reykjavik, which is UTC all year) at which every stored product page and listing is marked stale and walked again ("Nightly rebuild" below). `off` turns it off. A value that cannot be read gives 05:00 and a log line. |
 | `MOS_SHELL_REBUILD_BASE` | runtime | Optional, an `https://` (or `http://`, for a local run) origin: the one the nightly walk requests (only its origin is used). Default: `https://` plus the first host of `MOS_EXTRA_ALLOWED_HOSTS`, which must then also be in the run-time environment (set it here when it is not). Never the apex, which is behind the CDN cache. With neither, the nightly rebuild does nothing (the development server does nothing too). |
 | `MOS_SHELL_REBUILD_CONCURRENCY` | runtime | Optional, default `2`: how many pages the nightly walk renders at once, an integer `1` to `4`. Anything else gives `2` and a log line. Drops to `1` by itself while WordPress answers badly (see "Nightly rebuild"). |
 | `MOS_SHELL_REBUILD_PAUSE_MS` | runtime | Optional, default `100`: the base pause in milliseconds between renders, an integer `0` to `30000`. Anything else gives `100` and a log line. The pause doubles on each bad answer and halves back to this value. |
@@ -372,12 +372,26 @@ never kept: it is read live from `/api/live/` (`no-store`) and filled in the bro
 and corrected in the browser from the same live answer, so a changed price shows within about a tenth of a second
 of the page's arrival. Cart and checkout read WooCommerce live. A page rendered with content missing (a failed
 lookup, a product photo whose colour sampling timed out) is sent `no-store` and never held, neither by the CDN nor
-**Nightly rebuild.** Once a day, at `MOS_SHELL_REBUILD_AT` (05:00 by default), the storefront walks the product and category
+**Nightly rebuild.** Off by default; switched on in wp-admin (Stillingar → Síðugeymsla) or by a time in `MOS_SHELL_REBUILD_AT`. When on, once a day at its time (05:00 unless set), the storefront walks the product and category
 URLs of its own sitemap, marking each path stale just before it is requested (so only the pages the walk has reached are stale, and
 real visitors see the stored copy until then), by requesting their paths on `MOS_SHELL_REBUILD_BASE` (the storefront's own host;
 only the path of each sitemap URL is taken, and redirects are not followed). Two workers (`MOS_SHELL_REBUILD_CONCURRENCY`, default 2)
 take paths from one shared queue; each worker waits for its page's refresh to end before it takes the next, so at most two renders run at once.
 The pause between renders is `MOS_SHELL_REBUILD_PAUSE_MS` (100 ms by default) per worker.
+
+**Settings and precedence.** The four `MOS_SHELL_REBUILD_*` variables above are the defaults. The WordPress page "Síðugeymsla"
+(card "Stillingar næturkeyrslu") saves five settings, which win over them: `enabled` (on or off), `at` (`HH:MM`, Reykjavík),
+`concurrency` (1 to 4), `pauseMs` (0 to 30000 milliseconds) and `catchUp` (whether a run missed while no process was up is
+caught up within three hours; off leaves only a five-minute grace after the time). The precedence, per field: a saved value;
+else the environment (an unset `MOS_SHELL_REBUILD_AT`, or `off`, is `enabled` false, with the time 05:00; a time in it is `enabled` true); else the default. A field that is
+not saved falls back the same way. Out-of-range values are refused with a line of text, never clamped.
+The copy on the storefront is kept in `nightly-settings.json` beside the stamp file (in `MOS_SHELL_DIR`, or the temp folder), with
+the last seven runs, written whole and atomically. A save takes effect at once: a new time moves the next run, but a save never starts
+one. Switching the run off does not stop a walk already going; use "Stöðva keyrslu" for that.
+**The source of truth is WordPress**: the option `mos_shell_settings` (never autoloaded, administrators only). The storefront holds only a copy,
+and a reboot that clears its temp folder loses that copy. The page therefore compares the storefront's saved copy with the option on
+each fresh status read and re-sends the option when they differ (at most once per read, and not again within a minute of a failed
+push). When it has re-sent, the page says so. "Nota sjálfgefin gildi" removes the option and asks the storefront to drop its copy.
 Fallback: a bad answer (5xx, a timeout, or a render over three seconds) drops the walk to one page at a time and doubles the pause
 (up to 30 s); a good answer halves it back. After 20 good answers in a row with the pause back at the base, the walk returns to its
 configured workers. Failures are counted across both workers, and five bad answers in a row stop the run, as before. The admin page
@@ -404,16 +418,23 @@ JSON (`no-store`). `POST /api/shell-admin` takes `{"action": …}`:
 - `refresh` with `"path"`: marks one stored page stale, so the next visit renders it (200). The path must be a storefront
   product or category path (`/vara/nafn/`, `/verslun/flokkur/nafn/`); anything else, a full URL included, is 400.
 - `clear`: drops every stored page of this build (200, `removed`). 409 while a run goes or the store is off.
+- `settings` with `"settings": {…}`: saves the nightly settings (200, with `settings` (the effective values), `source` (`saved` or
+  `env/default` per field), `saved` and `persisted`). Any field may be left out (it then falls back to the environment); an unknown
+  field, or a value out of range, is 400 with `problems` (one line of Icelandic text each) and nothing changes. `"settings": null`
+  drops the saved copy. The body is the same JSON as the other actions.
 
 Without `MOS_SHELL_POKE_KEY` on the storefront every request answers 403, the GET and the POST alike. With it, WordPress sends the
 same value as `X-Mos-Shell-Key`. 120 keyed requests a minute per process (429 beyond); a body over 16 KB is refused (413).
 Disk counts are taken at most once a minute. The status fields: `store` (`on`, `build` (8 characters), `folder` (`durable` when
 `MOS_SHELL_DIR` is set, else `temp`; never the path), `pagesInMemory`, `pagesOnDisk`, `diskBytes`, `diskAt`, `fresh`),
-`scheduler` (`armed`, `why` (null when armed; else `store-off`, `off`, `no-base` or `waiting` for a first request),
-`at`, `hasBase`, `nextRunAt`, `lastStart`, `lastEnd`), `run` (`running`, `startedAt`, `total`, `visited`, `hits`, `rendered`,
-`gone`, `failures`, `pauseMs`, `lastPath`, `stopRequested`), `lastRun` (the last run of this process, or null: `startedAt`,
-`endedAt`, `durationMs`, the tally, `stoppedEarly`, `stoppedWhy`) and `failures` (the last 20 bad answers, newest first:
-`path`, `status`, `at`).
+`scheduler` (`armed`, `why` (null when armed; else `store-off`, `off` (saved or environment), `no-base` or `waiting` for a first
+request), `at` (null when off), `hasBase`, `nextRunAt`, `lastStart`, `lastEnd`), `settings` (`effective`: `enabled`, `at`,
+`concurrency`, `pauseMs`, `catchUp`; `source`: per field `saved` or `env/default`; `saved`: the saved copy or null; `estimateMs`:
+the estimated duration of a run of every page at the effective concurrency, from the last run's measured time per page, or null),
+`run` (`running`, `startedAt`, `total`, `visited`, `hits`, `rendered`, `gone`, `failures`, `pauseMs`, `lastPath`, `stopRequested`,
+`workers`, `concurrency`), `lastRun` (the newest of `recentRuns`, or null: `startedAt`, `endedAt`, `durationMs`, `total`, `visited`,
+`hits`, `rendered`, `gone`, `failures`, `stoppedEarly`, `stoppedWhy`, `concurrency`, `msPerPage`, `pagesPerMinute`), `recentRuns` (the
+last seven runs, newest first, the same fields) and `failures` (the last 20 bad answers, newest first: `path`, `status`, `at`).
 
 The WordPress page "Síðugeymsla" (`wp-mu-plugins/mos-shell-admin.php`, a subpage of Stillingar, for those who may edit pages)
 reads that status with a 5 s timeout and sends the four actions through admin-post with nonces. It needs

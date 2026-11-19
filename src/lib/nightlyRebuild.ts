@@ -53,19 +53,24 @@ export function msUntilNextRun(now: number, minutes: number): number {
   return scheduledAtOrBefore(now, minutes) + DAY_MS - now;
 }
 
-/** Whether a run should start now: the latest scheduled instant has no run since it, and it is within CATCH_UP_MS.
- *  `lastStart` is when the last run started (null when there is none on record). */
-export function runDue(now: number, minutes: number, lastStart: number | null): boolean {
+/** A run due but not started within this long (ms) after the time is skipped with catch-up off: long enough for a timer that
+ *  fires a little late, short enough that a process which wakes at 09:00 does not run the 05:00 walk. */
+export const ON_TIME_GRACE_MS = 5 * MIN_MS;
+
+/** Whether a run should start now: the latest scheduled instant has no run since it, and it is within the window
+ *  (CATCH_UP_MS by default; ON_TIME_GRACE_MS when catch-up is off). `lastStart` is when the last run started (null when
+ *  there is none on record). */
+export function runDue(now: number, minutes: number, lastStart: number | null, windowMs: number = CATCH_UP_MS): boolean {
   const due = scheduledAtOrBefore(now, minutes);
   if (lastStart !== null && lastStart >= due) return false;
-  return now - due <= CATCH_UP_MS;
+  return now - due <= windowMs;
 }
 
-/** Whether the latest scheduled run was missed: no run has started since it, and it is past CATCH_UP_MS (so runDue
- *  is false for a reason other than the run being done). The runtime logs it when the process first arms. */
-export function missedRun(now: number, minutes: number, lastStart: number | null): boolean {
+/** Whether the latest scheduled run was missed: no run has started since it, and it is past the window (so runDue is
+ *  false for a reason other than the run being done). The runtime logs it when the process first arms. */
+export function missedRun(now: number, minutes: number, lastStart: number | null, windowMs: number = CATCH_UP_MS): boolean {
   const due = scheduledAtOrBefore(now, minutes);
-  return (lastStart === null || lastStart < due) && now - due > CATCH_UP_MS;
+  return (lastStart === null || lastStart < due) && now - due > windowMs;
 }
 
 /** The origin the walk requests: MOS_SHELL_REBUILD_BASE (its origin; the path is ignored) when set, otherwise the first

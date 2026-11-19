@@ -4,7 +4,7 @@ import { jsonResponse, tooManyRequests } from '../../lib/http';
 import { log, runtimeEnv } from '../../lib/logger';
 import { parseShellAdminAction } from '../../lib/shellAdmin';
 import { clearShellPages, refreshShellPath, shellAdminStatus, storeOpens } from '../../lib/shellAdminRuntime';
-import { nightlyRunning, rebuildBase, runNightlyRebuild, stopNightlyRebuild } from '../../lib/nightlyRebuildRuntime';
+import { applyNightlySettings, nightlyRunning, rebuildBase, runNightlyRebuild, stopNightlyRebuild } from '../../lib/nightlyRebuildRuntime';
 import { pokeKeyMatches, readCappedBody } from '../../lib/shellPoke';
 import { shellEnabled } from '../../lib/shellRuntime';
 
@@ -13,7 +13,8 @@ export const prerender = false;
 // The page-store admin for WordPress's "Síðugeymsla" (wp-mu-plugins/mos-shell-admin.php). Keyed only: without
 // MOS_SHELL_POKE_KEY every request is refused (403), and with it the WordPress side must send the same value as
 // X-Mos-Shell-Key. GET returns the status; POST {action} runs one of: run, stop, refresh ({path}), clear. Contract:
-// DEPLOY.md, "Admin endpoint". Never a second run; "clear" is refused while a run is going.
+// DEPLOY.md, "Admin endpoint". Never a second run; "clear" is refused while a run is going. "settings" takes
+// {settings: {…}|null}: the nightly rebuild's saved settings (src/lib/nightlySettings.ts), refused with 400 when out of range.
 const limiter = createLimiter(120, 60_000);
 
 /** The refusal for a request without the key (or with the wrong one), or a limit hit; null when the request may go on. */
@@ -71,6 +72,12 @@ export const POST: APIRoute = async ({ request }) => {
       if (!shellEnabled()) return jsonResponse({ error: 'store-off', message: 'Síðugeymslan er slökkt.' }, 409);
       if (!(await refreshShellPath(act.path))) return jsonResponse({ error: 'store-off', message: 'Síðugeymslan er slökkt.' }, 409);
       return jsonResponse({ ok: true, path: act.path }, 200);
+    }
+    if (act.action === 'settings') {
+      const r = await applyNightlySettings(act.settings);
+      if (!r.ok && r.stored === false) return jsonResponse({ error: 'not-kept', message: 'Stillingarnar voru ekki skrifaðar á disk.', problems: r.problems }, 503);
+      if (!r.ok) return jsonResponse({ error: 'invalid', message: 'Stillingarnar eru ógildar.', problems: r.problems }, 400);
+      return jsonResponse({ ok: true, settings: r.settings.effective, source: r.settings.source, saved: r.settings.saved, persisted: r.persisted }, 200);
     }
     // clear
     const removed = await clearShellPages();

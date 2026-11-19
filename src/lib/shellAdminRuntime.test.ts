@@ -15,7 +15,7 @@ beforeAll(async () => {
   process.env.MOS_SHELL = 'on';
   delete process.env.MOS_SHELL_REBUILD_BASE;
   delete process.env.MOS_EXTRA_ALLOWED_HOSTS;
-  delete process.env.MOS_SHELL_REBUILD_AT;
+  process.env.MOS_SHELL_REBUILD_AT = '05:00'; // switched on: the rebuild is off by default
 });
 afterAll(async () => {
   await new Promise((r) => setTimeout(r, 20));
