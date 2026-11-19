@@ -332,14 +332,19 @@ function mos_shell_admin_problem(int $code): string {
     return 'failed';
 }
 
-/** The notice key for an action's answer, from the action and the HTTP code. Pure. */
-function mos_shell_admin_outcome(string $do, int $code): string {
+/** The notice key for an action's answer, from the action, the HTTP code and (for a refused clear) the storefront's
+ *  reason. Pure. */
+function mos_shell_admin_outcome(string $do, int $code, ?array $json = null): string {
     if ($code === 403) { return 'forbidden'; }
     if ($code === 0 || $code === -1 || $code === -2) { return mos_shell_admin_problem($code); }
     if ($do === 'run') { return $code === 202 ? 'run-started' : ($code === 409 ? 'run-refused' : 'failed'); }
     if ($do === 'stop') { return $code === 202 ? 'stop-sent' : ($code === 409 ? 'stop-refused' : 'failed'); }
     if ($do === 'refresh') { return $code === 200 ? 'refresh-done' : ($code === 409 ? 'refresh-refused' : 'failed'); }
-    if ($do === 'clear') { return $code === 200 ? 'clear-done' : ($code === 409 ? 'clear-refused' : 'failed'); }
+    if ($do === 'clear') {
+        if ($code === 200) { return 'clear-done'; }
+        if ($code !== 409) { return 'failed'; }
+        return ($json['error'] ?? '') === 'store-off' ? 'clear-off' : 'clear-running';
+    }
     return 'unknown';
 }
 
@@ -385,7 +390,8 @@ function mos_shell_admin_text(string $key): ?array {
         'refresh-refused' => ['warning', 'Ekki var hægt að merkja síðuna: geymslan er slökkt.'],
         'refresh-bad-path' => ['warning', 'Slóðin er ekki vörusíða eða flokkssíða vefsins, til dæmis /vara/nafn/ eða /verslun/flokkur/nafn/.'],
         'clear-done' => ['success', 'Geymslan var tæmd. Síðurnar endurbyggjast við heimsóknir.'],
-        'clear-refused' => ['warning', 'Ekki var hægt að tæma: keyrsla er í gangi (stöðvaðu hana fyrst) eða geymslan er slökkt.'],
+        'clear-running' => ['warning', 'Ekki var hægt að tæma: keyrsla var í gangi. Stöðvaðu hana, bíddu þar til hún er hætt og reyndu aftur.'],
+        'clear-off' => ['warning', 'Ekki var hægt að tæma: geymslan er slökkt.'],
         'clear-unconfirmed' => ['warning', 'Staðfestu að tæma geymsluna með gátreitnum.'],
         'not-allowed' => ['error', 'Aðeins stjórnandi getur keyrt eða tæmt geymsluna.'],
         'nokey' => ['warning', 'Stilltu MOS_SHELL_POKE_KEY í wp-config.php með sama gildi og MOS_SHELL_POKE_KEY í umhverfi vefsins. Án lykils svarar þessi síða ekki.'],
@@ -765,7 +771,7 @@ function mos_shell_admin_handle(): void {
         $key = $req['notice'];
     } else {
         $res = mos_shell_admin_call('POST', $req['body']);
-        $key = mos_shell_admin_outcome($do, $res['code']);
+        $key = mos_shell_admin_outcome($do, $res['code'], $res['json']);
         delete_transient(MOS_SHELL_ADMIN_CACHE);
     }
     wp_safe_redirect(add_query_arg(['page' => MOS_SHELL_ADMIN_SLUG, 'mos_notice' => $key], admin_url('admin.php')));
@@ -774,3 +780,9 @@ function mos_shell_admin_handle(): void {
 
 add_action('admin_menu', 'mos_shell_admin_register', 20);
 add_action('admin_post_mos_shell_admin_do', 'mos_shell_admin_handle');
+// The notice key leaves the address once the page has shown it (WordPress rewrites the address for these arguments),
+// so a reload or a bookmark does not show an old notice again.
+add_filter('removable_query_args', static function ($args) {
+    $args[] = 'mos_notice';
+    return $args;
+});

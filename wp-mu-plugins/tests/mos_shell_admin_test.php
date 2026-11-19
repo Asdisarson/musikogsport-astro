@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 define('ABSPATH', __DIR__ . '/');
 function add_action(...$args): void {}
+function add_filter(...$args): void {}
 function add_submenu_page(...$args): void {}
 
 require __DIR__ . '/../mos-shell-admin.php';
@@ -116,7 +117,9 @@ check('outcome: stop sent', mos_shell_admin_outcome('stop', 202), 'stop-sent');
 check('outcome: stop with nothing running', mos_shell_admin_outcome('stop', 409), 'stop-refused');
 check('outcome: rebuilt', mos_shell_admin_outcome('refresh', 200), 'refresh-done');
 check('outcome: cleared', mos_shell_admin_outcome('clear', 200), 'clear-done');
-check('outcome: clear refused while running', mos_shell_admin_outcome('clear', 409), 'clear-refused');
+check('outcome: clear refused while running', mos_shell_admin_outcome('clear', 409, ['error' => 'running']), 'clear-running');
+check('outcome: clear refused, reason unknown, reads as running', mos_shell_admin_outcome('clear', 409), 'clear-running');
+check('outcome: clear refused with the store off', mos_shell_admin_outcome('clear', 409, ['error' => 'store-off']), 'clear-off');
 check('outcome: a refused key wins over the action', mos_shell_admin_outcome('clear', 403), 'forbidden');
 check('outcome: a server error', mos_shell_admin_outcome('run', 503), 'failed');
 check('outcome: an unknown action', mos_shell_admin_outcome('x', 200), 'unknown');
@@ -129,7 +132,7 @@ check('request: clear needs the confirm box', mos_shell_admin_request('clear', '
 check('request: clear when confirmed', mos_shell_admin_request('clear', '', true), ['body' => ['action' => 'clear']]);
 check('request: anything else', mos_shell_admin_request('delete', '', true), ['notice' => 'unknown']);
 
-foreach (['run-started', 'run-refused', 'stop-sent', 'stop-refused', 'refresh-done', 'refresh-refused', 'refresh-bad-path', 'clear-done', 'clear-refused', 'clear-unconfirmed', 'nokey', 'nobase', 'unreachable', 'forbidden', 'bad', 'failed', 'unknown'] as $key) {
+foreach (['run-started', 'run-refused', 'stop-sent', 'stop-refused', 'refresh-done', 'refresh-refused', 'refresh-bad-path', 'clear-done', 'clear-running', 'clear-off', 'clear-unconfirmed', 'nokey', 'nobase', 'unreachable', 'forbidden', 'bad', 'failed', 'unknown'] as $key) {
     $t = mos_shell_admin_text($key);
     check("text for $key", is_array($t) && $t[1] !== '' && in_array($t[0], ['success', 'warning', 'error'], true), true);
 }
