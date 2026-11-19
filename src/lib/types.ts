@@ -61,6 +61,9 @@ export interface WooProduct {
   attributes?: WooAttribute[];
   variations?: number[]; // variation IDs only
   related_ids?: number[];
+  /** The shop's hand-picked linked products ("Tengdar vörur"): upsells and cross-sells. Full product only. */
+  upsell_ids?: number[];
+  cross_sell_ids?: number[];
 }
 
 export interface WooVariationAttr {

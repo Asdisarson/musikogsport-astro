@@ -1,8 +1,9 @@
 ---
 // The product page's related products as the home tile carousel: "Þér gæti líkað" in the uppercase display face,
-// round arrows top-right, tiles from the page gutter bleeding off the right edge. Up to 12 of them: the best sellers
-// in stock from the product's most specific category for the same audience (lib/categoryTree relatedScope — a men's
-// running shoe gets men's running shoes), then WooCommerce's own related_ids if that comes up short. The wrapper
+// round arrows top-right, tiles from the page gutter bleeding off the right edge. Up to 12 of them:
+// the products the shop linked by hand ("Tengdar vörur": upsells, then cross-sells) that are in stock, then the best
+// sellers in stock from the product's most specific category for the same audience (lib/categoryTree relatedScope —
+// a men's running shoe gets men's running shoes), then WooCommerce's own related_ids if that comes up short. The wrapper
 // sets the --edge the home rows read (.home sets it on the home page).
 // A server island (`server:defer` on the product page): the uncached product lookups run after the page has been
 // sent, not before it. ProductRow's carousel script comes back with the island HTML, and Astro's island loader
@@ -12,6 +13,7 @@ import { productImage } from '../lib/img';
 import { log } from '../lib/logger';
 import { settlePhotos } from '../lib/photoBgServer';
 import { relatedRequests } from '../lib/relatedLimit';
+import { relatedOrder } from '../lib/relatedPicks';
 import { storeProducts } from '../lib/storeCatalog';
 import type { WooProduct } from '../lib/types';
 import { visitorKey } from '../lib/visitor';
@@ -21,30 +23,46 @@ import ProductRow from './ProductRow.astro';
 interface Props {
   /** The product itself, never shown. */
   productId: number;
+  /** The shop's hand-picked linked products (lib/relatedPicks pickedIds), which lead the row. */
+  picked?: number[];
   /** relatedScope: the category to draw from (none: related_ids only) and the audiences it's narrowed to. */
   categoryId?: number;
   audienceIds: number[];
   /** WooCommerce's related_ids, the top-up. */
   ids: number[];
 }
-const { productId, categoryId, audienceIds, ids } = Astro.props;
+const { productId, picked = [], categoryId, audienceIds, ids } = Astro.props;
 const LIMIT = 12;
+// Hand-picked products are fetched past the row's length: the sold-out ones among them are dropped afterwards.
+const PICKED_FETCH = 2 * LIMIT;
 
-// Over the visitor's limit the row is simply left out, as when both lookups fail.
+// Over the visitor's limit the row is simply left out, as when every lookup fails.
 const allowed = relatedRequests.take(visitorKey(Astro));
 // A row left out for this visitor, or short because a lookup failed, must not be held at the CDN for everyone.
 let partial = !allowed;
-// Either lookup failing just leaves its share out; both failing shows no row, as before the island.
-const scoped: WooProduct[] = allowed && categoryId
-  ? await storeProducts({ categoryIds: [categoryId], andCategoryIds: audienceIds, stockStatus: ['instock'], orderby: 'popularity', order: 'desc', per_page: LIMIT + 1 })
-      .then((r) => r.items.filter((p) => p.id !== productId))
-      .catch(() => {
+// Any lookup failing just leaves its share out; all failing shows no row, as before the island.
+const [pickedProducts, scoped]: [WooProduct[], WooProduct[]] = await Promise.all([
+  allowed && picked.length > 0
+    ? getProductsByIds(picked, PICKED_FETCH).catch((err) => {
+        log.warn('[related] hand-picked lookup failed', { productId, err });
         partial = true;
         return [];
       })
-  : [];
-const seen = new Set([productId, ...scoped.map((p) => p.id)]);
-const missing = LIMIT - scoped.length;
+    : [],
+  allowed && categoryId
+    ? storeProducts({ categoryIds: [categoryId], andCategoryIds: audienceIds, stockStatus: ['instock'], orderby: 'popularity', order: 'desc', per_page: LIMIT + 1 })
+        .then((r) => r.items.filter((p) => p.id !== productId))
+        .catch((err) => {
+          log.warn('[related] category best sellers failed', { productId, categoryId, err });
+          partial = true;
+          return [];
+        })
+    : [],
+]);
+const leading = relatedOrder({ productId, picked: pickedProducts, scoped, topUp: [], limit: LIMIT });
+// The top-up never brings back a hand-picked product: the ones in stock are in the row, the rest are sold out.
+const seen = new Set([productId, ...picked, ...leading.map((p) => p.id)]);
+const missing = LIMIT - leading.length;
 const topUp =
   allowed && missing > 0
     ? await getProductsByIds(ids.filter((id) => !seen.has(id)), missing).catch((err) => {
@@ -54,7 +72,7 @@ const topUp =
       })
     : [];
 if (partial) markDegraded(Astro.response);
-const products = [...scoped, ...topUp].slice(0, LIMIT);
+const products = relatedOrder({ productId, picked: pickedProducts, scoped, topUp, limit: LIMIT });
 // The tiles fill around each photo as the wall's cards do (lib/photoBg cardFill), which needs the photo read first;
 // renders never wait for that, but this island is already off the critical path, so it waits a moment for them.
 await settlePhotos(products.map(productImage), 2000);
