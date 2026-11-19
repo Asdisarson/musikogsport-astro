@@ -62,6 +62,8 @@
 
     --header-h: 60px;          /* sticky main bar */
     --header-h-mobile: 60px;
+    --admin-bar-h: 0px;        /* 32px while the staff admin bar shows (html.has-admin-bar) */
+    --sticky-top: calc(var(--header-h) + var(--admin-bar-h));   /* where content sticks: under the header */
     --utility-h: 36px;         /* the orange utility bar above it (scrolls away) */
     --maxw: 1800px;
     --gutter: 48px;            /* 24px at ≤991px */
@@ -165,7 +167,13 @@
   }
 
   /* — main bar (60px, white, sticky, no border): logo · centred menu · search pill, wishlist, cart — */
-  .site-header { position: sticky; top: 0; z-index: 50; background: var(--paper); }
+  /* staff admin bar (components/AdminBar.astro): sticks above the header, which moves down by its height */
+  html.has-admin-bar { --admin-bar-h: 32px; }
+  .admin-bar { position: sticky; top: 0; z-index: 51; display: flex; align-items: center; gap: 20px; height: var(--admin-bar-h); padding-inline: var(--gutter); overflow-x: auto; scrollbar-width: none; background: var(--ink); font-size: 13px; line-height: 1; white-space: nowrap; }
+  .admin-bar[hidden] { display: none; }
+  .admin-bar a { color: #fff; }
+  .admin-bar a:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+  .site-header { position: sticky; top: var(--admin-bar-h); z-index: 50; background: var(--paper); }
   .site-header__inner { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 24px; height: var(--header-h); padding-inline: var(--gutter); }
   .site-header__logo, .checkout-header__logo { display: block; padding-block: 6px; }   /* a 44px-tall target round the 32px logo */
   .site-header__logo img { width: auto; height: 32px; }
@@ -202,7 +210,7 @@
 
   /* mega-menu: a full-width white panel under the bar, columns of 210px at a 226px pitch; the page below is
      dimmed by the panel's own clipped shadow, which never takes the pointer */
-  .mega { position: absolute; z-index: 1; top: 100%; left: 0; right: 0; max-height: calc(100vh - var(--header-h) - 24px); overflow-y: auto; overscroll-behavior: contain; padding: 32px var(--gutter) 48px; background: var(--paper); box-shadow: 0 0 0 100vmax rgb(17 17 17 / 0.3); clip-path: inset(0 -100vmax -100vmax -100vmax); visibility: hidden; opacity: 0; transform: translateY(-8px); pointer-events: none; transition: opacity 0.4s var(--ease-nav), transform 0.4s var(--ease-nav), visibility 0s linear 0.4s; }
+  .mega { position: absolute; z-index: 1; top: 100%; left: 0; right: 0; max-height: calc(100vh - var(--sticky-top) - 24px); overflow-y: auto; overscroll-behavior: contain; padding: 32px var(--gutter) 48px; background: var(--paper); box-shadow: 0 0 0 100vmax rgb(17 17 17 / 0.3); clip-path: inset(0 -100vmax -100vmax -100vmax); visibility: hidden; opacity: 0; transform: translateY(-8px); pointer-events: none; transition: opacity 0.4s var(--ease-nav), transform 0.4s var(--ease-nav), visibility 0s linear 0.4s; }
   /* pointer-events switches at once: a panel still fading out can't catch the pointer and steal the hover */
   /* hover opens after 0.2s (passing over the bar opens nothing), once the pointer has moved on this page (Base.astro
      data-nav-armed: a pointer resting where a click left it opens nothing); keyboard focus at once; a click's never */
@@ -793,10 +801,10 @@
   @media (min-width: 992px) {
     /* sticky under the 60px bar, scrolling on its own beside the 232px content, its thin bar showing only while the
        pointer is on the rail (the 4px inset keeps focus rings whole inside the scroller) */
-    .archive-filters { position: sticky; top: var(--header-h); width: 248px; max-height: calc(100vh - var(--header-h)); margin-left: -4px; padding: 4px 12px 24px 4px; overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: transparent transparent; transition: opacity 0.4s var(--ease-nav), visibility 0s; }
+    .archive-filters { position: sticky; top: var(--sticky-top); width: 248px; max-height: calc(100vh - var(--sticky-top)); margin-left: -4px; padding: 4px 12px 24px 4px; overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: transparent transparent; transition: opacity 0.4s var(--ease-nav), visibility 0s; }
     .archive-filters:hover { scrollbar-color: var(--line) transparent; }
     /* the fixed store notice (45px) never covers the rail's last rows */
-    html:not([data-notice-off]) body:has(> .store-notice) .archive-filters { max-height: calc(100vh - var(--header-h) - 45px); }
+    html:not([data-notice-off]) body:has(> .store-notice) .archive-filters { max-height: calc(100vh - var(--sticky-top) - 45px); }
     /* "Fela síur": the column folds to 0 as the rail fades, then the rail leaves the tab order */
     html[data-filters-hidden] .archive { --rail: 0px; }
     html[data-filters-hidden] .archive-filters { visibility: hidden; opacity: 0; transition: opacity 0.4s var(--ease-nav), visibility 0s linear 0.4s; }
@@ -829,7 +837,7 @@
     .archive__chips li:last-child { padding-right: var(--gutter); }
     .archive__chips a { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 48px; color: var(--ink); font-size: 16px; font-weight: 500; line-height: 24px; white-space: nowrap; }
     /* filter pills: all open the sheet; a group pill opens it at that group. They stay under the bar on scroll. */
-    .archive__pills { position: sticky; top: var(--header-h); z-index: 10; display: flex; gap: 8px; padding: 16px var(--gutter); overflow-x: auto; scrollbar-width: none; background: var(--paper); }
+    .archive__pills { position: sticky; top: var(--sticky-top); z-index: 10; display: flex; gap: 8px; padding: 16px var(--gutter); overflow-x: auto; scrollbar-width: none; background: var(--paper); }
     .archive__pills::-webkit-scrollbar { display: none; }
     .archive__pills[hidden] { display: none; }
     .wall-pill { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 24px; background: var(--paper); color: var(--ink); font-size: 16px; font-weight: 500; line-height: 24px; white-space: nowrap; }
@@ -894,10 +902,10 @@
   .pdp-gallery { display: grid; grid-template-columns: 60px minmax(0, 1fr); column-gap: 16px; align-items: start; min-width: 0; }
   .pdp-gallery:not(.pdp-gallery--many) .pdp-gallery__main { grid-column: 2; }
   /* 3px of padding (offset by the margin) keeps the focus ring inside the column's own scroll box */
-  .pdp-thumbs { position: sticky; top: calc(var(--header-h) + 24px); display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - var(--header-h) - 48px); margin: -3px; padding: 3px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+  .pdp-thumbs { position: sticky; top: calc(var(--sticky-top) + 24px); display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - var(--sticky-top) - 48px); margin: -3px; padding: 3px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
   .pdp-thumbs::-webkit-scrollbar { display: none; }
   /* the fixed store notice (45px) never covers the last thumbnails (as the wall's rail) */
-  html:not([data-notice-off]) body:has(> .store-notice) .pdp-thumbs { max-height: calc(100vh - var(--header-h) - 48px - 45px); }
+  html:not([data-notice-off]) body:has(> .store-notice) .pdp-thumbs { max-height: calc(100vh - var(--sticky-top) - 48px - 45px); }
   .pdp-thumb { flex: none; width: 60px; height: 60px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-photo-sm); background: #fff; overflow: hidden; transition: border-color var(--dur) var(--ease); }
   .pdp-thumb:hover, .pdp-thumb[aria-current='true'] { border-color: var(--ink); }
   .pdp-thumb img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
@@ -905,7 +913,7 @@
   .pdp-gallery__track { display: grid; gap: 12px; }
   /* the browser's focus and anchor scrolling keep clear of the sticky header and the fixed store notice; a thumb
      still lands its image at header + 24 (8px of padding + 16px of margin) */
-  html:has(.pdp) { scroll-padding-top: calc(var(--header-h) + 8px); scroll-padding-bottom: 52px; }
+  html:has(.pdp) { scroll-padding-top: calc(var(--sticky-top) + 8px); scroll-padding-bottom: 52px; }
   .pdp-gallery__item { margin: 0; scroll-margin-top: 16px; }
   .pdp-gallery__item a { display: block; aspect-ratio: var(--tile-aspect, 4 / 5); overflow: hidden; border-radius: var(--radius-photo); background: #fff; cursor: zoom-in; }   /* the photo's own shape (PdpGallery) */
   .pdp-gallery__item img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
@@ -919,14 +927,14 @@
   .pdp-gallery--viewer .pdp-gallery__item a:focus-visible { outline-offset: -3px; }   /* the track clips an outside ring */
   /* the viewer stays in view while the product info scrolls past (as nike.com's), when the window fits it whole */
   @media (min-width: 992px) and (min-height: 780px) {
-    .pdp-gallery--viewer { position: sticky; top: calc(var(--header-h) + 24px); }
+    .pdp-gallery--viewer { position: sticky; top: calc(var(--sticky-top) + 24px); }
   }
   .pdp-gallery__steps { position: absolute; right: 24px; bottom: 24px; display: flex; gap: 8px; }
   .pdp-gallery__steps .round-btn { width: 36px; height: 36px; background: #fff; box-shadow: 0 0 0 1px var(--line); }
   .pdp-gallery__steps .round-btn:hover { background: var(--line); }
   .pdp-gallery__steps .round-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
-  .pdp-rail { position: sticky; top: var(--rail-top, calc(var(--header-h) + 24px)); min-width: 0; padding-bottom: 48px; }
+  .pdp-rail { position: sticky; top: var(--rail-top, calc(var(--sticky-top) + 24px)); min-width: 0; padding-bottom: 48px; }
   .pdp-head { margin-bottom: 32px; }
   .pdp-title { margin: 0; font-size: 20px; font-weight: 500; line-height: 24px; color: var(--ink); overflow-wrap: anywhere; }
   .pdp-subtitle { margin: 0; font-size: 16px; line-height: 24px; color: var(--meta); }

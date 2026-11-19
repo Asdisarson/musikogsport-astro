@@ -156,11 +156,19 @@ describe('auth', () => {
     fetchMock.mockResolvedValue(json({ id: 7, name: 'Anna', email: 'a@b.is' }));
     const c = fakeCookies({ mos_auth: t });
     const [a, b] = await Promise.all([currentUser(c as never), currentUser(c as never)]);
-    expect(a).toEqual({ id: 7, name: 'Anna', email: 'a@b.is' });
+    expect(a).toEqual({ id: 7, name: 'Anna', email: 'a@b.is', canEditProducts: false });
     expect(b).toEqual(a);
     await currentUser(c as never);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({ Authorization: `Bearer ${t}` });
+  });
+
+  it('currentUser: staff are the accounts WordPress grants edit_products', async () => {
+    const { currentUser } = await import('./auth');
+    fetchMock.mockResolvedValue(json({ id: 1, name: 'Eigandi', email: 'e@b.is', capabilities: { edit_products: true } }));
+    const user = await currentUser(fakeCookies({ mos_auth: token() }) as never);
+    expect(user?.canEditProducts).toBe(true);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('capabilities');
   });
 
   it('currentUser: no call and the cookie dropped for a value that is not token-shaped', async () => {

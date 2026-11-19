@@ -8,6 +8,7 @@ import SearchOverlay from '../components/SearchOverlay.astro';
 import StoreNotice from '../components/StoreNotice.astro';
 import CartDrawer from '../components/CartDrawer.tsx';
 import LoginPopup from '../components/LoginPopup.astro';
+import AdminBar from '../components/AdminBar.astro';
 import ConsentBanner from '../components/ConsentBanner.astro';
 import Icon from '../components/Icon.astro';
 import { loadSiteChrome } from '../lib/siteChrome';
@@ -155,6 +156,7 @@ const websiteLd = {
         </header>
       ) : (
         <>
+          <AdminBar />
           <CampaignBar text={chrome.campaign.text} textRight={chrome.campaign.textRight} />
           <SiteHeader chrome={chrome} />
         </>

@@ -5,6 +5,7 @@
 import type { AstroCookies } from 'astro';
 import { WP_INTERNAL_URL } from 'astro:env/server';
 import { createTtlMap } from './cache';
+import { canEditProducts } from './editor';
 import { authStatus } from './http';
 
 export const AUTH_COOKIE = 'mos_auth';
@@ -15,6 +16,8 @@ export interface AuthUser {
   id: number;
   name: string;
   email: string;
+  /** May edit products in wp-admin (administrator, shop manager): shown the staff admin bar. */
+  canEditProducts?: boolean;
 }
 
 /** A token, or why there is none: WordPress refused the credentials, or couldn't be asked. */
@@ -83,14 +86,14 @@ async function checkToken(token: string): Promise<Seen> {
   // Stamped before asking, so an invalidateUser() during the call makes this answer stale.
   const asked = Date.now();
   const { status, data } = await askWordPress(
-    '/wp-json/wp/v2/users/me?context=edit&_fields=id,name,email',
+    '/wp-json/wp/v2/users/me?context=edit&_fields=id,name,email,capabilities',
     { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
     5000,
   );
   const outcome = authStatus(status, codeOf(data));
   let user: Seen = null;
   if (outcome === 'ok' && typeof data?.id === 'number' && data.id > 0) {
-    user = { id: data.id, name: String(data.name ?? ''), email: String(data.email ?? '') };
+    user = { id: data.id, name: String(data.name ?? ''), email: String(data.email ?? ''), canEditProducts: canEditProducts(data.capabilities) };
   } else if (outcome !== 'rejected') {
     console.warn(`[auth] users/me unavailable (${status ?? 'no answer'}); keeping the session`);
     user = 'unavailable';

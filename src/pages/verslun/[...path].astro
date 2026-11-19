@@ -194,7 +194,7 @@ const shareUrl = `https://www.facebook.com/sharer.php?u=${encodeURIComponent(can
       {productLdObj && <script type="application/ld+json" is:inline slot="head" set:html={ld(productLdObj)} />}
       {breadcrumbLdObj && <script type="application/ld+json" is:inline slot="head" set:html={ld(breadcrumbLdObj)} />}
 
-      <div class="pdp">
+      <div class="pdp" data-edit-product={product.id}>
         <Breadcrumbs items={crumbs} />
         <PdpGallery images={product.images} name={name} viewer={shoe} />
 

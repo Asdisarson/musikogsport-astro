@@ -19,7 +19,11 @@
   const MARGIN = 8;
   let shifted = false;
 
-  const headerBottom = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-h')) || 60;
+  // The header's bottom edge: its height plus the staff admin bar's above it (0px unless that bar shows).
+  const headerBottom = () => {
+    const root = getComputedStyle(document.documentElement);
+    return (parseFloat(root.getPropertyValue('--header-h')) || 60) + (parseFloat(root.getPropertyValue('--admin-bar-h')) || 0);
+  };
   const viewBottom = () => {
     const notice = document.querySelector<HTMLElement>('.store-notice');
     return innerHeight - (notice && getComputedStyle(notice).display !== 'none' ? notice.offsetHeight : 0);

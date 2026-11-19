@@ -1,0 +1,68 @@
+---
+// Staff admin bar: links into wp-admin for a signed-in account that may edit products ("Breyta vöru" on a
+// product page, then the sections). Public pages are the same for every visitor (lib/cachePolicy), so the bar
+// ships empty and hidden; the browser asks /api/account/editor/ — only when the `mos_li` flag says someone is
+// signed in — and fills it in. The answer is kept for the tab's session so customers cost one request.
+---
+
+<nav class="admin-bar" data-admin-bar aria-label="Stjórnun" hidden></nav>
+
+<script>
+  import { adminBarLinks } from '../lib/editor';
+
+  const KEY = 'mos_admin_bar'; // '' = not staff, otherwise WordPress's public origin
+  const bar = document.querySelector<HTMLElement>('[data-admin-bar]');
+
+  function read(): string | null {
+    try {
+      return sessionStorage.getItem(KEY);
+    } catch {
+      return null;
+    }
+  }
+  function write(value: string | null): void {
+    try {
+      if (value === null) sessionStorage.removeItem(KEY);
+      else sessionStorage.setItem(KEY, value);
+    } catch {
+      /* storage blocked: ask again on the next page */
+    }
+  }
+
+  function show(base: string): void {
+    if (!bar) return;
+    const product = Number(document.querySelector<HTMLElement>('[data-edit-product]')?.dataset.editProduct);
+    const links = adminBarLinks(base, Number.isFinite(product) ? product : null);
+    if (!links.length) return;
+    bar.replaceChildren(
+      ...links.map(({ label, href }) => {
+        const a = document.createElement('a');
+        a.href = href;
+        a.textContent = label;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        return a;
+      }),
+    );
+    bar.hidden = false;
+    document.documentElement.classList.add('has-admin-bar');
+  }
+
+  async function init(): Promise<void> {
+    const signedIn = document.cookie.split('; ').some((c) => c.startsWith('mos_li='));
+    if (!signedIn) return write(null); // signed out: forget the last account's answer
+    const known = read();
+    if (known !== null) return known ? show(known) : undefined;
+    try {
+      const res = await fetch('/api/account/editor/', { headers: { Accept: 'application/json' } });
+      if (!res.ok) return;
+      const data = (await res.json()) as { canEdit?: boolean; adminBase?: string };
+      const base = data.canEdit === true && typeof data.adminBase === 'string' ? data.adminBase : '';
+      write(base);
+      if (base) show(base);
+    } catch {
+      /* offline or the server is away: no bar this time */
+    }
+  }
+  if (bar) void init();
+</script>
