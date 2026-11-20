@@ -4,7 +4,7 @@ The storefront is an Astro SSR app (`@astrojs/node`, standalone). It sits behind
 TLS, and talks to WordPress + WooCommerce over `WP_INTERNAL_URL`. The WordPress side is set up as
 described in `wp-mu-plugins/README.md`.
 
-Two ways to run it: on DigitalOcean App Platform (see [App Platform](#app-platform), spec in `.do/app.yaml`),
+Two ways to run it: on DigitalOcean App Platform (see [App Platform](#app-platform); its spec, `.do/app.yaml`, is no longer in the repo),
 or on your own server behind nginx (the sections right below). The WordPress host notes apply to both.
 
 ## Reverse proxy (required)
@@ -110,6 +110,10 @@ Run the built app with `node server.mjs` (graceful shutdown and headers on stati
   storefront treats the poke as unkeyed, and the admin page shows what to set instead of its cards.
 
 ## App Platform
+
+> The spec this section describes, `.do/app.yaml`, was removed from the repo on 2026-11-20: production runs on
+> the Plesk host and nothing should build from a push to `main`. The section is kept as the record of that setup;
+> the last version of the spec is in git history (`git show 25463fa:.do/app.yaml`).
 
 Only the storefront runs on DigitalOcean App Platform; WordPress/WooCommerce stays on its current host and the
 storefront reaches it over HTTPS at `WP_INTERNAL_URL`. The app spec is `.do/app.yaml`: one `service` built by

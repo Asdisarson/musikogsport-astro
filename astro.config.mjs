@@ -43,7 +43,7 @@ export default defineConfig({
     allowedDomains: allowedDomains(buildEnv('MOS_EXTRA_ALLOWED_HOSTS')),
   },
   // Also the built server's default bind (@astrojs/node standalone bakes it in); the HOST and PORT env vars
-  // override both at runtime. App Platform sets HOST=0.0.0.0 / PORT=8080 (.do/app.yaml).
+  // override both at runtime. App Platform sets HOST=0.0.0.0 / PORT=8080.
   server: {
     host: '127.0.0.1',
     port: 4321,
