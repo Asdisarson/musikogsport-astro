@@ -12,6 +12,10 @@ export default defineConfig({
   output: 'server',
   adapter: node({ mode: 'standalone' }),
   integrations: [react()],
+  // Fetch a catalogue page ahead of the click. Astro's own link scanning stays off (prefetchAll: false, and no link
+  // carries data-astro-prefetch): the layout's script decides per link through lib/prefetchRule, so a page that a
+  // visit changes (/utskra/) or a per-shopper page is never fetched ahead. This only provides `astro:prefetch`.
+  prefetch: { prefetchAll: false, defaultStrategy: 'hover' },
   env: {
     schema: {
       // public, client-readable, inlined at build: the host serving WordPress media (lib/img MEDIA_BASE_URL — local

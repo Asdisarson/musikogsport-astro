@@ -196,9 +196,30 @@ const websiteLd = {
     {!distractionFree && <CartDrawer client:idle shippingBar={miniCartBar} />}
 
     <script>
+      import { prefetch } from 'astro:prefetch';
       import { trackVisit } from '../lib/origin';
+      import { prefetchable } from '../lib/prefetchRule';
 
       const root = document.documentElement;
+
+      // ── fetch a catalogue page ahead of the click: once a pointer or the keyboard focus has rested on its link for
+      //    80 ms (so a pointer crossing the grid, or Tab running through the menu, fetches nothing). Not on touch: a
+      //    scroll that starts on a product card is no intent to open it. Which links: lib/prefetchRule.
+      //    astro:prefetch fetches each URL once, never the current page, and not at all on a data-saver connection. ──
+      const linkOf = (e: Event) => (e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a[href]') : null);
+      const ahead = (a: HTMLAnchorElement | null) => {
+        if (!a || a.origin !== location.origin || a.target === '_blank' || a.hasAttribute('download')) return;
+        if (prefetchable(a.pathname, a.search)) prefetch(a.pathname);
+      };
+      let resting: ReturnType<typeof setTimeout> | undefined;
+      const rest = (e: Event) => {
+        const a = linkOf(e);
+        clearTimeout(resting);
+        if (a) resting = setTimeout(() => ahead(a), 80);
+      };
+      const leave = (e: Event) => { if (linkOf(e)) clearTimeout(resting); };
+      for (const on of ['mouseover', 'focusin']) document.addEventListener(on, rest, { passive: true });
+      for (const off of ['mouseout', 'focusout']) document.addEventListener(off, leave, { passive: true });
 
       // ── where this visit came from, for the order's "Origin" in WooCommerce (this tab; 30 days after consent) ──
       trackVisit();
