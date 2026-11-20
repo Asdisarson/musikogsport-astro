@@ -1,7 +1,7 @@
 import type { APIContext } from 'astro';
 import { defineMiddleware } from 'astro:middleware';
 import { slashRedirect } from './lib/paths';
-import { parseLiveFilters, unfilteredTarget } from './lib/liveFilters';
+import { movedTeamTarget, parseLiveFilters, unfilteredTarget } from './lib/liveFilters';
 import { searchOnlyQuery } from './lib/facets';
 import { finishResponse } from './lib/responseHeaders';
 import { isCanonicalHost } from './lib/seo';
@@ -10,7 +10,7 @@ import { MEDIA_BASE_URL } from './lib/img';
 import { installProcessHandlers, log, runtimeEnv } from './lib/logger';
 import { NOTICE_PATH, PREVIEW_COOKIE, PREVIEW_PARAM, maintenanceDecision, maintenanceSettings, type MaintenanceDecision } from './lib/maintenance';
 import { BACKGROUND_REFRESHES, canStore, filterValuesKnown, freshFor, normalPath, refreshAdmission, replayHeaderNames, shellPolicy, shellKey, type ShellPolicy } from './lib/shellPolicy';
-import { loadCatalogTerms } from './lib/catalogTerms';
+import { loadCatalogTerms, peekCatalogTerms } from './lib/catalogTerms';
 import { logGate, refreshBackoff, shellBuildId, shellFreshOverride, getShell } from './lib/shellRuntime';
 import { armNightlyRebuild } from './lib/nightlyRebuildRuntime';
 import { isIncomplete, shellTierOf } from './lib/shellIncomplete';
@@ -216,6 +216,13 @@ async function serveShell(ctx: APIContext, next: () => Promise<Response>, path: 
   return { res, state: kept ? 'miss' : 'refused' };
 }
 
+/** The team slugs in the term list as held right now, or null when none is held yet (a cold process, or WordPress has
+ *  not answered). Never waits on WordPress: a stored page must not be held back for a term sweep. */
+function knownTeamSlugs(): ReadonlySet<string> | null {
+  const terms = peekCatalogTerms();
+  return terms && !terms.degraded ? new Set(terms.teams.map((t) => t.slug)) : null;
+}
+
 export const onRequest = defineMiddleware(async (ctx, next) => {
   // Prerendered pages run through here at build time only; their headers come from server.mjs.
   if (ctx.isPrerendered) return next();
@@ -259,12 +266,20 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
       // filters, before any lookup: each such combination would be a fresh WooCommerce query. The search text is kept
       // (the picks are what went over the limit); the rail never offers a pick that would get here (lib/facets pickNote).
       const unfiltered = (method === 'GET' || method === 'HEAD') && ctx.url.search !== '' ? unfilteredTarget(path, ctx.url.searchParams) : null;
+      // A team the catalog merged into another (paths MOVED_TEAMS): the old link goes to the canonical URL with the new
+      // slug, so the chips, remove links and canonical tag all read the one URL. Only once the old slug is gone from
+      // WordPress; with no term list to judge by (a cold process, WordPress down) nothing moves, and the page is served
+      // as before. Never for API routes.
+      const teamMove = !unfiltered && !target && ctx.url.searchParams.has('team') ? movedTeamTarget(method, path, ctx.url.searchParams, knownTeamSlugs()) : null;
       if (unfiltered) {
         log.debug('filter query refused', { method, path }); // debug: a crawl would write one line per URL
         const kept = searchOnlyQuery(parseLiveFilters(ctx.url.searchParams).search);
         res = ctx.redirect((target ?? unfiltered) + (kept ? `?${kept}` : ''), 302);
       } else if (target) {
         res = ctx.redirect(target + ctx.url.search, 301);
+      } else if (teamMove !== null) {
+        log.debug('merged team redirected', { path }); // debug: old links are followed by crawlers too
+        res = ctx.redirect(teamMove, 301);
       } else if (path === '/500/') {
         res = await ctx.rewrite('/404/');
       } else {

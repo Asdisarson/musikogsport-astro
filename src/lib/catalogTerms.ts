@@ -134,6 +134,42 @@ export async function loadCatalogTerms(): Promise<CatalogData> {
   return (await load()).value ?? DEGRADED;
 }
 
+/** The term lists as held right now (null: none loaded yet), without waiting on WordPress or starting a load: for the
+ *  middleware, which must not hold a stored page back for a term sweep. */
+export function peekCatalogTerms(): CatalogData | null {
+  return load.peek();
+}
+
+/** What the filter and the category rail offer from the term lists, as one comparable string: every term, and for
+ *  categories and brands whether they have products (an empty one is not listed). A product count that merely grows
+ *  changes nothing a shopper is offered, so it is not part of it. */
+function offeredTerms(terms: CatalogData): string {
+  // By id: WordPress lists terms by name, and two with the same name come back in either order.
+  const byId = <T extends TermRef>(list: T[]) => [...list].sort((a, b) => a.id - b.id);
+  const refs = (list: TermRef[]) => byId(list).map((t) => [t.id, t.slug, t.name]);
+  const stocked = (list: TermRef[]) => byId(list).map((t) => (terms.counts.get(t.id) ?? 0) > 0);
+  return JSON.stringify([byId(terms.categories).map((c) => [c.id, c.slug, c.name, c.parent]), stocked(terms.categories), refs(terms.brands),
+    stocked(terms.brands), refs(terms.teams), refs(terms.sports), refs(terms.colours), refs(terms.tags)]);
+}
+
+/** Reloads the term lists and the size list now (the previous ones keep answering meanwhile) and resolves to whether
+ *  what the filter offers changed. WordPress asks for this, through the shell poke, after a product save: the product
+ *  can bring a team, brand, size or colour the filter has no option for yet, which would otherwise wait out the
+ *  10-minute TTL. True tells the caller that pages rendered from the previous lists now show the wrong options. A list
+ *  that was not held before had nothing rendered from it, so loading it is not a change; a failed reload keeps what
+ *  was held and is no change either. */
+export async function refreshCatalogTerms(): Promise<boolean> {
+  const terms = load.peek();
+  const sizes = loadSizes.peek();
+  const [termsOk, sizesOk] = await Promise.all([load.refresh(), loadSizes.refresh()]);
+  // The new option then waits for the next reload (a later save, or the lists' own ten minutes).
+  if (!termsOk || !sizesOk) log.warn('[catalog-terms] reload after a product change failed', { terms: termsOk, sizes: sizesOk });
+  const now = load.peek();
+  const termsChanged = terms !== null && now !== null && offeredTerms(now) !== offeredTerms(terms);
+  const sizesChanged = sizes !== null && JSON.stringify(loadSizes.peek()?.sizes ?? null) !== JSON.stringify(sizes.sizes);
+  return termsChanged || sizesChanged;
+}
+
 // The size index (wp-mu-plugins/mos-size-index.php, GET mos/v1/sizes): every size with products. Loaded apart from
 // the terms so a site without the plugin (production until it's uploaded) still has its filters: there the route is
 // a 404, `staerd` is ignored and the Stærð group isn't shown. Any other failure is "down": a URL with `staerd` then

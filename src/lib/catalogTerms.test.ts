@@ -127,3 +127,145 @@ describe('loadCatalogTerms sweep', () => {
     }
   });
 });
+
+// refreshCatalogTerms: a product save can bring a team, brand, size or colour the filter has no option for yet. The
+// lists are reloaded at once (the previous ones keep answering meanwhile), and the caller is told whether the options
+// changed, because pages rendered from the old lists then show the wrong options.
+describe('refreshCatalogTerms', () => {
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'X-WP-TotalPages': '1' } });
+  /** A WordPress whose lists can be changed between reads. */
+  function wordpress() {
+    const state = {
+      teams: [{ id: 2, name: 'FH', slug: 'fh', parent: 0, count: 1 }],
+      categories: [{ id: 9, name: 'Bolir', slug: 'bolir', parent: 0, count: 0 }],
+      sizes: [{ slug: '42', label: '42', group: 'shoe', sort: 42, count: 1 }],
+      down: false,
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      const path = new URL(url).pathname;
+      if (state.down) return new Response('{}', { status: 502 });
+      if (path.endsWith('/products/attributes')) return json([{ id: 5, taxonomy: 'pa_felag-lid' }]);
+      if (path.includes('/products/attributes/5/terms')) return json(state.teams);
+      if (path.includes('/products/categories')) return json(state.categories);
+      if (path.includes('/mos/v1/sizes')) return json({ sizes: state.sizes });
+      if (path.includes('/products/')) return json([]);
+      return json({});
+    });
+    return { state, fetchMock };
+  }
+  async function withWordpress(run: (mod: typeof import('./catalogTerms'), wp: ReturnType<typeof wordpress>) => Promise<void>) {
+    vi.resetModules();
+    const wp = wordpress();
+    vi.stubGlobal('fetch', wp.fetchMock);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await run(await import('./catalogTerms'), wp);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  }
+
+  it('a new team: the lists are reloaded and the options changed', async () => {
+    await withWordpress(async (mod, { state }) => {
+      expect((await mod.loadCatalogTerms()).teams.map((t) => t.slug)).toEqual(['fh']);
+      state.teams = [...state.teams, { id: 3, name: 'Ísland', slug: 'island-iceland', parent: 0, count: 1 }];
+      expect(await mod.refreshCatalogTerms()).toBe(true);
+      expect((await mod.loadCatalogTerms()).teams.map((t) => t.slug)).toEqual(['fh', 'island-iceland']);
+    });
+  });
+
+  it('nothing new in WordPress: reloaded, options unchanged', async () => {
+    await withWordpress(async (mod, { fetchMock }) => {
+      await mod.loadCatalogTerms();
+      await mod.loadSizeTerms();
+      const reads = fetchMock.mock.calls.length;
+      expect(await mod.refreshCatalogTerms()).toBe(false);
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(reads);
+    });
+  });
+
+  it('a product count that only grows is not a changed option', async () => {
+    await withWordpress(async (mod, { state }) => {
+      await mod.loadCatalogTerms();
+      state.teams = [{ ...state.teams[0], count: 7 }];
+      expect(await mod.refreshCatalogTerms()).toBe(false);
+    });
+  });
+
+  it('the same terms in another order are not a changed option (WordPress orders equal names either way)', async () => {
+    await withWordpress(async (mod, { state }) => {
+      state.teams = [{ id: 2, name: 'FH', slug: 'fh', parent: 0, count: 1 }, { id: 3, name: 'FH', slug: 'fh-2', parent: 0, count: 1 }];
+      await mod.loadCatalogTerms();
+      state.teams = [state.teams[1], state.teams[0]];
+      expect(await mod.refreshCatalogTerms()).toBe(false);
+    });
+  });
+
+  it('says so when the reload fails, since the new option then waits', async () => {
+    await withWordpress(async (mod, { state }) => {
+      await mod.loadCatalogTerms();
+      const logged = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      state.down = true;
+      await mod.refreshCatalogTerms();
+      const lines = [...logged.mock.calls, ...warned.mock.calls].map((c) => c.map(String).join(' ')).join('\n');
+      expect(lines).toContain('reload after a product change failed');
+    });
+  });
+
+  it('a category that gets its first product is a changed option (the rail lists stocked categories only)', async () => {
+    await withWordpress(async (mod, { state }) => {
+      await mod.loadCatalogTerms();
+      state.categories = [{ ...state.categories[0], count: 1 }];
+      expect(await mod.refreshCatalogTerms()).toBe(true);
+    });
+  });
+
+  it('a new size is a changed option', async () => {
+    await withWordpress(async (mod, { state }) => {
+      await mod.loadCatalogTerms();
+      await mod.loadSizeTerms();
+      state.sizes = [...state.sizes, { slug: '44', label: '44', group: 'shoe', sort: 44, count: 1 }];
+      expect(await mod.refreshCatalogTerms()).toBe(true);
+      expect((await mod.loadSizeTerms()).sizes?.map((s) => s.slug)).toEqual(['42', '44']);
+    });
+  });
+
+  it('nothing was held before: loaded, and nothing rendered from it can be wrong', async () => {
+    await withWordpress(async (mod) => {
+      expect(await mod.refreshCatalogTerms()).toBe(false);
+      expect((await mod.loadCatalogTerms()).teams.map((t) => t.slug)).toEqual(['fh']);
+    });
+  });
+
+  it('WordPress down: the previous lists stay and nothing is reported changed', async () => {
+    await withWordpress(async (mod, { state }) => {
+      await mod.loadCatalogTerms();
+      state.down = true;
+      expect(await mod.refreshCatalogTerms()).toBe(false);
+      expect((await mod.loadCatalogTerms()).teams.map((t) => t.slug)).toEqual(['fh']);
+    });
+  });
+});
+
+describe('peekCatalogTerms', () => {
+  it('is null until the lists have loaded, then the lists, without reading WordPress itself', async () => {
+    vi.resetModules();
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'X-WP-TotalPages': '1' } });
+    const fetchMock = vi.fn(async (url: string) => (new URL(url).pathname.includes('/products/attributes/5/terms') ? json([{ id: 2, name: 'FH', slug: 'fh', parent: 0, count: 1 }]) : new URL(url).pathname.endsWith('/products/attributes') ? json([{ id: 5, taxonomy: 'pa_felag-lid' }]) : json([])));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const mod = await import('./catalogTerms');
+      expect(mod.peekCatalogTerms()).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+      await mod.loadCatalogTerms();
+      expect(mod.peekCatalogTerms()?.teams.map((t) => t.slug)).toEqual(['fh']);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+});

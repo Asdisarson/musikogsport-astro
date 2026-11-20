@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_LIST_PARAM, MAX_SEARCH_LENGTH, MAX_SIZE_PARAM, PRICE_PRESETS, clearFilterHref, clearFiltersHref, excessiveFilterQuery, parseLiveFilters, unfilteredTarget, presetBounds, pricePreset, sizeIndexDecision, toStoreFilter, toggleFilterHref, type CatalogTerms } from './liveFilters';
+import { MAX_LIST_PARAM, MAX_SEARCH_LENGTH, MAX_SIZE_PARAM, PRICE_PRESETS, clearFilterHref, clearFiltersHref, excessiveFilterQuery, parseLiveFilters, unfilteredTarget, movedTeamSearch, movedTeamTarget, presetBounds, pricePreset, sizeIndexDecision, toStoreFilter, toggleFilterHref, type CatalogTerms } from './liveFilters';
 
 const terms: CatalogTerms = {
   categories: [
@@ -30,6 +30,8 @@ const terms: CatalogTerms = {
     { slug: 'm', label: 'M', group: 'letter', sort: 6 },
   ],
 };
+
+const terms0 = terms;
 
 const parse = (qs: string) => parseLiveFilters(new URLSearchParams(qs));
 
@@ -394,5 +396,109 @@ describe('list filters', () => {
     const listKeys = Object.entries(state).filter(([key, value]) => Array.isArray(value) && key !== 'staerd').map(([key]) => (key === 'productCategory' ? 'product-category' : key));
     expect(listKeys.length).toBeGreaterThan(0);
     for (const key of listKeys) expect(excessiveFilterQuery(new URLSearchParams(`${key}=a,b,c,d,e,f,g`)), key).toBe(true);
+  });
+});
+
+describe('movedTeamSearch: a team merged into another keeps its old links working', () => {
+  // The merge itself is a later WordPress step: until it runs, "hsi" is a real team and must stay as it is.
+  const before = new Set(['liverpool', 'hsi', 'island-iceland']);
+  const after = new Set(['liverpool', 'island-iceland']);
+  const moved = (qs: string, known: ReadonlySet<string> | null = after) => movedTeamSearch(new URLSearchParams(qs), known);
+
+  it('leaves an old slug alone while it is still a known team (before the merge)', () => {
+    expect(moved('team=hsi', before)).toBeNull();
+    expect(moved('team=hsi,liverpool', before)).toBeNull();
+    expect(moved('team=liverpool,hsi', before)).toBeNull();
+    expect(moved('team=hsi,island-iceland', before)).toBeNull();
+  });
+
+  it('moves ?team=hsi to the new slug once the old one is gone', () => {
+    expect(moved('team=hsi')).toBe('team=island-iceland');
+  });
+
+  it('moves the old slug inside a list, keeping the other values in their order', () => {
+    expect(moved('team=hsi,liverpool')).toBe('team=island-iceland%2Cliverpool');
+    expect(moved('team=liverpool,hsi')).toBe('team=liverpool%2Cisland-iceland');
+  });
+
+  it('does not repeat the new slug when both are in the URL', () => {
+    expect(moved('team=hsi,island-iceland')).toBe('team=island-iceland');
+    expect(moved('team=island-iceland,hsi')).toBe('team=island-iceland');
+  });
+
+  it('keeps the other filters and their order when it rewrites the URL', () => {
+    expect(moved('team=hsi&ithrott=handbolti&kyn=karlar')).toBe('team=island-iceland&ithrott=handbolti&kyn=karlar');
+    expect(moved('brand=casall&team=hsi&s=nike')).toBe('brand=casall&team=island-iceland&s=nike');
+  });
+
+  it('does nothing on a degraded term list (every slug would look unknown)', () => {
+    expect(moved('team=hsi', null)).toBeNull();
+  });
+
+  it('does not move to a new slug that is not a known team either', () => {
+    expect(moved('team=hsi', new Set(['liverpool', 'hsi']))).toBeNull();
+  });
+
+  it('leaves an unknown slug that is not in the table alone (it is dropped later, as today)', () => {
+    expect(moved('team=nope', after)).toBeNull();
+    expect(moved('team=nope,liverpool', after)).toBeNull();
+  });
+
+  it('does nothing without a team parameter', () => {
+    expect(moved('ithrott=handbolti', after)).toBeNull();
+  });
+
+  it('resolves to the new team id once rewritten, with no duplicate', () => {
+    const terms: CatalogTerms = { ...terms0, teams: [{ id: 700, slug: 'liverpool', name: 'Liverpool' }, { id: 701, slug: 'island-iceland', name: 'Ísland' }] };
+    const next = new URLSearchParams(moved('team=hsi,island-iceland')!);
+    const { filter, active } = toStoreFilter(parseLiveFilters(next), terms);
+    expect(filter.attributes).toEqual([{ taxonomy: 'pa_felag-lid', termIds: [701] }]);
+    expect(active.team).toEqual(['island-iceland']);
+  });
+
+  it('keeps the pick limits: a URL over them is still refused, and the move can only lower the count', () => {
+    const over = 'team=hsi,island-iceland,liverpool,a,b,c,d';
+    expect(excessiveFilterQuery(new URLSearchParams(over))).toBe(true);
+    const next = new URLSearchParams(moved(over, new Set(['liverpool', 'island-iceland', 'a', 'b', 'c', 'd']))!);
+    expect(next.get('team')?.split(',')).toHaveLength(6);
+    expect(excessiveFilterQuery(next)).toBe(false);
+  });
+});
+
+// movedTeamTarget: the middleware's decision, pure so the guards are tested (a page request only, never an API route).
+describe('movedTeamTarget', () => {
+  const afterMerge = new Set(['island-iceland', 'liverpool']);
+  const beforeMerge = new Set(['hsi', 'island-iceland', 'liverpool']);
+  const q = (s: string) => new URLSearchParams(s);
+
+  it('sends a page request naming the merged team to the same path with the new slug, other filters kept', () => {
+    expect(movedTeamTarget('GET', '/verslun/', q('team=hsi&ithrott=handbolti&kyn=karlar'), afterMerge)).toBe('/verslun/?team=island-iceland&ithrott=handbolti&kyn=karlar');
+    expect(movedTeamTarget('HEAD', '/brand/adidas/', q('team=hsi'), afterMerge)).toBe('/brand/adidas/?team=island-iceland');
+  });
+  it('leaves the request alone while the old team still exists', () => {
+    expect(movedTeamTarget('GET', '/verslun/', q('team=hsi'), beforeMerge)).toBeNull();
+  });
+  it('leaves it alone with no term list to judge by', () => {
+    expect(movedTeamTarget('GET', '/verslun/', q('team=hsi'), null)).toBeNull();
+  });
+  it('never redirects a write or an API route', () => {
+    expect(movedTeamTarget('POST', '/verslun/', q('team=hsi'), afterMerge)).toBeNull();
+    expect(movedTeamTarget('GET', '/api/products', q('team=hsi'), afterMerge)).toBeNull();
+  });
+  // The path goes back into the Location header: one that a browser would read as another host must never get there
+  // (the same rule as slashRedirect and unfilteredTarget).
+  it('never redirects to another host', () => {
+    expect(movedTeamTarget('GET', '//evil.example/', q('team=hsi'), afterMerge)).toBeNull();
+    expect(movedTeamTarget('GET', '/\\evil.example/', q('team=hsi'), afterMerge)).toBeNull();
+  });
+  it('leaves internal /_ routes alone', () => {
+    expect(movedTeamTarget('GET', '/_astro/x.js', q('team=hsi'), afterMerge)).toBeNull();
+  });
+  it('reads the first team= only, as the page does, and keeps one', () => {
+    expect(movedTeamTarget('GET', '/verslun/', q('team=hsi&team=liverpool'), afterMerge)).toBe('/verslun/?team=island-iceland');
+  });
+  it('has nothing to do for a request with no team, or a team that never moved', () => {
+    expect(movedTeamTarget('GET', '/verslun/', q('ithrott=handbolti'), afterMerge)).toBeNull();
+    expect(movedTeamTarget('GET', '/verslun/', q('team=liverpool'), afterMerge)).toBeNull();
   });
 });

@@ -280,3 +280,31 @@ describe('createKeyedLoader', () => {
     expect(s.calls).toEqual(['a', 'b', 'c', 'a']);
   });
 });
+
+// peek: what the loader holds right now, for a caller that must not wait on WordPress or start a load.
+describe('createCachedLoader.peek', () => {
+  it('is null before anything has loaded, and starts no load', () => {
+    const load = vi.fn(async () => 'a');
+    const loader = createCachedLoader<string>({ load, ttlMs: 1000, failMemoMs: 100 });
+    expect(loader.peek()).toBeNull();
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it('is the held value, also past its TTL, and still starts no load', async () => {
+    let now = 0;
+    const load = vi.fn(async () => 'a');
+    const loader = createCachedLoader<string>({ load, ttlMs: 1000, failMemoMs: 100, now: () => now });
+    await loader();
+    now += 5000;
+    expect(loader.peek()).toBe('a');
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it('is the new value once a refresh has landed', async () => {
+    const values = ['a', 'b'];
+    const loader = createCachedLoader<string>({ load: async () => values.shift() ?? 'z', ttlMs: 1000, failMemoMs: 100 });
+    await loader();
+    expect(await loader.refresh()).toBe(true);
+    expect(loader.peek()).toBe('b');
+  });
+});

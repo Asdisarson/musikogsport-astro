@@ -97,6 +97,13 @@ const MOVED_CATEGORIES = new Map([
   ['felag-lid', '/voruflokkur/fatnadur/lidafatnadur-fatnadur-2/'],
 ] as [string, string][]);
 
+/** Teams the catalog tidy-up merges into another, whose old `team=` links are worth keeping: old slug → the team that
+ *  replaces it. The merge itself is a `merge` row in mos_clean_term_ops (wp-mu-plugins/mos-catalog-clean.php — keep
+ *  the two in step). A filter naming the old slug only moves once that slug is gone from WordPress (liveFilters
+ *  movedTeamSearch), so the table can ship before the merge runs. The typo merges there (keflavik-2, totttenham …)
+ *  never had links of their own and are not listed. */
+export const MOVED_TEAMS: ReadonlyMap<string, string> = new Map([['hsi', 'island-iceland']]);
+
 /** Where a removed category's URL now lives (its last slug decides), with the request's filters carried over —
  *  the target's own query wins. Null for a category that was never moved. */
 export function movedCategoryTarget(segments: string[], search: string): string | null {

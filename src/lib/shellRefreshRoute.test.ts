@@ -1,6 +1,6 @@
 // POST /api/shell-refresh (review 4, 5, 9): the cached product goes before any mark, the unkeyed route acts only on
 // paths the store knows, and its budget counts path actions (a WordPress bulk edit is served, a stranger is not).
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('astro:env/server', () => ({ WP_INTERNAL_URL: 'http://wp.test', MOS_CLIENT_IP_HEADER: undefined, MOS_TRUSTED_PROXY_HOPS: 0 }));
 
@@ -20,7 +20,13 @@ const m = vi.hoisted(() => {
       forgetAllProducts: () => void calls.push('forgetAllProducts'),
       forgetAllGrids: () => void calls.push('grids'),
       productCached: (slug: string) => m.cached.has(slug),
+      refreshCatalogTerms: async () => {
+        m.terms.count += 1;
+        return m.terms.changed;
+      },
     },
+    // Counted apart from `calls`: the term refreshes are not part of the path sequence the tests above assert.
+    terms: { count: 0, changed: false },
   };
 });
 
@@ -37,13 +43,18 @@ vi.mock('../lib/woo', () => ({
   productCached: m.fns.productCached,
 }));
 vi.mock('../lib/storeCatalog', () => ({ forgetAllGrids: m.fns.forgetAllGrids }));
+vi.mock('../lib/catalogTerms', () => ({ refreshCatalogTerms: m.fns.refreshCatalogTerms }));
 
 let POST: typeof import('../pages/api/shell-refresh').POST;
 beforeEach(async () => {
+  // A term reload that the previous test's poke left for "after the answer" runs now, not in the middle of this test.
+  await new Promise((r) => setTimeout(r, 0));
   vi.resetModules(); // fresh budgets per test
   m.calls.length = 0;
   m.known.clear();
   m.cached.clear();
+  m.terms.count = 0;
+  m.terms.changed = false;
   delete process.env.MOS_SHELL_POKE_KEY;
   POST = (await import('../pages/api/shell-refresh')).POST;
 });
@@ -224,5 +235,108 @@ describe('POST /api/shell-refresh: with the key, nothing changes (keyed pin)', (
     const res = await poke({ stale: ['/vara/unknown/'] }, { key: 'secret-key' });
     expect(res.status).toBe(204);
     expect(m.calls).toEqual(['forget:unknown', 'stale:/vara/unknown/']);
+  });
+});
+
+// The term lists (categories, brands, teams, sizes) are reloaded when WordPress says a product changed, so a new team or
+// brand becomes an option in the filter without waiting out the lists' ten minutes. Only a poke that is applied does it;
+// at most once per 30 seconds per process, with the last save of a burst still read; and when the options did change,
+// the listings are marked once more, since pages rendered meanwhile were built from the old lists.
+describe('POST /api/shell-refresh: the term lists are reloaded (sibling of the listings mark)', () => {
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-20T10:00:00Z'));
+    vi.resetModules(); // the limiters read Date.now when created: re-import under the fake clock
+    POST = (await import('../pages/api/shell-refresh')).POST;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.MOS_SHELL_POKE_KEY;
+  });
+  const settle = (ms = 0) => vi.advanceTimersByTimeAsync(ms);
+
+  it('an applied poke reloads the term lists, after the answer has gone', async () => {
+    m.known.add('/vara/a/');
+    expect((await poke({ stale: ['/vara/a/'] }, { addr: '198.51.100.1' })).status).toBe(204);
+    expect(m.terms.count).toBe(0);
+    await settle();
+    expect(m.terms.count).toBe(1);
+  });
+
+  it('a burst of pokes is one reload now and one at the end of the 30 seconds, which reads the last save too', async () => {
+    for (let i = 0; i < 20; i++) expect((await poke({ listings: true }, { addr: `198.51.100.${10 + i}` })).status).toBe(204);
+    await settle();
+    expect(m.terms.count).toBe(1);
+    await settle(10_000);
+    expect((await poke({ listings: true }, { addr: '198.51.100.40' })).status).toBe(204); // a save 10 s after the reload
+    await settle(19_000);
+    expect(m.terms.count).toBe(1); // not yet: 29 s
+    await settle(1_000);
+    expect(m.terms.count).toBe(2); // at 30 s, with no further poke
+    await settle(60_000);
+    expect(m.terms.count).toBe(2); // and nothing more until another save
+  });
+
+  it('a clock that steps back does not hold the next reload longer than the 30 seconds', async () => {
+    expect((await poke({ listings: true }, { addr: '198.51.100.50' })).status).toBe(204);
+    await settle();
+    expect(m.terms.count).toBe(1);
+    vi.setSystemTime(Date.now() - 6 * 60 * 60_000); // the system clock is corrected six hours back
+    expect((await poke({ listings: true }, { addr: '198.51.100.51' })).status).toBe(204);
+    await settle(30_000);
+    expect(m.terms.count).toBe(2);
+  });
+
+  it('changed options mark the listings once more; unchanged ones do not', async () => {
+    process.env.MOS_SHELL_POKE_KEY = 'secret-key';
+    m.terms.changed = true;
+    expect((await poke({ stale: ['/vara/a/'] }, { key: 'secret-key' })).status).toBe(204);
+    expect(m.calls).not.toContain('listings');
+    await settle();
+    expect(m.calls.filter((c) => c === 'listings')).toHaveLength(1);
+    m.terms.changed = false;
+    await settle(30_000);
+    expect((await poke({ stale: ['/vara/a/'] }, { key: 'secret-key' })).status).toBe(204);
+    await settle();
+    expect(m.terms.count).toBe(2);
+    expect(m.calls.filter((c) => c === 'listings')).toHaveLength(1);
+  });
+
+  it('an unauthorised poke does not reload them', async () => {
+    process.env.MOS_SHELL_POKE_KEY = 'secret-key';
+    expect((await poke({ products: true }, { key: 'wrong-key' })).status).toBe(403);
+    await settle(60_000);
+    expect(m.terms.count).toBe(0);
+  });
+
+  it('an invalid poke does not reload them', async () => {
+    expect((await poke({ stale: 'not-a-list' }, { addr: '198.51.100.3' })).status).toBe(400);
+    await settle(60_000);
+    expect(m.terms.count).toBe(0);
+  });
+
+  it('a poke that names nothing (no path, no listings) does not reload them', async () => {
+    expect((await poke({}, { addr: '198.51.100.7' })).status).toBe(204);
+    await settle(60_000);
+    expect(m.terms.count).toBe(0);
+  });
+
+  it('a poke the budget refuses whole (nothing applied) does not reload them', async () => {
+    for (let r = 0; r < 6; r++) await poke({ drop: known(`t${r}-`, 50) }, { addr: '198.51.100.4' });
+    await settle(31_000); // past the 30 s terms window, still inside the address's minute
+    const before = m.terms.count;
+    const res = await poke({ drop: known('late-', 2) }, { addr: '198.51.100.4' });
+    expect(res.status).toBe(429);
+    await settle(31_000);
+    expect(m.terms.count).toBe(before);
+  });
+
+  it('a poke whose listings mark the five-minute window refuses still reloads them', async () => {
+    expect((await poke({ listings: true }, { addr: '198.51.100.5' })).status).toBe(204);
+    await settle(60_000); // inside the five minutes: the next listings mark is refused
+    expect((await poke({ listings: true }, { addr: '198.51.100.6' })).status).toBe(204);
+    await settle();
+    expect(m.calls.filter((c) => c === 'listings')).toHaveLength(1);
+    expect(m.terms.count).toBe(2);
   });
 });
