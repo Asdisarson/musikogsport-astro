@@ -19,8 +19,9 @@ import WaitlistForm from './WaitlistForm';
 // then radio-like buttons — colours as picture thumbs when every colour has its own photo, everything else as a
 // 2-column grid of 48px boxes with sold-out options struck through (still pickable: a sold-out choice shows the
 // waitlist sign-up). Arrow keys move between the options. Then a "Hreinsa" reset, the variation's stock, a quiet
-// quantity box on its own line, and "Setja í körfu" as a full-width pill (disabled, with a "Veldu stærð" hint under
-// it, until a size is chosen). A choice known to be sold out gets the waitlist form (WaitlistForm) in their place.
+// quantity box on its own line, and "Setja í körfu" as a full-width pill. Until every option of a variable product is
+// chosen the quantity box is not shown and the pill is disabled, with a "Veldu stærð" hint under it. A choice known
+// to be sold out gets the waitlist form (WaitlistForm) in their place.
 
 interface VarAttr {
   name: string;
@@ -137,9 +138,6 @@ export default function ProductPurchase({
   const [justAdded, setJustAdded] = useState(false);
   // Only this button's own failure shows here; a card's add elsewhere on the page reports in the side cart.
   const [err, setErr] = useState<string | null>(null);
-  // "Setja í körfu" pressed before a size was picked: the hint turns into an error and the group is marked
-  const [nudged, setNudged] = useState(false);
-  const varsRef = useRef<HTMLDivElement>(null);
   // the phone bar's ×: hidden for the variation it was closed on; picking another brings it back
   const [barClosedFor, setBarClosedFor] = useState<number | null>(null);
   // ...and it only shows while the form's own "Setja í körfu" is out of sight
@@ -259,8 +257,10 @@ export default function ProductPurchase({
   const waitFor = waitlistDuring(live.state === 'pending', waitNow, waitKnown.current, own);
   // The quantity box and "Setja í körfu" give way to the form, or to the hint asking what to wait for.
   const noCart = soldOut || waitFor !== null;
-  // Guidance under the button until every attribute is chosen ("Veldu stærð"); the button stays pressable then and
-  // points at the missing choice instead of doing nothing.
+  // A variable product has nothing to count or add until its variation is chosen: the quantity box waits for it and
+  // the button, though shown, is off.
+  const chosen = !isVariable || !!resolved;
+  // Guidance under the button until every attribute is chosen ("Veldu stærð").
   // Only when the missing attribute has an option left to pick. With nothing to buy, the choice is what to wait for.
   const pick = isVariable && !variationsFailed ? choiceHint(attrNames, selected, { attrs: variationAttrs, variations: liveVars }) : null;
   const hint = pick && sellsNothing ? `${pick} til að skrá þig á biðlista` : pick;
@@ -269,23 +269,14 @@ export default function ProductPurchase({
   // simple product), sliding in while the form's own button is out of sight
   // Never beside the waitlist form: while a refetch is pending the stock is unknown again, yet the choice is sold out.
   const barReady = isVariable && !!resolved && waitFor === null && attrNames.every((n) => selected[n]) && barClosedFor !== resolved.id && (resolved.stock_status === undefined || buyable(resolved.stock_status as 'instock'));
-  const missing = hint ? attrNames.find((n) => !selected[n]) : undefined;
 
   function choose(attr: string, option: string) {
     setSelected((s) => ({ ...s, [attr]: s[attr] === option ? '' : option }));
     setJustAdded(false);
-    setNudged(false);
   }
 
   async function handleAdd() {
-    if (missing !== undefined) {
-      setNudged(true);
-      const group = varsRef.current?.querySelector<HTMLElement>(`[data-var="${attrNames.indexOf(missing)}"]`);
-      group?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      (group?.querySelector<HTMLButtonElement>('[data-state="instock"]') ?? group?.querySelector<HTMLButtonElement>('button:not(:disabled)'))?.focus({ preventScroll: true });
-      return;
-    }
-    if (!canAdd) return;
+    if (!canAdd || !chosen) return;
     setAdding(true);
     setJustAdded(false);
     setErr(null);
@@ -318,12 +309,12 @@ export default function ProductPurchase({
       {isVariable && variationsFailed && <p className="form-error">Gat ekki sótt afbrigði vörunnar. Reyndu aftur síðar.</p>}
 
       {isVariable && !variationsFailed && (
-        <div className="pdp-vars" ref={varsRef}>
+        <div className="pdp-vars">
           {shown.map(({ a, i: ai }) => {
             const size = isSizeAttribute(a.name);
             const images = pictures.get(a.name) ?? null;
             return (
-              <div className={`pdp-var${nudged && a.name === missing ? ' is-missing' : ''}`} key={a.name} data-var={attrNames.indexOf(a.name)}>
+              <div className="pdp-var" key={a.name}>
                 <div className="pdp-var__head">
                   <div className="pdp-var__label" id={`pdp-var-${ai}`}>
                     {size ? (
@@ -369,7 +360,6 @@ export default function ProductPurchase({
           <button type="button" className="pdp-reset" data-visible={anySelected ? 'true' : 'false'} onClick={() => {
               setSelected({});
               setJustAdded(false);
-              setNudged(false);
             }}>
             <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" /><path d="m15 9-6 6M9 9l6 6" fill="none" stroke="currentColor" strokeWidth="2" /></svg>
             Hreinsa
@@ -386,7 +376,7 @@ export default function ProductPurchase({
 
       <div className="pdp-cart" ref={cartRef}>
         {waitFor !== null && <WaitlistForm key={waitFor} productId={waitFor} />}
-        {!noCart && <div className="pdp-qty" role="group" aria-label="Fjöldi">
+        {!noCart && chosen && <div className="pdp-qty" role="group" aria-label="Fjöldi">
           <button type="button" onClick={() => setQtyText(String(Math.max(1, qty - 1)))} aria-label="Fækka">
             <Minus />
           </button>
@@ -417,7 +407,7 @@ export default function ProductPurchase({
         {!noCart && <button
           type="button"
           className="pdp-atc"
-          disabled={!canAdd && missing === undefined}
+          disabled={!canAdd || !chosen}
           aria-busy={adding || pending}
           aria-describedby={hint ? hintId : undefined}
           onClick={handleAdd}
@@ -426,7 +416,7 @@ export default function ProductPurchase({
         </button>}
       </div>
       {hint && (
-        <p className={`pdp-hint${nudged ? ' is-error' : ''}`} id={hintId} role={nudged ? 'alert' : undefined}>
+        <p className="pdp-hint" id={hintId}>
           {hint}
         </p>
       )}
