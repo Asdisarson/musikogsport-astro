@@ -35,9 +35,13 @@ check('kyn karl', mos_clean_gender_from_attrs(['karl'], ['fullordin-n']), ['karl
 check('kyn unisex adult', mos_clean_gender_from_attrs(['unisex'], []), ['karlar', 'konur']);
 check('kyn none', mos_clean_gender_from_attrs([], ['fullordin-n']), []);
 
-// A jacket, vest or galli is filed two ways by staff: a describing word beside it decides nothing.
-check('shirt jacket: no garment', mos_clean_garment_from_name(mos_clean_tokens('Nike Shirt Jacket Svartur')), []);
-check('polo zip jacket: no garment', mos_clean_garment_from_name(mos_clean_tokens('Nike Polo Zip Jacket')), []);
+// A jacket is outerwear (the owner's decision, 2026-11-20). A vest or galli is still filed two ways by staff: a
+// describing word beside one decides nothing.
+check('a jacket is outerwear', mos_clean_garment_from_name(mos_clean_tokens('Casall Training Jacket Svartur')), ['yfirhafnir']);
+check('JKT is a jacket', mos_clean_garment_from_name(mos_clean_tokens('Didriksons Varja WNS JKT 2 Black')), ['yfirhafnir']);
+check('a shirt jacket is a jacket, not a shirt', mos_clean_garment_from_name(mos_clean_tokens('Nike Shirt Jacket Svartur')), ['yfirhafnir']);
+check('a polo zip jacket is a jacket', mos_clean_garment_from_name(mos_clean_tokens('Nike Polo Zip Jacket')), ['yfirhafnir']);
+check('a jacket named with another garment is left for a person', mos_clean_garment_from_name(mos_clean_tokens('Nike Tech Fleece Jacket peysa')), ['yfirhafnir', 'peysur-efri-likami']);
 check('tank vest: no garment', mos_clean_garment_from_name(mos_clean_tokens('Nike Tank Vest')), []);
 check('a proper word still decides beside a jacket', mos_clean_garment_from_name(mos_clean_tokens('Adidas Jacket hlaupajakki')), ['yfirhafnir']);
 check('a plain shirt is still a shirt', mos_clean_garment_from_name(mos_clean_tokens('Nike Golf Shirt')), ['bolir-efri-likami']);
@@ -322,7 +326,7 @@ check('hárband', $g('NIKE HÁRBAND'), ['hufur-treflar']);
 check('clogs', $g('Crocs Classic Clog Chunky Glitter Bleikir Kids'), ['inniskor']);
 check('shoes, with no word for which kind: Skór', $g('Nike Flex Train Womens Workout Shoes'), ['skor']);
 check('barnaskór: Skór', $g('Adidas Terrex Agravic BOA barnaskór'), ['skor']);
-check('a jacket is filed two ways by staff: no decision', $g('Casall Soft Touch Zip Jacket Svartur'), []);
+check('a jacket is outerwear, whatever else describes it', $g('Casall Soft Touch Zip Jacket Svartur'), ['yfirhafnir']);
 $r = $d2(['name' => 'Nike Flex Train Womens Workout Shoes', 'cats' => ['skor']]);
 check('already under Skór: nothing to add', $r['garment'], null);
 check('filed under Skór counts as filed: the default category goes', mos_clean_without_default([15, 653], 15, [672, 653]), [653]);
