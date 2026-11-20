@@ -237,9 +237,10 @@ function mos_shell_admin_parse($json): ?array {
     $folder = $store['folder'] ?? null;
     $last = mos_shell_admin_run($json['lastRun'] ?? null);
     $runs = [];
-    foreach (is_array($json['recentRuns'] ?? null) ? array_slice($json['recentRuns'], 0, MOS_SHELL_ADMIN_RUNS) : [] as $r) {
-        $run = mos_shell_admin_run($r);
-        if ($run !== null) { $runs[] = $run; }
+    foreach (is_array($json['recentRuns'] ?? null) ? array_slice($json['recentRuns'], 0, MOS_SHELL_ADMIN_RUNS) : [] as $one) {
+        // Not $run: that holds the live run's own fields, read below.
+        $finished = mos_shell_admin_run($one);
+        if ($finished !== null) { $runs[] = $finished; }
     }
 
     // The storefront's settings: the effective values, where each comes from, its saved copy, the estimate. Null for a
@@ -297,7 +298,9 @@ function mos_shell_admin_parse($json): ?array {
         'nextRunAt' => mos_shell_admin_int($sch['nextRunAt'] ?? null),
         'lastStart' => mos_shell_admin_int($sch['lastStart'] ?? null),
         'lastEnd' => mos_shell_admin_int($sch['lastEnd'] ?? null),
+        'unfinishedStart' => mos_shell_admin_int($sch['unfinishedStart'] ?? null),
         'running' => ($run['running'] ?? false) === true,
+        'clearing' => ($run['clearing'] ?? false) === true,
         'startedAt' => mos_shell_admin_int($run['startedAt'] ?? null),
         'total' => mos_shell_admin_int($run['total'] ?? null),
         'visited' => mos_shell_admin_int($run['visited'] ?? null) ?? 0,
@@ -337,15 +340,104 @@ function mos_shell_admin_problem(int $code): string {
 function mos_shell_admin_outcome(string $do, int $code, ?array $json = null): string {
     if ($code === 403) { return 'forbidden'; }
     if ($code === 0 || $code === -1 || $code === -2) { return mos_shell_admin_problem($code); }
-    if ($do === 'run') { return $code === 202 ? 'run-started' : ($code === 409 ? 'run-refused' : 'failed'); }
+    $error = is_array($json) ? (string) ($json['error'] ?? '') : '';
+    if ($do === 'run') {
+        if ($code === 202) { return 'run-started'; }
+        if ($code !== 409) { return 'failed'; }
+        return [
+            'clearing' => 'run-refused-clearing',
+            'store-off' => 'run-refused-off',
+            'no-base' => 'run-refused-nobase',
+        ][$error] ?? 'run-refused';
+    }
     if ($do === 'stop') { return $code === 202 ? 'stop-sent' : ($code === 409 ? 'stop-refused' : 'failed'); }
     if ($do === 'refresh') { return $code === 200 ? 'refresh-done' : ($code === 409 ? 'refresh-refused' : 'failed'); }
     if ($do === 'clear') {
-        if ($code === 200) { return 'clear-done'; }
+        // A clear that left page files behind is a warning, not a success (the storefront answers the count).
+        if ($code === 200) { return mos_shell_admin_int($json['failed'] ?? null) > 0 ? 'clear-partial' : 'clear-done'; }
         if ($code !== 409) { return 'failed'; }
-        return ($json['error'] ?? '') === 'store-off' ? 'clear-off' : 'clear-running';
+        return [
+            'clearing' => 'clear-clearing',
+            'store-off' => 'clear-off',
+        ][$error] ?? 'clear-running';
     }
     return 'unknown';
+}
+
+/** Whether the run button may be pressed: the store is on, a base is set, an administrator is asking, and no walk and no
+ *  clear holds the slot. Pure. */
+function mos_shell_admin_may_run(bool $on, bool $hasBase, bool $running, bool $clearing, bool $manage): bool {
+    return $on && $hasBase && !$running && !$clearing && $manage;
+}
+
+/** Whether the clear button may be pressed: an administrator, and no clear is going already. Pure. */
+function mos_shell_admin_may_clear(bool $manage, bool $clearing): bool {
+    return $manage && !$clearing;
+}
+
+/** Whether the stop button is offered: for a walk only, never for a clear (a clear cannot be stopped). Pure. */
+function mos_shell_admin_may_stop(bool $running, bool $clearing): bool {
+    return $running && !$clearing;
+}
+
+/** The line that shows a clear in progress, or null when none goes. Pure. */
+function mos_shell_admin_clearing_notice(bool $clearing): ?string {
+    return $clearing ? 'Tæming í gangi. Keyrsla og önnur tæming bíða þar til henni lýkur.' : null;
+}
+
+/** Whether the page refreshes itself: while a walk or a clear goes (the status changes meanwhile). Pure. */
+function mos_shell_admin_reloads(bool $running, bool $clearing): bool {
+    return $running || $clearing;
+}
+
+/** The script that refreshes the page every $ms while a walk or a clear goes, to the clean address. It holds off while a
+ *  control on the page has focus or differs from the value it was loaded with, so a half-typed setting or path is not
+ *  thrown away; it looks again each second and refreshes once nothing is being edited. Pure. */
+function mos_shell_admin_reload_script(string $url, int $ms): string {
+    $to = json_encode($url, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES);
+    return '<script>(function(){'
+        . 'var root=document.querySelector(".mos-sg");'
+        . 'var TAGS=/^(INPUT|SELECT|TEXTAREA)$/;'
+        . 'function control(el){return !!el&&!!root&&root.contains(el)&&TAGS.test(el.tagName)&&el.type!=="hidden"&&el.type!=="submit"&&el.type!=="button"&&el.type!=="reset";}'
+        . 'function changed(el){'
+        . 'if(el.tagName==="SELECT"){for(var i=0;i<el.options.length;i++){if(el.options[i].selected!==el.options[i].defaultSelected){return true;}}return false;}'
+        . 'if(el.type==="checkbox"||el.type==="radio"){return el.checked!==el.defaultChecked;}'
+        . 'return el.value!==el.defaultValue;}'
+        . 'function editing(){'
+        . 'if(control(document.activeElement)){return true;}'
+        . 'var all=root?root.querySelectorAll("input,select,textarea"):[];'
+        . 'for(var j=0;j<all.length;j++){if(control(all[j])&&changed(all[j])){return true;}}'
+        . 'return false;}'
+        . 'function tick(){if(editing()){setTimeout(tick,1000);}else{window.location.replace(' . $to . ');}}'
+        . 'setTimeout(tick,' . (int) $ms . ');'
+        . '})();</script>';
+}
+
+/** The pause as the progress line shows it: milliseconds under a second ("800 ms", "100 ms"), then the durations' words. Pure. */
+function mos_shell_admin_pause(int $ms): string {
+    return max(0, $ms) < 1000 ? max(0, $ms) . ' ms' : mos_shell_admin_duration($ms);
+}
+
+/** The rows of 'Síðasta keyrsla' as [label, value] pairs. An interrupted run (its start stamp is newer than the last
+ *  finished run, or there is none) is shown as interrupted, and the finished one behind it is not shown there (it stays in
+ *  the list of runs). Pure. */
+function mos_shell_admin_last_run_rows(?array $lastRun, ?int $unfinishedStart, ?int $lastStart): array {
+    if ($unfinishedStart !== null && ($lastRun === null || $unfinishedStart > $lastRun['startedAt'])) {
+        return [['Síðasta keyrsla', 'Hófst ' . mos_shell_admin_when($unfinishedStart) . '. Lauk ekki: keyrslan stöðvaðist áður en hún kláraðist.']];
+    }
+    if ($lastRun !== null) {
+        $why = $lastRun['stoppedWhy'] === 'failures' ? ' Stöðvaðist eftir röð villna.' : ($lastRun['stoppedWhy'] === 'stopped' ? ' Stöðvuð handvirkt.' : ($lastRun['stoppedWhy'] === 'error' ? ' Stöðvaðist vegna villu.' : ''));
+        $tally = $lastRun['visited'] . ' síður: ' . $lastRun['rendered'] . ' endurbyggðar, ' . $lastRun['hits'] . ' í geymslu, ' . $lastRun['gone'] . ' horfnar, ' . $lastRun['failures'] . ' villur.' . $why;
+        $rows = [
+            ['Síðasta keyrsla', mos_shell_admin_when($lastRun['startedAt']) . ', tók ' . mos_shell_admin_duration($lastRun['durationMs'])],
+            ['Niðurstaða', $tally],
+        ];
+        $per = mos_shell_admin_per_page($lastRun['msPerPage'], $lastRun['pagesPerMinute']);
+        if ($per !== null) { $rows[] = ['Mælt', $per]; }
+        return $rows;
+    }
+    if ($lastStart !== null) { return [['Síðasta keyrsla', 'Hófst ' . mos_shell_admin_when($lastStart) . '. Lokin eru ekki skráð í þessu ferli.']]; }
+    return [['Síðasta keyrsla', 'Engin keyrsla skráð.']];
 }
 
 /** Whether the user may send an action. Run and clear are for administrators (they walk every page, or empty the
@@ -377,7 +469,10 @@ function mos_shell_admin_request(string $do, string $path, bool $confirmed): arr
 function mos_shell_admin_text(string $key): ?array {
     $texts = [
         'run-started' => ['success', 'Keyrsla hófst. Síðan uppfærist á meðan hún er í gangi.'],
-        'run-refused' => ['warning', 'Ekki var hægt að keyra: keyrsla er þegar í gangi, geymslan er slökkt eða engin grunnslóð er stillt.'],
+        'run-refused' => ['warning', 'Ekki var hægt að keyra: keyrsla er þegar í gangi.'],
+        'run-refused-clearing' => ['warning', 'Ekki var hægt að keyra: geymslan er að tæmast. Bíddu þar til tæmingunni lýkur og reyndu aftur.'],
+        'run-refused-off' => ['warning', 'Ekki var hægt að keyra: geymslan er slökkt.'],
+        'run-refused-nobase' => ['warning', 'Ekki var hægt að keyra: engin grunnslóð er stillt. Stilltu MOS_SHELL_REBUILD_BASE í umhverfi vefsins.'],
         'stop-sent' => ['success', 'Beðið um stöðvun. Keyrslan stöðvast eftir núverandi síðu.'],
         'stop-refused' => ['warning', 'Engin keyrsla er í gangi.'],
         'refresh-done' => ['success', 'Síðan er merkt til endurbyggingar við næstu heimsókn.'],
@@ -390,6 +485,8 @@ function mos_shell_admin_text(string $key): ?array {
         'refresh-refused' => ['warning', 'Ekki var hægt að merkja síðuna: geymslan er slökkt.'],
         'refresh-bad-path' => ['warning', 'Slóðin er ekki vörusíða eða flokkssíða vefsins, til dæmis /vara/nafn/ eða /verslun/flokkur/nafn/.'],
         'clear-done' => ['success', 'Geymslan var tæmd. Síðurnar endurbyggjast við heimsóknir.'],
+        'clear-partial' => ['warning', 'Geymslan var tæmd, en ekki tókst að fjarlægja allar síður. Síður sem eftir eru gætu birst áfram þar til þær endurbyggjast. Athugaðu villuskrá vefsins og reyndu aftur.'],
+        'clear-clearing' => ['warning', 'Ekki var hægt að tæma: tæming er þegar í gangi. Bíddu eftir henni.'],
         'clear-running' => ['warning', 'Ekki var hægt að tæma: keyrsla var í gangi. Stöðvaðu hana, bíddu þar til hún er hætt og reyndu aftur.'],
         'clear-off' => ['warning', 'Ekki var hægt að tæma: geymslan er slökkt.'],
         'clear-unconfirmed' => ['warning', 'Staðfestu að tæma geymsluna með gátreitnum.'],
@@ -518,7 +615,6 @@ function mos_shell_admin_render(): void {
         return;
     }
     $s = $state['status'];
-    $running = $s['running'];
     if ($state['pushed']) {
         $resent = mos_shell_admin_text('settings-resent');
         echo mos_shell_admin_notice_html($resent[0], $resent[1]);
@@ -529,10 +625,10 @@ function mos_shell_admin_render(): void {
     mos_shell_admin_card_settings($s, current_user_can('manage_options'));
     mos_shell_admin_card_actions($s);
     echo '</div>';
-    if ($running) {
-        // Auto-refresh only while a run is going, on the clean page address (no notice to show twice).
-        $url = admin_url('admin.php?page=' . MOS_SHELL_ADMIN_SLUG);
-        echo '<script>setTimeout(function(){window.location.replace(' . wp_json_encode($url, JSON_HEX_TAG | JSON_HEX_AMP) . ');},' . MOS_SHELL_ADMIN_RELOAD_MS . ');</script>';
+    if (mos_shell_admin_reloads($s['running'], $s['clearing'])) {
+        // Auto-refresh while a walk or a clear goes, on the clean page address (no notice to show twice); the guard
+        // holds it while a setting or the path is being edited.
+        echo mos_shell_admin_reload_script(admin_url('admin.php?page=' . MOS_SHELL_ADMIN_SLUG), MOS_SHELL_ADMIN_RELOAD_MS);
     }
     echo '</div>';
 }
@@ -566,18 +662,8 @@ function mos_shell_admin_card_nightly(array $s): void {
     $state = $s['armed'] ? 'Virk.' : (mos_shell_admin_why_text($s['why'], $source) ?? 'Óvirk.');
     echo '<p>' . esc_html($state) . '</p><dl class="mos-sg__rows">';
     echo mos_shell_admin_row('Næsta keyrsla', $s['nextRunAt'] === null ? '–' : mos_shell_admin_when($s['nextRunAt']));
-    if ($s['lastRun'] !== null) {
-        $l = $s['lastRun'];
-        $why = $l['stoppedWhy'] === 'failures' ? ' Stöðvaðist eftir röð villna.' : ($l['stoppedWhy'] === 'stopped' ? ' Stöðvuð handvirkt.' : ($l['stoppedWhy'] === 'error' ? ' Stöðvaðist vegna villu.' : ''));
-        $tally = $l['visited'] . ' síður: ' . $l['rendered'] . ' endurbyggðar, ' . $l['hits'] . ' í geymslu, ' . $l['gone'] . ' horfnar, ' . $l['failures'] . ' villur.' . $why;
-        echo mos_shell_admin_row('Síðasta keyrsla', mos_shell_admin_when($l['startedAt']) . ', tók ' . mos_shell_admin_duration($l['durationMs']));
-        echo mos_shell_admin_row('Niðurstaða', $tally);
-        $per = mos_shell_admin_per_page($l['msPerPage'], $l['pagesPerMinute']);
-        if ($per !== null) { echo mos_shell_admin_row('Mælt', $per); }
-    } elseif ($s['lastStart'] !== null) {
-        echo mos_shell_admin_row('Síðasta keyrsla', 'Hófst ' . mos_shell_admin_when($s['lastStart']) . '. Lokin eru ekki skráð í þessu ferli.');
-    } else {
-        echo mos_shell_admin_row('Síðasta keyrsla', 'Engin keyrsla skráð.');
+    foreach (mos_shell_admin_last_run_rows($s['lastRun'], $s['unfinishedStart'], $s['lastStart']) as [$label, $value]) {
+        echo mos_shell_admin_row($label, $value);
     }
     echo '</dl>';
     if ($s['running']) { mos_shell_admin_progress($s); }
@@ -631,7 +717,7 @@ function mos_shell_admin_progress(array $s): void {
     $workers = mos_shell_admin_workers_text($s['workers'], $s['concurrency']);
     if ($workers !== '') { echo esc_html($workers) . '. '; }
     if ($s['lastPath'] !== null) { echo 'Síðast: ' . esc_html($s['lastPath']) . '. '; }
-    if ($s['pauseMs'] !== null) { echo 'Hlé: ' . esc_html(mos_shell_admin_duration($s['pauseMs'])) . '. '; }
+    if ($s['pauseMs'] !== null) { echo 'Hlé: ' . esc_html(mos_shell_admin_pause($s['pauseMs'])) . '. '; }
     if ($s['stopRequested']) { echo '<span class="mos-sg__warn">Stöðvun beðin: stöðvast eftir núverandi síðu.</span>'; }
     echo '</p>';
 }
@@ -696,13 +782,16 @@ function mos_shell_admin_card_actions(array $s): void {
     $url = esc_url(admin_url('admin-post.php'));
     $nonce = wp_nonce_field('mos_shell_admin_do', '_wpnonce', true, false);
     $manage = current_user_can('manage_options');
-    $can_run = $s['on'] && $s['hasBase'] && !$s['running'] && $manage;
+    $can_run = mos_shell_admin_may_run($s['on'], $s['hasBase'], $s['running'], $s['clearing'], $manage);
+    $may_clear = mos_shell_admin_may_clear($manage, $s['clearing']);
     echo '<section class="mos-sg__card"><h2>Aðgerðir</h2>';
     if (!$manage) { echo '<p class="mos-sg__meta">Keyrsla og tæming eru fyrir stjórnendur.</p>'; }
+    $clearing = mos_shell_admin_clearing_notice($s['clearing']);
+    if ($clearing !== null) { echo '<p class="mos-sg__warn">' . esc_html($clearing) . '</p>'; }
     echo '<form method="post" action="' . $url . '">' . $nonce
         . '<input type="hidden" name="action" value="mos_shell_admin_do"><input type="hidden" name="do" value="run">'
         . '<button type="submit" class="button button-primary"' . ($can_run ? '' : ' disabled') . '>Keyra núna</button></form>';
-    if ($s['running']) {
+    if (mos_shell_admin_may_stop($s['running'], $s['clearing'])) {
         echo '<form method="post" action="' . $url . '">' . $nonce
             . '<input type="hidden" name="action" value="mos_shell_admin_do"><input type="hidden" name="do" value="stop">'
             . '<button type="submit" class="button">Stöðva keyrslu</button></form>';
@@ -717,8 +806,8 @@ function mos_shell_admin_card_actions(array $s): void {
         . '<input type="hidden" name="action" value="mos_shell_admin_do"><input type="hidden" name="do" value="clear">'
         . '<p class="mos-sg__warn">Tæmir allar geymdar síður. Hver síða verður þá endurbyggð við sína heimsókn, og vefurinn '
         . 'verður hægari meðan það gerist. Þetta verður ekki afturkallað.</p>'
-        . '<label><input type="checkbox" name="confirm" value="1"' . ($manage ? ' required' : ' disabled') . '> Ég vil tæma geymsluna</label><br>'
-        . '<button type="submit" class="button button-secondary" style="margin-top:8px"' . ($manage ? '' : ' disabled') . '>Tæma geymslu</button></form>';
+        . '<label><input type="checkbox" name="confirm" value="1"' . ($may_clear ? ' required' : ' disabled') . '> Ég vil tæma geymsluna</label><br>'
+        . '<button type="submit" class="button button-secondary" style="margin-top:8px"' . ($may_clear ? '' : ' disabled') . '>Tæma geymslu</button></form>';
     echo '</section>';
 }
 

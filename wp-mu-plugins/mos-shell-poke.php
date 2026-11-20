@@ -122,41 +122,159 @@ function mos_shell_poke_scheduled(): bool {
     return function_exists('doing_action') && (doing_action('wc_product_start_scheduled_sale') || doing_action('wc_product_end_scheduled_sale'));
 }
 
+/** The queue with more paths and the listings mark added. Each path is kept once, in the order it was first queued, so a
+ *  change that WooCommerce's save hooks send too (the same product, the same request) is one entry, not two. Pure. */
+function mos_shell_poke_merge(array $queue, array $stale, array $drop, bool $listings): array {
+    return [
+        'stale' => array_values(array_unique(array_merge($queue['stale'] ?? [], $stale))),
+        'drop' => array_values(array_unique(array_merge($queue['drop'] ?? [], $drop))),
+        'listings' => (bool) ($queue['listings'] ?? false) || $listings,
+    ];
+}
+
+/** Whether a status change makes a product visible in the shop ('shown'), stops it being visible ('hidden'), or changes
+ *  nothing that a listing or a product page shows (null). Visible means published, whatever the old status was (a
+ *  scheduled product going live is "future" to "publish"). Pure. */
+function mos_shell_poke_visibility_change(string $old, string $new): ?string {
+    if ($old === $new) { return null; }
+    if ($new === 'publish' && $old !== 'publish') { return 'shown'; }
+    if ($old === 'publish' && $new !== 'publish') { return 'hidden'; }
+    return null;
+}
+
 /** Queue a poke for the end of this request. */
 function mos_shell_poke_queue(array $stale, array $drop, bool $listings): void {
     if (empty($GLOBALS['mos_shell_poke'])) {
         $GLOBALS['mos_shell_poke'] = ['stale' => [], 'drop' => [], 'listings' => false];
         if (!has_action('shutdown', 'mos_shell_poke_flush')) { add_action('shutdown', 'mos_shell_poke_flush', PHP_INT_MAX - 2); }
     }
-    $q = &$GLOBALS['mos_shell_poke'];
-    $q['stale'] = array_merge($q['stale'], $stale);
-    $q['drop'] = array_merge($q['drop'], $drop);
-    $q['listings'] = $q['listings'] || $listings;
+    $GLOBALS['mos_shell_poke'] = mos_shell_poke_merge($GLOBALS['mos_shell_poke'], $stale, $drop, $listings);
+}
+
+/** The paths of a 429 answer that the storefront did not apply: a poke cut short by its budget applies what it can and
+ *  answers {message, untaken} (DEPLOY.md, shell-refresh). Pure; [] when the answer names none. */
+function mos_shell_poke_untaken(string $response_body): array {
+    $data = json_decode($response_body, true);
+    if (!is_array($data) || !isset($data['untaken']) || !is_array($data['untaken'])) { return []; }
+    return array_values(array_filter($data['untaken'], static fn($p) => is_string($p) && $p !== ''));
+}
+
+/** The body to send again: the sent body with only the paths that were left out, in the same stale and drop lists.
+ *  The listings and products marks are not paths, so they are not sent again. Null when none of the paths is left. Pure. */
+function mos_shell_poke_resend_body(string $sent, array $untaken): ?string {
+    $body = json_decode($sent, true);
+    if (!is_array($body) || !$untaken) { return null; }
+    $left = array_flip($untaken);
+    $stale = array_values(array_filter($body['stale'] ?? [], static fn($p) => isset($left[$p])));
+    $drop = array_values(array_filter($body['drop'] ?? [], static fn($p) => isset($left[$p])));
+    if (!$stale && !$drop) { return null; }
+    return (string) wp_json_encode(['stale' => $stale, 'drop' => $drop, 'listings' => false]);
+}
+
+/** How long to wait before the one resend: the storefront's Retry-After (60 s in practice), clamped to 1..60 s. Pure. */
+function mos_shell_poke_retry_after(?string $header): int {
+    $secs = is_string($header) && ctype_digit(trim($header)) ? (int) trim($header) : 60;
+    return max(1, min(60, $secs));
+}
+
+/** Where pokes go and the headers they carry, or null when no storefront address is configured. */
+function mos_shell_poke_target(): ?array {
+    $base = function_exists('mos_headless_target_base') ? mos_headless_target_base() : '';
+    if ($base === '') { return null; }
+    $headers = ['Content-Type' => 'application/json'];
+    if (mos_shell_poke_keyed()) { $headers['X-Mos-Shell-Key'] = MOS_SHELL_POKE_KEY; }
+    return ['url' => $base . '/api/shell-refresh', 'headers' => $headers];
+}
+
+function mos_shell_poke_keyed(): bool {
+    return defined('MOS_SHELL_POKE_KEY') && is_string(MOS_SHELL_POKE_KEY) && MOS_SHELL_POKE_KEY !== '';
+}
+
+/** One poke; the answer as WordPress gives it. */
+function mos_shell_poke_post(array $target, string $body) {
+    return wp_remote_post($target['url'], ['timeout' => 5, 'redirection' => 0, 'headers' => $target['headers'], 'body' => $body]);
+}
+
+/** Where the bodies waiting for their one resend are kept: an option that is not loaded with every request. */
+const MOS_SHELL_POKE_RESEND_OPTION = 'mos_shell_poke_resend_queue';
+/** The most the waiting bodies may weigh together. Refused pokes past it are logged and not sent again, so the option
+ *  cannot grow while WP-Cron is not running. */
+const MOS_SHELL_POKE_RESEND_BYTES = 32768;
+
+/** The waiting bodies with more added: oldest first, each once, until the next would pass the byte cap. Pure. */
+function mos_shell_poke_resend_queue(array $waiting, array $more, int $cap): array {
+    $out = [];
+    $bytes = 0;
+    foreach (array_merge($waiting, $more) as $body) {
+        if (!is_string($body) || $body === '' || in_array($body, $out, true)) { continue; }
+        if ($bytes + strlen($body) > $cap) { break; }
+        $out[] = $body;
+        $bytes += strlen($body);
+    }
+    return $out;
 }
 
 /** End of the request: answer the editor first (php-fpm), then tell the storefront once. Never throws; a refused or
- *  failed poke is logged (the page then stays as it was until its own lifetime ends). */
+ *  failed poke is logged (the page then stays as it was until its own lifetime ends). A 429 that names the paths it
+ *  did not apply (untaken) is sent again once, with exactly those paths, after its Retry-After: the storefront answers
+ *  429 for a partly applied poke too, so that is not a failure. The resend is one cron event over a small queue, never
+ *  a wait in this request: a sleeping PHP worker per refused poke could use up the pool during a bulk edit. */
 function mos_shell_poke_flush(): void {
     $q = $GLOBALS['mos_shell_poke'] ?? null;
     $GLOBALS['mos_shell_poke'] = null;
     if (!$q) { return; }
     if (function_exists('fastcgi_finish_request')) { fastcgi_finish_request(); }
-    $base = function_exists('mos_headless_target_base') ? mos_headless_target_base() : '';
-    $keyed = defined('MOS_SHELL_POKE_KEY') && is_string(MOS_SHELL_POKE_KEY) && MOS_SHELL_POKE_KEY !== '';
-    $bodies = mos_shell_poke_bodies($q['stale'], $q['drop'], (bool) $q['listings'], $keyed);
-    if ($base === '') { return; }
-    $headers = ['Content-Type' => 'application/json'];
-    if ($keyed) { $headers['X-Mos-Shell-Key'] = MOS_SHELL_POKE_KEY; }
+    $bodies = mos_shell_poke_bodies($q['stale'], $q['drop'], (bool) $q['listings'], mos_shell_poke_keyed());
+    $target = mos_shell_poke_target();
+    if ($target === null) { return; }
+    $resend = [];
+    $after = 1;
     foreach ($bodies as $body) {
-        $res = wp_remote_post($base . '/api/shell-refresh', [
-            'timeout' => 5,
-            'redirection' => 0,
-            'headers' => $headers,
-            'body' => $body,
-        ]);
+        $res = mos_shell_poke_post($target, $body);
         $code = is_wp_error($res) ? 0 : (int) wp_remote_retrieve_response_code($res);
+        if ($code === 429 && !is_wp_error($res)) {
+            // Partly applied: the paths it names are the ones to send again.
+            $again = mos_shell_poke_resend_body($body, mos_shell_poke_untaken((string) wp_remote_retrieve_body($res)));
+            if ($again !== null) {
+                $resend[] = $again;
+                $after = max($after, mos_shell_poke_retry_after(wp_remote_retrieve_header($res, 'retry-after')));
+                continue;
+            }
+        }
         if ($code !== 204 && $code !== 200) {
             error_log('[mos-shell-poke] storefront answered ' . ($code ?: 'no answer') . ': the page stays as it was for now');
+        }
+    }
+    if ($resend) { mos_shell_poke_resend_later($resend, $after); }
+}
+
+/** Keeps the refused bodies for the one resend and makes sure its cron event is queued, after the longest Retry-After
+ *  asked for, so it is not sent into the same spent budget. */
+function mos_shell_poke_resend_later(array $resend, int $after): void {
+    if (!function_exists('wp_schedule_single_event')) { return; }
+    $waiting = get_option(MOS_SHELL_POKE_RESEND_OPTION, []);
+    $waiting = is_array($waiting) ? $waiting : [];
+    $queue = mos_shell_poke_resend_queue($waiting, $resend, MOS_SHELL_POKE_RESEND_BYTES);
+    $left = count(array_unique(array_merge($waiting, $resend))) - count($queue);
+    if ($left > 0) { error_log('[mos-shell-poke] ' . $left . ' refused poke(s) are not sent again: those pages stay as they were for now'); }
+    update_option(MOS_SHELL_POKE_RESEND_OPTION, $queue, false);
+    if (!wp_next_scheduled('mos_shell_poke_resend') && wp_schedule_single_event(time() + $after, 'mos_shell_poke_resend') === false) {
+        error_log('[mos-shell-poke] the resend could not be scheduled: those pages stay as they were for now');
+    }
+}
+
+/** The one resend (the cron event): each waiting body once; a refused or failed one is only logged. The queue is
+ *  emptied first, so a body is never sent a second time. */
+function mos_shell_poke_resend(): void {
+    $bodies = get_option(MOS_SHELL_POKE_RESEND_OPTION, []);
+    delete_option(MOS_SHELL_POKE_RESEND_OPTION);
+    $target = mos_shell_poke_target();
+    if ($target === null || !is_array($bodies)) { return; }
+    foreach (mos_shell_poke_resend_queue($bodies, [], MOS_SHELL_POKE_RESEND_BYTES) as $body) {
+        $res = mos_shell_poke_post($target, $body);
+        $code = is_wp_error($res) ? 0 : (int) wp_remote_retrieve_response_code($res);
+        if ($code !== 204 && $code !== 200) {
+            error_log('[mos-shell-poke] resend answered ' . ($code ?: 'no answer') . ': the page stays as it was for now');
         }
     }
 }
@@ -219,8 +337,26 @@ add_action('woocommerce_new_product', static fn ($id) => mos_shell_poke_saved((i
 add_action('woocommerce_update_product', static fn ($id) => mos_shell_poke_saved((int) $id));
 add_action('wp_trash_post', static fn ($id) => mos_shell_poke_gone((int) $id));
 add_action('before_delete_post', static fn ($id) => mos_shell_poke_gone((int) $id));
+add_action('mos_shell_poke_resend', 'mos_shell_poke_resend');
+/** A product that becomes visible without a WooCommerce save: a scheduled one going live (WP-Cron's wp_publish_post writes
+ *  the status itself and never runs the product save hooks), or a draft or pending one published. Its page and the
+ *  listings are stale. The path is taken from the post as it now is (its new status), not from the capture that a later
+ *  save hook still needs. */
+function mos_shell_poke_shown(WP_Post $post, string $status): void {
+    $id = (int) $post->ID;
+    if ($id <= 0) { return; }
+    if (!mos_shell_poke_is_editor(defined('WP_CLI') && WP_CLI, current_user_can('edit_products'), mos_shell_poke_scheduled())) { return; }
+    $as = clone $post;
+    $as->post_status = $status;
+    $path = mos_shell_poke_path((string) get_permalink($as));
+    mos_shell_poke_queue($path ? [$path] : [], [], true);
+}
+
+// Any status change that flips the product's visibility pokes, whatever the old status was. A save through WooCommerce
+// also sends these from its own hooks in the same request; the queue keeps each path once.
 add_action('transition_post_status', static function (string $new, string $old, $post): void {
-    if ($post instanceof WP_Post && $post->post_type === 'product' && $old === 'publish' && $new !== 'publish') {
-        mos_shell_poke_gone((int) $post->ID);
-    }
+    if (!$post instanceof WP_Post || $post->post_type !== 'product') { return; }
+    $change = mos_shell_poke_visibility_change($old, $new);
+    if ($change === 'hidden') { mos_shell_poke_gone((int) $post->ID); }
+    elseif ($change === 'shown') { mos_shell_poke_shown($post, $new); }
 }, 10, 3);

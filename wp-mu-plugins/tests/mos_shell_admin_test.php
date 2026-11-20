@@ -259,5 +259,94 @@ $noCopy = $withSettings;
 $noCopy['settings']['saved'] = [];
 check('status: an empty saved copy is no copy', mos_shell_admin_parse($noCopy)['settings']['saved'], null);
 
+// --- Review fixes: a status with recent runs keeps the run's own fields (the loop once overwrote them), a clear is a clear,
+// the interrupted run, the reload guard, the pause in ms, and a clear that left files behind.
+
+$withRun = $withSettings;
+$withRun['run']['running'] = true;
+$withRun['run']['visited'] = 4;
+$pr = mos_shell_admin_parse($withRun);
+check('status: a walk going is still a walk when recent runs are sent', $pr['running'], true);
+check('status: its visited count survives the recent runs', $pr['visited'], 4);
+
+$withClear = $withSettings;
+$withClear['run']['clearing'] = true;
+$pc = mos_shell_admin_parse($withClear);
+check('status: a clear is parsed as clearing', $pc['clearing'], true);
+check('status: a clear is never a walk', $pc['running'], false);
+check('status: no clear by default', mos_shell_admin_parse($good)['clearing'], false);
+check('status: a clear is kept when recent runs are sent too', mos_shell_admin_parse($withClear)['clearing'], true);
+
+$withUnfinished = $good;
+$withUnfinished['scheduler']['unfinishedStart'] = 950000;
+check('status: an interrupted run start is kept', mos_shell_admin_parse($withUnfinished)['unfinishedStart'], 950000);
+check('status: no interrupted run is null', mos_shell_admin_parse($good)['unfinishedStart'], null);
+
+// The page's buttons and the auto-refresh follow the run and the clear (review 3).
+// may_run(store on, base set, walk going, clear going, administrator)
+check('run button: an administrator, store on, base set, nothing going', mos_shell_admin_may_run(true, true, false, false, true), true);
+check('run button: refused while a clear goes', mos_shell_admin_may_run(true, true, false, true, true), false);
+check('run button: refused while a walk goes', mos_shell_admin_may_run(true, true, true, false, true), false);
+check('run button: refused for an editor', mos_shell_admin_may_run(true, true, false, false, false), false);
+check('run button: refused with the store off', mos_shell_admin_may_run(false, true, false, false, true), false);
+check('run button: refused with no base', mos_shell_admin_may_run(true, false, false, false, true), false);
+check('clear button: an administrator when nothing clears', mos_shell_admin_may_clear(true, false), true);
+check('clear button: disabled while a clear goes', mos_shell_admin_may_clear(true, true), false);
+check('clear button: an editor may not clear', mos_shell_admin_may_clear(false, false), false);
+check('stop button: only for a walk', mos_shell_admin_may_stop(true, false), true);
+check('stop button: never for a clear', mos_shell_admin_may_stop(false, true), false);
+check('stop button: not without a run', mos_shell_admin_may_stop(false, false), false);
+check('clearing notice: a clear is named as a clear', mos_shell_admin_clearing_notice(true), 'Tæming í gangi. Keyrsla og önnur tæming bíða þar til henni lýkur.');
+check('clearing notice: none when no clear goes', mos_shell_admin_clearing_notice(false), null);
+
+check('reload: a walk going refreshes the page', mos_shell_admin_reloads(true, false), true);
+check('reload: a clear going refreshes the page too', mos_shell_admin_reloads(false, true), true);
+check('reload: nothing going, no refresh', mos_shell_admin_reloads(false, false), false);
+$js = mos_shell_admin_reload_script('https://wp.test/wp-admin/admin.php?page=mos-sidugeymsla', 15000);
+check('reload script: one script block', substr_count($js, '<script>'), 1);
+check('reload script: the address is a JS string', str_contains($js, '"https://wp.test/wp-admin/admin.php?page=mos-sidugeymsla"'), true);
+check('reload script: the delay is the constant', str_contains($js, '15000'), true);
+check('reload script: waits while a control has focus', str_contains($js, 'document.activeElement'), true);
+check('reload script: waits while a control differs from the page as loaded', str_contains($js, 'defaultValue') && str_contains($js, 'defaultChecked') && str_contains($js, 'defaultSelected'), true);
+check('reload script: checks again later, not one timer', str_contains($js, 'setTimeout(tick'), true);
+check('reload script: replaces the address, no history entry', str_contains($js, 'location.replace'), true);
+
+// The interrupted run is the 'Síðasta keyrsla' row, saying it did not finish; the older finished run is not shown there (review 1).
+$finishedRun = mos_shell_admin_parse($good)['lastRun'];
+$finishedRows = mos_shell_admin_last_run_rows($finishedRun, null, null);
+check('last run: a finished run shows its start and its tally', array_column($finishedRows, 0), ['Síðasta keyrsla', 'Niðurstaða']);
+check('last run: the start of a finished run', $finishedRows[0][1], '1.1.1970 00:00, tók 4 sek');
+check('last run: an interrupted run replaces the finished one', mos_shell_admin_last_run_rows($finishedRun, 950000, null), [['Síðasta keyrsla', 'Hófst ' . mos_shell_admin_when(950000) . '. Lauk ekki: keyrslan stöðvaðist áður en hún kláraðist.']]);
+check('last run: an interrupted run with no finished one before it', mos_shell_admin_last_run_rows(null, 950000, null), [['Síðasta keyrsla', 'Hófst ' . mos_shell_admin_when(950000) . '. Lauk ekki: keyrslan stöðvaðist áður en hún kláraðist.']]);
+check('last run: a stamp older than the finished run does not hide it', array_column(mos_shell_admin_last_run_rows($finishedRun, 0, null), 0), ['Síðasta keyrsla', 'Niðurstaða']);
+check('last run: an older storefront with only the start stamp', mos_shell_admin_last_run_rows(null, null, 900000), [['Síðasta keyrsla', 'Hófst ' . mos_shell_admin_when(900000) . '. Lokin eru ekki skráð í þessu ferli.']]);
+check('last run: nothing on record', mos_shell_admin_last_run_rows(null, null, null), [['Síðasta keyrsla', 'Engin keyrsla skráð.']]);
+
+// The pause as the progress line shows it: milliseconds under a second (review 35).
+check('pause: the default 100 ms', mos_shell_admin_pause(100), '100 ms');
+check('pause: zero', mos_shell_admin_pause(0), '0 ms');
+check('pause: 800 ms', mos_shell_admin_pause(800), '800 ms');
+check('pause: 999 ms is still ms', mos_shell_admin_pause(999), '999 ms');
+check('pause: a second is seconds', mos_shell_admin_pause(1000), '1 sek');
+check('pause: 2.5 s is 2 sek, as the durations floor', mos_shell_admin_pause(2500), '2 sek');
+
+// Refusals and answers name their reason (review 3 and 4).
+check('outcome: a run refused while a clear goes', mos_shell_admin_outcome('run', 409, ['error' => 'clearing']), 'run-refused-clearing');
+check('outcome: a run refused while a walk goes', mos_shell_admin_outcome('run', 409, ['error' => 'running']), 'run-refused');
+check('outcome: a run refused with the store off', mos_shell_admin_outcome('run', 409, ['error' => 'store-off']), 'run-refused-off');
+check('outcome: a run refused with no base', mos_shell_admin_outcome('run', 409, ['error' => 'no-base']), 'run-refused-nobase');
+check('outcome: a run refused with no reason stays a plain refusal', mos_shell_admin_outcome('run', 409, null), 'run-refused');
+check('outcome: a clear refused while another clear goes', mos_shell_admin_outcome('clear', 409, ['error' => 'clearing']), 'clear-clearing');
+check('outcome: a clear refused while a walk goes', mos_shell_admin_outcome('clear', 409, ['error' => 'running']), 'clear-running');
+check('outcome: a clear that removed every file', mos_shell_admin_outcome('clear', 200, ['ok' => true, 'removed' => 4, 'failed' => 0]), 'clear-done');
+check('outcome: a clear that left files behind is a warning', mos_shell_admin_outcome('clear', 200, ['ok' => true, 'removed' => 4, 'failed' => 2]), 'clear-partial');
+check('outcome: a clear answer without the failed count is done (older storefront)', mos_shell_admin_outcome('clear', 200, ['ok' => true, 'removed' => 4]), 'clear-done');
+foreach (['run-refused-clearing', 'run-refused-off', 'run-refused-nobase', 'clear-clearing', 'clear-partial'] as $key) {
+    $t = mos_shell_admin_text($key);
+    check("text for $key is a warning with words", is_array($t) && $t[0] === 'warning' && $t[1] !== '', true);
+}
+check('texts: each run refusal has its own words', count(array_unique([mos_shell_admin_text('run-refused')[1], mos_shell_admin_text('run-refused-clearing')[1], mos_shell_admin_text('run-refused-off')[1], mos_shell_admin_text('run-refused-nobase')[1]])), 4);
+check('texts: a clear refusal for another clear differs from the walk one', mos_shell_admin_text('clear-clearing')[1] !== mos_shell_admin_text('clear-running')[1], true);
+
 echo "$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

@@ -70,16 +70,24 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
   accepts only product and category paths of one strict shape, and bounds the route by a budget of path actions
   (DEPLOY.md, Rate limits; set the key in production). A refused or failed poke is logged to the PHP error log.
   Who counts as an editor: a user who may edit products, WP-CLI, and a scheduled save (WP-Cron, or the Action Scheduler
-  actions that start and end a WooCommerce sale) unless it changed only stock. Stock changes from orders send nothing. A path over 200 characters is
+  actions that start and end a WooCommerce sale) unless it changed only stock. Stock changes from orders send nothing. A product that goes live or leaves the shop by its status alone (a scheduled
+product going live, a draft or pending one published, a published one moved to another status) pokes too, whatever its
+old status was. The storefront answers a poke it cannot fully apply with 429 and the list of paths it left out (`untaken`);
+this plugin sends exactly those paths once more, alone (no listings or products mark), in a single WP-Cron event after
+min(60 s, Retry-After): never a wait inside the request, so no PHP worker sleeps. The waiting pokes are kept in the option
+`mos_shell_poke_resend_queue` (not autoloaded, at most 32 KB; pokes past that are logged and not sent again). If that
+resend also fails, the failure is logged and those pages stay as they were until their lifetime ends. A path over 200 characters is
   logged and left out; the rest of the poke is sent. A product's pre-save path and changed props are taken once per
   save, so nothing is carried into a later hook of the same request.
   Tests: `php tests/mos_shell_poke_test.php` (path rule, body, bulk mark, moved path, editor guard, scheduled saves,
-  path cap, one-time captures). **Deploy by hand:** copy the file to
-  `app/public/wp-content/mu-plugins/` (this repo is not loaded from here).
+  path cap, one-time captures, visibility changes). **Deploy by hand:** copy the file to
+  `app/public/wp-content/mu-plugins/` (this repo is not loaded from here), and copy it again after each change: the live
+  copy must match this one.
 - **mos-shell-admin.php** — the "Síðugeymsla" subpage under Stillingar (capability: edit pages; run now and clear need administrators): an overview of the
   storefront's rendered-page store (on or off, pages kept, disk use, build, freshness), the nightly rebuild card (next run, last
   run with its tally and duration, progress while it runs, recent failures) and four actions: run now, stop, rebuild one page
-  (a URL or a path), clear the store (with a confirm box). It reads and drives the storefront's `/api/shell-admin` with the
+  (a URL or a path), clear the store (with a confirm box). A clear that leaves page files behind shows a warning, not success; while a clear goes,
+run and clear are refused and the page says so, and the page reloads while a run or a clear goes. It reads and drives the storefront's `/api/shell-admin` with the
   shared key `MOS_SHELL_POKE_KEY` (define it in `wp-config.php`, the same value as on the storefront) and
   `mos_headless_target_base()` (`MOS_STOREFRONT_URL`). Without the key, or when the storefront does not answer or answers 403, the
   page explains what to set instead. Everything the storefront sends is checked before it is shown and escaped. The page reloads
@@ -262,9 +270,12 @@ Other tests (all read-only; the `wp eval-file` ones run against the local site's
 
 Deploy: copy `mos-posturinn-droppoints.php`, `headless-bridge.php`, `mos-headless-api.php`,
 `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`, `mos-size-index.php`,
-`mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`, `mos-instagram.php` and `mos-newsletter.php` to `wp-content/mu-plugins/` on the WP host (never the `-local` shim), then run
+`mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`, `mos-instagram.php`, `mos-newsletter.php`, `mos-search.php`,
+`mos-staff-flag.php`, `mos-shell-poke.php` and `mos-shell-admin.php` to `wp-content/mu-plugins/` on the WP host (never the `-local` shim;
+the same sixteen files as DEPLOY.md's checklist, step 2). `mos-shell-poke.php` and `mos-shell-admin.php` changed in the latest round:
+copy them again where a copy is installed. Then run
 `wp mos-size reindex` once, and `wp db export` → `wp mos-clean preview` → `wp mos-clean apply` (keep the journal) → `wp mos-nav apply`. Requires ACF (free) for the Forsíða fields. In `wp-config.php` define
-`MOS_STOREFRONT_URL` (the storefront's origin) and `MOS_HEADLESS_REDIRECT_STATUS` (`301`): without
+`MOS_STOREFRONT_URL` (the storefront's origin) and `MOS_HEADLESS_REDIRECT_STATUS` (`301`), and `MOS_SHELL_POKE_KEY` (the same value as the storefront's `MOS_SHELL_POKE_KEY`): without
 `MOS_STOREFRONT_URL` headless mode does nothing, and card-payment returns, which WooCommerce builds on
 `WP_HOME` (the WordPress host), never reach the storefront.
 
