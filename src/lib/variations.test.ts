@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { choiceHint, isSizeAttribute, optionImages, optionState, pricesVary, resolveVariation, sortSizeOptions, type VariationLike } from './variations';
+import { choiceHint, isSizeAttribute, nothingToBuy, optionImages, optionState, pricesVary, resolveVariation, sortSizeOptions, type VariationLike } from './variations';
 
 const v = (id: number, attrs: Record<string, string>, stock = 'instock', price = '10000', regular = price): VariationLike => ({
   id,
@@ -235,6 +235,37 @@ describe('sortSizeOptions', () => {
     const input = ['2', '1'];
     sortSizeOptions(input);
     expect(input).toEqual(['2', '1']);
+  });
+});
+
+// A variable product with no variation chosen: nothing of it can be bought only when the live answer shows so. Unknown
+// stock (pending, failed, or a variation the answer does not name) never counts as sold out.
+describe('nothingToBuy', () => {
+  it('true when the product itself is out of stock, whatever the variations say', () => {
+    expect(nothingToBuy('outofstock', ['instock', 'instock'])).toBe(true);
+  });
+  it('true when every variation is known to be out of stock', () => {
+    expect(nothingToBuy('instock', ['outofstock', 'outofstock'])).toBe(true);
+    expect(nothingToBuy(null, ['outofstock', 'outofstock'])).toBe(true);
+  });
+  it('false while any variation is in stock or on backorder', () => {
+    expect(nothingToBuy('instock', ['outofstock', 'instock'])).toBe(false);
+    expect(nothingToBuy(null, ['outofstock', 'onbackorder'])).toBe(false);
+  });
+  it('a known sold-out set of variations decides even when the product stock is not known', () => {
+    expect(nothingToBuy(undefined, ['outofstock', 'outofstock'])).toBe(true);
+  });
+  it('false while stock is unknown: pending variations, or a product stock not yet answered', () => {
+    expect(nothingToBuy(undefined, [undefined, undefined])).toBe(false);
+    expect(nothingToBuy('instock', [undefined, undefined])).toBe(false);
+    expect(nothingToBuy('instock', ['outofstock', undefined])).toBe(false);
+  });
+  it('a product with no variations in the answer is not treated as sold out', () => {
+    expect(nothingToBuy('instock', [])).toBe(false);
+    expect(nothingToBuy(null, [])).toBe(false);
+  });
+  it('an unknown product stock (null) does not decide alone', () => {
+    expect(nothingToBuy(null, ['instock'])).toBe(false);
   });
 });
 

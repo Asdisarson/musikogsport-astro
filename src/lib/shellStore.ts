@@ -42,12 +42,15 @@ export interface ShellStoreOptions {
   pageLimit?: number;
   /** Bytes of memory-only (filtered) pages kept, in all. */
   filteredBytes?: number;
+  /** Path marks kept at most (see MARK_LIMIT). */
+  markLimit?: number;
 }
 
 export interface ShellStore {
   init(): Promise<void>;
   get(key: string, now?: number): Promise<Found | null>;
-  put(entry: ShellEntry): Promise<void>;
+  /** Stores a rendered page. Resolves false when a drop that came after the render started refused it, true otherwise. */
+  put(entry: ShellEntry): Promise<boolean>;
   remove(key: string): Promise<void>;
   invalidate(paths: string[]): Promise<void>;
   /** Whether a path has a stored page, was marked while none was stored, or has a render running now. */
@@ -58,6 +61,8 @@ export interface ShellStore {
   invalidateListings(): Promise<void>;
   /** Every stored product page is stale (one step, for a bulk change). */
   invalidateProducts(): Promise<void>;
+  /** Every stored page of every tier is stale (one step): the header, menus and bar are in all of them. */
+  invalidateAll(): Promise<void>;
   prune(): Promise<void>;
   /** Resolves once every disk write started so far has finished (tests and the prebuild script). */
   flush(): Promise<void>;
@@ -67,20 +72,25 @@ export interface ShellStore {
   memoryCount(): number;
   /** Stored pages of this build on disk, and their bytes (a directory walk: callers cache it). */
   diskStats(): Promise<{ files: number; bytes: number }>;
-  /** Drops every stored page of this build, in memory and on disk; returns how many files were removed. */
-  clear(): Promise<number>;
+  /** Drops every stored page of this build, in memory and on disk. Returns how many page files were removed and how many
+   *  could not be (a file left on disk may still be served while it is fresh, so the caller must not report success). */
+  clear(): Promise<{ removed: number; failed: number }>;
 }
 
 const PAGE_LIMIT = 120; // a product page is about 0.5 MB: 120 of them is about 60 MB at most
 const PRUNE_EVERY = 500;
 const LISTINGS = '*listings';
 const PRODUCTS = '*products';
+const ALL = '*all';
 /** Marks kept at most, for paths with a stored page: a stranger can name any path of the right shape, so the map is
  *  bounded (oldest go first), and marks for paths with no stored page are kept apart (see `pending`). */
 const MARK_LIMIT = 5000;
 const PENDING_LIMIT = 2000;
+const CONTENT = '*content';
 /** The bulk marks: never trimmed (one of them stands for every page of its kind, so the cap cannot be allowed to drop it). */
-const isBulk = (k: string) => k === LISTINGS || k === PRODUCTS;
+const isBulk = (k: string) => k === LISTINGS || k === PRODUCTS || k === ALL || k === CONTENT;
+/** The bulk mark that stands in for a stored page's own mark when the cap drops it (see trimMarks). Each tier has one. */
+const bulkOf = (tier: ShellTier): string => (tier === 'product' ? PRODUCTS : tier === 'content' ? CONTENT : LISTINGS);
 /** A partial file older than this is from a crashed or failed write: prune removes it. A live write takes milliseconds. */
 const TMP_MAX_AGE_MS = 10 * 60 * 1000;
 /** How long a drop is remembered, so a render that started before it cannot store the page back. Longer than any
@@ -114,6 +124,7 @@ export function createShellStore(opts: ShellStoreOptions): ShellStore {
   const now = opts.now ?? Date.now;
   const maxDisk = opts.maxDisk ?? 20_000;
   const pageLimit = opts.pageLimit ?? PAGE_LIMIT;
+  const markLimit = opts.markLimit ?? MARK_LIMIT;
   const buildDir = join(opts.dir, opts.build);
   const filteredBytesLimit = opts.filteredBytes ?? FILTERED_BYTES;
   const pages = new Map<string, ShellEntry>();
@@ -132,6 +143,7 @@ export function createShellStore(opts: ShellStoreOptions): ShellStore {
   /** key -> its last disk write (writes of one key run in order; remove waits for them). */
   const inflight = new Map<string, Promise<void>>();
   let writeCount = 0;
+  let capFallbackLogged = false;
 
   const remember = (map: Map<string, ShellEntry>, limit: number, entry: ShellEntry) => {
     map.delete(entry.key);
@@ -162,14 +174,37 @@ export function createShellStore(opts: ShellStoreOptions): ShellStore {
     filteredBytes -= weigh(old);
   };
 
+  /** The tier of the stored page at this path, or null when none is stored. Memory first (a filtered page is memory
+   *  only), then the disk file (a disk page has no query). Used only when the cap is reached. */
+  const storedTierOf = async (path: string): Promise<ShellTier | null> => {
+    for (const e of pages.values()) if (e.path === path) return e.tier;
+    for (const e of filtered.values()) if (e.path === path) return e.tier;
+    const disk = await readDisk(shellKey(opts.build, path, new URLSearchParams()));
+    return disk?.tier ?? null;
+  };
+
   /** Keeps the marks map bounded: entries past the hard maximum age go, then the oldest past the cap. The bulk marks
-   *  are never among them. */
-  const trimMarks = (t: number) => {
+   *  are never among them. A mark whose path has a stored page is not dropped silently (review 25): the bulk mark of
+   *  that page's tier takes its time instead, so the page is still rebuilt. That rebuilds the tier's other pages
+   *  stored before that time too, which is the price of the cap; it is logged once. */
+  const trimMarks = async (t: number) => {
     for (const [k, v] of Object.entries(marks)) if (!isBulk(k) && t - v > HARD_MAX_AGE_MS) delete marks[k];
     const keys = Object.keys(marks).filter((k) => !isBulk(k));
-    if (keys.length > MARK_LIMIT) {
-      keys.sort((a, b) => marks[a] - marks[b]);
-      for (const k of keys.slice(0, keys.length - MARK_LIMIT)) delete marks[k];
+    if (keys.length <= markLimit) return;
+    keys.sort((a, b) => marks[a] - marks[b]);
+    for (const k of keys.slice(0, keys.length - markLimit)) {
+      const at = marks[k];
+      const tier = await storedTierOf(k);
+      if (marks[k] !== at) continue; // marked again while the lookup ran: that mark is newer, the next trim weighs it
+      if (tier !== null) {
+        const bulk = bulkOf(tier);
+        marks[bulk] = Math.max(marks[bulk] ?? -Infinity, at);
+        if (!capFallbackLogged) {
+          capFallbackLogged = true;
+          log.warn('[shell] mark cap reached: the tier bulk mark stands in for a stored page', { path: k, tier });
+        }
+      }
+      delete marks[k];
     }
   };
 
@@ -214,8 +249,10 @@ export function createShellStore(opts: ShellStoreOptions): ShellStore {
   const withMark = (e: ShellEntry): ShellEntry & { invalidatedAt?: number } => {
     const at = Math.max(
       marks[e.path] ?? -Infinity,
+      marks[ALL] ?? -Infinity,
       isListingTier(e.tier) ? (marks[LISTINGS] ?? -Infinity) : -Infinity,
       e.tier === 'product' ? (marks[PRODUCTS] ?? -Infinity) : -Infinity,
+      e.tier === 'content' ? (marks[CONTENT] ?? -Infinity) : -Infinity,
     );
     return at === -Infinity ? e : { ...e, invalidatedAt: at };
   };
@@ -243,7 +280,7 @@ export function createShellStore(opts: ShellStoreOptions): ShellStore {
       } catch {
         marks = {};
       }
-      trimMarks(now());
+      await trimMarks(now());
       if (opts.pruneOtherBuilds) {
         try {
           for (const d of await readdir(opts.dir, { withFileTypes: true })) {
@@ -276,10 +313,10 @@ export function createShellStore(opts: ShellStoreOptions): ShellStore {
     async put(entry) {
       // A drop after this render started wins: the page it rendered may be the one that was dropped.
       const dropped = drops.get(entry.key);
-      if (dropped !== undefined && dropped >= entry.at) return;
+      if (dropped !== undefined && dropped >= entry.at) return false;
       if (entry.memoryOnly) {
         rememberFiltered(entry);
-        return;
+        return true;
       }
       // Marked after this render started, while no page was stored for the path: the render is stale.
       const np = normalPath(entry.path);
@@ -312,6 +349,7 @@ export function createShellStore(opts: ShellStoreOptions): ShellStore {
       }).catch(() => undefined);
       track(p);
       if (++writeCount % PRUNE_EVERY === 0) track(store.prune());
+      return true;
     },
 
     async remove(key) {
@@ -343,7 +381,7 @@ export function createShellStore(opts: ShellStoreOptions): ShellStore {
         }
       }
       for (const [k, at] of pending) if (t - at > DROP_MEMORY_MS) pending.delete(k);
-      trimMarks(t);
+      await trimMarks(t);
       await saveMarks();
     },
 
@@ -374,6 +412,11 @@ export function createShellStore(opts: ShellStoreOptions): ShellStore {
 
     async invalidateProducts() {
       marks[PRODUCTS] = now();
+      await saveMarks();
+    },
+
+    async invalidateAll() {
+      marks[ALL] = now();
       await saveMarks();
     },
 
@@ -411,11 +454,16 @@ export function createShellStore(opts: ShellStoreOptions): ShellStore {
       filteredBytes = 0;
       pending.clear();
       let removed = 0;
+      let failed = 0;
       let names: string[] = [];
       try {
         names = await readdir(buildDir);
-      } catch {
-        return 0;
+      } catch (err) {
+        // No folder yet: nothing is stored. Any other reason means files may be there that cannot be listed, so it counts
+        // as one failure (the number of pages is unknown).
+        if ((err as { code?: string }).code === 'ENOENT') return { removed: 0, failed: 0 };
+        log.warn('[shell] store folder not read', { err });
+        return { removed: 0, failed: 1 };
       }
       for (const n of names) {
         if (!n.endsWith('.json') || n === 'invalidated.json') continue;
@@ -423,10 +471,11 @@ export function createShellStore(opts: ShellStoreOptions): ShellStore {
           await rm(join(buildDir, n), { force: true });
           removed += 1;
         } catch (err) {
+          failed += 1;
           log.warn('[shell] page not removed', { err });
         }
       }
-      return removed;
+      return { removed, failed };
     },
 
     async prune() {

@@ -13,9 +13,11 @@
 // a worker never has more than one render open (the one exception: a render the probe gave up on at PROBE_TIMEOUT_MS
 // may still run on the server beside the next page; the bad answer that gave up has already dropped the walk to one
 // worker, see runtime). A miss renders inside its own request, which the worker awaits, and
-// is never asked again. A bad answer drops the walk to one worker (see walkStorefront). A render is "bad" as the prebuild script counts it:
-// 5xx, a timeout, or over slowMs; a refresh past maxWaitMs, or one that ends stale, is bad too.
-import { isBad, nextPause, sitemapPathsFrom } from '../../scripts/prebuild_shells.mjs';
+// is never asked again. A bad answer drops the walk to one worker (see walkStorefront). An answer is "bad" as the prebuild
+// script counts it (isBad): a timeout, anything but a success, a redirect or a gone page (so a 5xx, a 429 or a 403), or
+// over slowMs. Slowness is read from the first answer only: a stale page answers at once and its refresh is the wait,
+// which maxWaitMs bounds. A refresh past maxWaitMs, or one that ends stale, is bad too.
+import { isBad, MAX_PAUSE_MS, nextPause, sitemapPathsFrom } from '../../scripts/prebuild_shells.mjs';
 
 const MIN_MS = 60_000;
 const DAY_MS = 24 * 60 * MIN_MS;
@@ -26,7 +28,7 @@ const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]
 export type RebuildAt = { kind: 'off' } | { kind: 'at'; minutes: number };
 
 /** MOS_SHELL_REBUILD_AT: "HH:MM" (minutes after UTC midnight) or "off". Unset or empty is 05:00; a value that cannot
- *  be read is 05:00 too, with a problem to log. */
+ *  be read is 05:00 too, with a problem to log (and the rebuild stays off: see envDefaults in nightlySettings.ts). */
 export function parseRebuildAt(raw: string | undefined): { at: RebuildAt; problem: string | null } {
   const v = (raw ?? '').trim().toLowerCase();
   const fivePm = { kind: 'at' as const, minutes: 5 * 60 };
@@ -34,7 +36,7 @@ export function parseRebuildAt(raw: string | undefined): { at: RebuildAt; proble
   if (v === 'off') return { at: { kind: 'off' }, problem: null };
   const m = /^(\d{1,2}):(\d{2})$/.exec(v);
   if (m && Number(m[1]) < 24 && Number(m[2]) < 60) return { at: { kind: 'at', minutes: Number(m[1]) * 60 + Number(m[2]) }, problem: null };
-  return { at: fivePm, problem: `MOS_SHELL_REBUILD_AT "${raw}" is not HH:MM or off; using 05:00` };
+  return { at: fivePm, problem: `MOS_SHELL_REBUILD_AT "${raw}" is not HH:MM or off: the nightly rebuild stays off (05:00 is only the time it would use)` };
 }
 
 export function formatAt(minutes: number): string {
@@ -121,6 +123,17 @@ export function parsePauseMs(raw: string | undefined): { value: number; problem:
   return { value: 100, problem: `MOS_SHELL_REBUILD_PAUSE_MS "${raw}" is not an integer 0..30000; using 100` };
 }
 
+/** A Retry-After header (RFC 9110): delay-seconds, or an HTTP-date read against `now`. In ms, not capped (the walk caps
+ *  it); undefined when there is no header or it cannot be read. */
+export function parseRetryAfter(header: string | null | undefined, now: number): number | undefined {
+  const v = (header ?? '').trim();
+  if (v === '') return undefined;
+  if (/^\d+$/.test(v)) return Number(v) * 1000;
+  const t = Date.parse(v);
+  if (Number.isNaN(t)) return undefined;
+  return Math.max(0, t - now);
+}
+
 export interface WalkOptions {
   /** The configured number of workers (1..4): how many pages render at once while the walk is healthy. */
   concurrency: number;
@@ -186,8 +199,9 @@ export interface WalkStep {
 
 export interface WalkIo {
   /** One request on the origin: status 0 for a network failure or a timeout; shell is the X-Mos-Shell value and
-   *  refreshing is true while the server runs a background refresh of a stale page (X-Mos-Refresh: running). */
-  get(path: string): Promise<{ status: number; shell: string | null; refreshing?: boolean }>;
+   *  refreshing is true while the server runs a background refresh of a stale page (X-Mos-Refresh: running).
+   *  retryAfter is the raw Retry-After header of the answer, when it has one (parseRetryAfter reads it). */
+  get(path: string): Promise<Answer>;
   /** Called once per path, before its first request (the runtime invalidates the path here). */
   before?(path: string): Promise<void>;
   sleep(ms: number): Promise<void>;
@@ -208,8 +222,8 @@ export function scheduleWhy(p: { storeOn: boolean; atOff: boolean; hasBase: bool
   return p.armed ? null : 'waiting';
 }
 
-type Answer = { status: number; shell: string | null; refreshing?: boolean };
-type Unit = { first: Answer; last: Answer; started: number; timedOut: boolean; stuck: boolean } | 'stopped' | 'abandoned';
+type Answer = { status: number; shell: string | null; refreshing?: boolean; retryAfter?: string | null };
+type Unit = { first: Answer; last: Answer; firstMs: number; timedOut: boolean; stuck: boolean } | 'stopped' | 'abandoned';
 
 /** Walks the paths with `opts.concurrency` workers sharing one queue (see the header). A bad answer drops the walk to one
  *  worker and doubles the pause; RECOVER_AFTER good answers in a row with the pause back at the base restore the
@@ -244,6 +258,9 @@ export async function walkStorefront(paths: string[], opts: WalkOptions, io: Wal
     if (io.before) await io.before(path);
     const started = io.now();
     const first = await io.get(path);
+    // The time of the storefront's own first answer: a render (a miss) or the answer that starts one. The poll below is the
+    // wait for a refresh, which is not the page being slow.
+    const firstMs = io.now() - started;
     let last = first;
     let timedOut = false;
     let stuck = false;
@@ -265,15 +282,14 @@ export async function walkStorefront(paths: string[], opts: WalkOptions, io: Wal
         last = await io.get(path);
       }
     }
-    return { first, last, started, timedOut, stuck };
+    return { first, last, firstMs, timedOut, stuck };
   }
 
   // Counts one finished page: the tally, the degrade or recover rule, the stop after a run of failures, the step.
   function count(path: string, u: Exclude<Unit, 'stopped' | 'abandoned'>): { goOn: boolean; storedAndGood: boolean } {
-    const { first, last, started, timedOut, stuck } = u;
-    const ms = io.now() - started;
+    const { first, last, firstMs, timedOut, stuck } = u;
     const staleAfter = last.status === 200 && last.shell === 'stale';
-    const bad = timedOut || staleAfter || isBad({ status: last.status, shell: last.shell ?? '-', ms }, opts.slowMs);
+    const bad = timedOut || staleAfter || isBad({ status: last.status, shell: last.shell ?? '-', ms: firstMs }, opts.slowMs);
     const gone = !bad && (last.status === 404 || last.status === 410 || (last.status >= 300 && last.status < 400));
 
     tally.visited += 1;
@@ -289,6 +305,10 @@ export async function walkStorefront(paths: string[], opts: WalkOptions, io: Wal
 
     // Degrade on any bad answer; recover after RECOVER_AFTER good ones in a row, once the pause is back at the base.
     pause = nextPause(pause, bad, opts.delayMs);
+    // A server that asks for a wait (Retry-After on a 429 or 503) sets the pause for the next path, if that is longer than
+    // the backoff; the same ceiling as the backoff applies.
+    const retryMs = bad ? parseRetryAfter(last.retryAfter, io.now()) : undefined;
+    if (retryMs !== undefined) pause = Math.min(MAX_PAUSE_MS, Math.max(pause, retryMs));
     if (bad) {
       workers = 1;
       goodInARow = 0;

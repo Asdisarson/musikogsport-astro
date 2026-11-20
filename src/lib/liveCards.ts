@@ -28,6 +28,9 @@ export function pendingIds(ids: number[], filled: ReadonlySet<number>): number[]
 
 /** A failed refresh is asked again after this delay, once; the next pageshow or tab return asks again regardless. */
 export const LIVE_RETRY_MS = 3000;
+/** A live call that has not answered by now counts as failed (a server that accepts the connection and never answers
+ *  would otherwise leave every card, and the related rows' settling, waiting for ever). */
+export const LIVE_TIMEOUT_MS = 8000;
 
 /** Whether a failed refresh gets another automatic try (`retries` automatic tries have already been made). */
 export function shouldRetry(retries: number): boolean {
@@ -63,6 +66,7 @@ export function parseLiveAnswer(body: unknown): Map<number, LiveProduct> {
       percent: typeof r.percent === 'number' ? r.percent : null,
       stock: stockOf(r.stock),
       max: typeof r.max === 'number' ? r.max : null,
+      stockMax: typeof r.stockMax === 'number' ? r.stockMax : null,
       soldOne: r.soldOne === true,
     });
   }
@@ -82,4 +86,12 @@ export function cardFill(type: string, bakedPriceHtml: string, live: LiveProduct
     priceHtml: priceChanged(bakedPriceHtml, live.priceHtml) ? live.priceHtml : bakedPriceHtml,
     action: cardAction(type, live.stock),
   };
+}
+
+/** Whether a search suggestion is sold out, from its live answer. The suggestion's own answer carries no stock (its
+ *  products come from a cache), so the sold-out mark comes only from here. Null while the product is missing from the
+ *  answer or its stock is unknown: the suggestion then shows no sold-out mark, and no guess. Pure. */
+export function suggestSoldOut(live: LiveProduct | undefined): boolean | null {
+  if (!live || live.stock === null) return null;
+  return live.stock === 'outofstock';
 }

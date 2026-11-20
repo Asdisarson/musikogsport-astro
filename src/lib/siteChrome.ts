@@ -9,6 +9,7 @@ import type { ShippingBar } from './shippingBar';
 import { withSafeHrefs } from './safeUrl';
 import { createCachedLoader } from './cache';
 import { upstreamJson } from './upstream';
+import { invalidateAllPages } from './shellRuntime';
 
 export interface MenuItem {
   id: number;
@@ -104,8 +105,18 @@ async function fetchChrome(): Promise<SiteChrome> {
   };
 }
 
-// Fresh for TTL_MS, then served stale while one refresh runs; an outage is retried every 15 s at most.
-const load = createCachedLoader({ load: fetchChrome, ttlMs: TTL_MS, failMemoMs: 15 * 1000 });
+// Fresh for TTL_MS, then served stale while one refresh runs; an outage is retried every 15 s at most. When the chrome
+// comes back after an outage, the pages rendered during it still carry the old chrome: they are marked stale, so each
+// is rendered again at its next visit (lib/shellRuntime). Chrome is read on each page render, so that happens soon after
+// WordPress answers again, with or without a content save.
+const load = createCachedLoader({
+  load: fetchChrome,
+  ttlMs: TTL_MS,
+  failMemoMs: 15 * 1000,
+  onRecovered: () => {
+    invalidateAllPages().catch(() => undefined);
+  },
+});
 
 /** The menus and Forsíða chrome; the built-in fallback only when they have never loaded. */
 export async function loadSiteChrome(): Promise<SiteChrome> {

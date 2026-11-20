@@ -59,6 +59,20 @@ export function optionState(
   return candidates.some((v) => v.stock_status === undefined) ? 'pending' : 'outofstock';
 }
 
+/** A variable product with no variation resolved: is nothing of it buyable? True only when the product's own stock is known
+ *  and sold out, or every variation's stock is known and sold out (and there is at least one). Unknown stock (pending, or
+ *  failed, so undefined or null) never counts: a variation the answer does not name, or a product not in it, stays
+ *  pressable and WooCommerce decides on add. Then the product page shows the selection as sold out, with no hint to pick.
+ *  `productStock` is the product's live stock (lib/liveStore productStock); `variationStocks` the variations' live stocks. */
+export function nothingToBuy(
+  productStock: string | null | undefined,
+  variationStocks: (string | null | undefined)[],
+): boolean {
+  const known = (s: string | null | undefined): s is string => s !== undefined && s !== null;
+  if (known(productStock) && !buyable(productStock as StockStatus)) return true;
+  return variationStocks.length > 0 && variationStocks.every((s) => known(s) && !buyable(s as StockStatus));
+}
+
 /** The add-to-cart guidance while a selection is incomplete: "Veldu stærð" when the first unchosen attribute is a
  *  size (Stærð, Stærðir, Skóstærð, Size …), a generic "Veldu valkost" for any other attribute, null once everything
  *  is chosen. With `availability`, also null when no option of that attribute is selectable (every swatch sold out

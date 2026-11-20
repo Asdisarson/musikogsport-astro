@@ -46,3 +46,15 @@ describe('finishResponse', () => {
     expect(finishResponse(json(), req('/api/cart')).headers.get('Cache-Control')).toBe('private, no-store');
   });
 });
+
+describe('finishResponse: stock-filtered listings', () => {
+  it('sends a stock-filtered listing private, no-store, alone or with other filters', () => {
+    expect(finishResponse(html(), { ...req('/verslun/skor/'), query: new URLSearchParams('lager=1') }).headers.get('Cache-Control')).toBe('private, no-store');
+    expect(finishResponse(html(), { ...req('/verslun/page/2/'), query: new URLSearchParams('utsala=1&lager=1') }).headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
+  it('keeps the public policy for the same listing without the stock filter', () => {
+    expect(finishResponse(html(), { ...req('/verslun/skor/'), query: new URLSearchParams('utsala=1') }).headers.get('Cache-Control')).toBe(PUBLIC_HTML);
+    expect(finishResponse(html(), req('/verslun/skor/')).headers.get('Cache-Control')).toBe(PUBLIC_HTML);
+  });
+});

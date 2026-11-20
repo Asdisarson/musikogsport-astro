@@ -4,11 +4,12 @@
 import { createCachedLoader } from './cache';
 import { loadFrontPage } from './frontPage';
 import { storeProducts } from './storeCatalog';
-import type { WooProduct } from './types';
+import type { CachedWooProduct } from './types';
 
 export interface CartSuggest {
   title: string;
-  products: WooProduct[];
+  /** From the catalog grid, so without stock (see storeCatalog). */
+  products: CachedWooProduct[];
 }
 
 const load = createCachedLoader<CartSuggest | null>({

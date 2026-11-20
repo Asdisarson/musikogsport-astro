@@ -4,7 +4,7 @@ import { jsonResponse, tooManyRequests } from '../../lib/http';
 import { log, runtimeEnv } from '../../lib/logger';
 import { parseShellAdminAction } from '../../lib/shellAdmin';
 import { clearShellPages, refreshShellPath, shellAdminStatus, storeOpens } from '../../lib/shellAdminRuntime';
-import { applyNightlySettings, nightlyRunning, rebuildBase, runNightlyRebuild, stopNightlyRebuild } from '../../lib/nightlyRebuildRuntime';
+import { applyNightlySettings, nightlyClearing, nightlyRunning, rebuildBase, runNightlyRebuild, stopNightlyRebuild } from '../../lib/nightlyRebuildRuntime';
 import { pokeKeyMatches, readCappedBody } from '../../lib/shellPoke';
 import { shellEnabled } from '../../lib/shellRuntime';
 
@@ -13,7 +13,8 @@ export const prerender = false;
 // The page-store admin for WordPress's "Síðugeymsla" (wp-mu-plugins/mos-shell-admin.php). Keyed only: without
 // MOS_SHELL_POKE_KEY every request is refused (403), and with it the WordPress side must send the same value as
 // X-Mos-Shell-Key. GET returns the status; POST {action} runs one of: run, stop, refresh ({path}), clear. Contract:
-// DEPLOY.md, "Admin endpoint". Never a second run; "clear" is refused while a run is going. "settings" takes
+// DEPLOY.md, "Admin endpoint". Never a second run; "clear" is refused while a run is going, and a run or a clear is
+// refused while a clear is going ('clearing'; a clear is not a run, so "stop" answers that no run is going). "settings" takes
 // {settings: {…}|null}: the nightly rebuild's saved settings (src/lib/nightlySettings.ts), refused with 400 when out of range.
 const limiter = createLimiter(120, 60_000);
 
@@ -60,6 +61,7 @@ export const POST: APIRoute = async ({ request }) => {
       // A store that does not open would make the walk do nothing: answer that, not 202.
       if (!(await storeOpens())) return jsonResponse({ error: 'store-off', message: 'Síðugeymslan er slökkt.' }, 409);
       if (nightlyRunning()) return jsonResponse({ error: 'running', message: 'Keyrsla er þegar í gangi.' }, 409);
+      if (nightlyClearing()) return jsonResponse({ error: 'clearing', message: 'Tæming er í gangi: bíddu eftir henni.' }, 409);
       // No await between the check above and the call: the walk's run state is set synchronously, before the response.
       void runNightlyRebuild(origin);
       return jsonResponse({ ok: true, started: true }, 202);
@@ -80,10 +82,12 @@ export const POST: APIRoute = async ({ request }) => {
       return jsonResponse({ ok: true, settings: r.settings.effective, source: r.settings.source, saved: r.settings.saved, persisted: r.persisted }, 200);
     }
     // clear
-    const removed = await clearShellPages();
-    if (removed === 'running') return jsonResponse({ error: 'running', message: 'Keyrsla er í gangi: stöðvaðu hana fyrst.' }, 409);
-    if (removed === null) return jsonResponse({ error: 'store-off', message: 'Síðugeymslan er slökkt.' }, 409);
-    return jsonResponse({ ok: true, removed }, 200);
+    const cleared = await clearShellPages();
+    if (cleared === 'running') return jsonResponse({ error: 'running', message: 'Keyrsla er í gangi: stöðvaðu hana fyrst.' }, 409);
+    if (cleared === 'clearing') return jsonResponse({ error: 'clearing', message: 'Tæming er þegar í gangi.' }, 409);
+    if (cleared === null) return jsonResponse({ error: 'store-off', message: 'Síðugeymslan er slökkt.' }, 409);
+    // failed: page files that could not be removed (they may still be served); the page then warns instead of reporting success.
+    return jsonResponse({ ok: true, removed: cleared.removed, failed: cleared.failed }, 200);
   } catch (err) {
     log.warn('[shell-admin] action failed', { action: act.action, err });
     return jsonResponse({ message: 'Ekki tókst.' }, 503);

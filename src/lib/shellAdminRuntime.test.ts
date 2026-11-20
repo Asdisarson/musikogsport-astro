@@ -68,7 +68,7 @@ describe('shellAdminStatus and the store actions', () => {
     expect(await refreshShellPath('/vara/a/')).toBe(true);
     expect(await store!.get(a.key, Date.now())).toMatchObject({ state: 'stale' });
 
-    expect(await clearShellPages()).toBe(2);
+    expect(await clearShellPages()).toEqual({ removed: 2, failed: 0 });
     const after = await shellAdminStatus(2);
     // The clear drops the cached count, so the next status counts again.
     expect(after.store).toMatchObject({ pagesInMemory: 0, pagesOnDisk: 0 });
@@ -84,5 +84,19 @@ describe('shellAdminStatus and the store actions', () => {
     endRun({ endedAt: 2, record: false });
     expect(await clearShellPages()).not.toBe('running');
     expect(isRunning()).toBe(false);
+  });
+
+  it('a clear in progress shows as clearing and not as a running walk; another clear is refused as clearing', async () => {
+    const { beginClear, endClear } = await import('./nightlyRebuildState');
+    const { clearShellPages, shellAdminStatus } = await import('./shellAdminRuntime');
+    expect(beginClear()).toBe(true);
+    try {
+      const during = await shellAdminStatus(2);
+      expect(during.run).toMatchObject({ running: false, clearing: true });
+      expect(await clearShellPages()).toBe('clearing');
+    } finally {
+      endClear();
+    }
+    expect((await shellAdminStatus(3)).run.clearing).toBe(false);
   });
 });

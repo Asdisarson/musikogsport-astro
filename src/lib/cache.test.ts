@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createCachedLoader, createKeyedLoader, createTtlMap } from './cache';
 
 describe('createCachedLoader', () => {
@@ -19,6 +19,32 @@ describe('createCachedLoader', () => {
     expect(await s.load()).toEqual({ value: 'a', degraded: false });
     expect(await s.load()).toEqual({ value: 'a', degraded: false });
     expect(s.calls()).toBe(1);
+  });
+
+  // A value that comes back after a failed load may differ from what was served meanwhile: the caller is told once.
+  it('tells the caller when a load succeeds again after a failure, and not on a first or an ordinary load', async () => {
+    let now = 0;
+    const onRecovered = vi.fn();
+    let fail = true;
+    const load = createCachedLoader<string>({
+      load: async () => {
+        if (fail) throw new Error('down');
+        return 'b';
+      },
+      ttlMs: 1000,
+      failMemoMs: 100,
+      now: () => now,
+      onRecovered,
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect((await load()).degraded).toBe(true); // first load fails
+    expect(onRecovered).not.toHaveBeenCalled();
+    fail = false;
+    now += 200; // past the failure memo
+    expect(await load.refresh()).toBe(true);
+    expect(onRecovered).toHaveBeenCalledTimes(1);
+    await load.refresh(); // an ordinary successful load
+    expect(onRecovered).toHaveBeenCalledTimes(1);
   });
 
   it('shares one load between concurrent cold callers', async () => {
@@ -134,6 +160,18 @@ describe('createTtlMap', () => {
 });
 
 describe('createKeyedLoader', () => {
+  // holds: a presence check that loads nothing and does not count as a use (the shell poke forgets a cached product on it)
+  it('holds reports a key only once a value is held for it, and loads nothing', async () => {
+    const load = vi.fn(async (key: string) => `v:${key}`);
+    const get = createKeyedLoader<string>({ load, ttlMs: 1000, maxStaleMs: 1000, failMemoMs: 100, maxEntries: 10 });
+    expect(get.holds('a')).toBe(false);
+    expect(load).not.toHaveBeenCalled();
+    await get('a');
+    expect(get.holds('a')).toBe(true);
+    expect(get.holds('b')).toBe(false);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
   const setup = (impl: (key: string, call: number) => Promise<string>, maxEntries = 10) => {
     let now = 0;
     const calls: string[] = [];

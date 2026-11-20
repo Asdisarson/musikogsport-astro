@@ -13,7 +13,7 @@ import { loadFrontPage, type ProductRowConfig } from '../lib/frontPage';
 import { homeSections, planHome } from '../lib/homeLayout';
 import { loadInstagram } from '../lib/instagram';
 import { storeProducts, type StoreQuery } from '../lib/storeCatalog';
-import type { WooProduct } from '../lib/types';
+import type { CachedWooProduct } from '../lib/types';
 import { markDegraded, markUnavailable } from '../lib/http';
 import { ld } from '../lib/jsonld';
 import { hoursLines, parseHours } from '../lib/openingHours';
@@ -44,7 +44,7 @@ function rowQuery(row: ProductRowConfig): StoreQuery {
 }
 
 const rowConfigs = front?.rows ?? [];
-const rowProducts: WooProduct[][] = await Promise.all(
+const rowProducts: CachedWooProduct[][] = await Promise.all(
   rowConfigs.map((r) =>
     storeProducts({ ...rowQuery(r), page: 1, per_page: r.count })
       .then((p) => p.items)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FRESH_MS, HARD_MAX_AGE_MS, canStore, freshFor, canonicalQuery, freshness, normalPath, filterValuesKnown, refreshBackoffMs, replayHeaderNames, shellKey, shellPolicy, storableFilterQuery } from './shellPolicy';
+import { BACKGROUND_QUEUE, BACKGROUND_REFRESHES, FRESH_MS, HARD_MAX_AGE_MS, canStore, freshFor, canonicalQuery, freshness, normalPath, filterValuesKnown, refreshAdmission, refreshBackoffMs, replayHeaderNames, shellKey, shellPolicy, storableFilterQuery } from './shellPolicy';
 
 const q = (s: string) => new URLSearchParams(s);
 const H = 60 * 60 * 1000;
@@ -29,7 +29,16 @@ describe('shellPolicy: what is stored, and for how long', () => {
   it('stores filtered archive URLs in memory only, for two minutes, when every parameter is a known filter', () => {
     expect(shellPolicy('/verslun/skor/', q('litur=svartur&verd=5000-10000'))).toEqual({ tier: 'filtered', freshMs: 2 * MIN, memoryOnly: true });
     expect(shellPolicy('/voruflokkur/skor/', q('orderby=price'))).toMatchObject({ tier: 'filtered', memoryOnly: true });
-    expect(shellPolicy('/verslun/page/2/', q('utsala=1&lager=1'))).toMatchObject({ tier: 'filtered', memoryOnly: true });
+    expect(shellPolicy('/verslun/page/2/', q('utsala=1'))).toMatchObject({ tier: 'filtered', memoryOnly: true });
+  });
+
+  // Changed on purpose (stock rule): a stock-filtered listing (lager=1, alone or with utsala=1) is no longer kept in
+  // the page store at all, because which products it lists and its counts change with stock.
+  it('never stores a stock-filtered listing (lager=1), alone or combined with another filter', () => {
+    expect(shellPolicy('/verslun/skor/', q('lager=1'))).toBeNull();
+    expect(shellPolicy('/verslun/page/2/', q('utsala=1&lager=1'))).toBeNull();
+    expect(shellPolicy('/voruflokkur/skor/', q('litur=svartur&lager=1'))).toBeNull();
+    expect(shellPolicy('/verslun/skor/', q('lager=1&orderby=price'))).toBeNull();
   });
 
   it('never stores a URL with a parameter outside the filter set (sent, error, postlisti, s)', () => {
@@ -131,6 +140,14 @@ describe('canStore', () => {
 });
 
 describe('shellPolicy: one path form, junk filters, backoff (review 10, 15, 1)', () => {
+  it('never stores a URL that repeats a query key: the page reads the first value, the key would hold both', () => {
+    // ?orderby=price&orderby=date and its reverse sort differently but would share one sorted key.
+    expect(shellPolicy('/verslun/', q('orderby=price&orderby=date'))).toBeNull();
+    expect(shellPolicy('/verslun/', q('orderby=date&orderby=price'))).toBeNull();
+    expect(shellPolicy('/verslun/', q('utsala=1&utsala=1'))).toBeNull();
+    expect(shellPolicy('/verslun/', q('orderby=price'))).toMatchObject({ tier: 'filtered' });
+  });
+
   it('compares an Icelandic slug the same however it is encoded', () => {
     const decoded = '/verslun/þjálfun-æfing/';
     const upper = '/verslun/%C3%BEj%C3%A1lfun-%C3%A6fing/';
@@ -199,3 +216,17 @@ describe('shellPolicy: filter values must be catalogue terms (review 10)', () =>
   });
 });
 
+describe('refreshAdmission', () => {
+  // A content save marks every stored page stale at once: the re-renders it starts are bounded, the rest wait or are
+  // not made (the stale copy is served meanwhile, so nothing waits on them).
+  it('starts a background refresh while a slot is free', () => {
+    expect(refreshAdmission(0, 0)).toBe('start');
+    expect(refreshAdmission(BACKGROUND_REFRESHES - 1, 0)).toBe('start');
+  });
+
+  it('queues the refreshes past the slots, up to the queue length, then skips them', () => {
+    expect(refreshAdmission(BACKGROUND_REFRESHES, 0)).toBe('queue');
+    expect(refreshAdmission(BACKGROUND_REFRESHES, BACKGROUND_QUEUE - 1)).toBe('queue');
+    expect(refreshAdmission(BACKGROUND_REFRESHES, BACKGROUND_QUEUE)).toBe('skip');
+  });
+}); 

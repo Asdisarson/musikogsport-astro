@@ -36,8 +36,8 @@ const input = (over: Partial<ShellAdminInput> = {}): ShellAdminInput => ({
     disk: { files: 40, bytes: 2_000_000, at: 999_000 },
     fresh: { productMs: 86_400_000, contentMs: 86_400_000, listingMs: 300_000, filteredMs: 120_000, hardMaxMs: 604_800_000, overrideMs: null },
   },
-  scheduler: { why: null, at: '05:00', hasBase: true, nextRunAt: 2_000_000, lastStart: 900_000, lastEnd: 905_000 },
-  run: { running: false, startedAt: null, total: null, visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0, pauseMs: null, lastPath: null, stopRequested: false, workers: null, concurrency: null },
+  scheduler: { why: null, at: '05:00', hasBase: true, nextRunAt: 2_000_000, lastStart: 900_000, lastEnd: 905_000, unfinishedStart: null },
+  run: { running: false, clearing: false, startedAt: null, total: null, visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0, pauseMs: null, lastPath: null, stopRequested: false, workers: null, concurrency: null },
   settings: {
     effective: { enabled: true, at: '05:00', concurrency: 2, pauseMs: 100, catchUp: true },
     source: { enabled: 'env/default', at: 'env/default', concurrency: 'env/default', pauseMs: 'env/default', catchUp: 'env/default' },
@@ -49,6 +49,16 @@ const input = (over: Partial<ShellAdminInput> = {}): ShellAdminInput => ({
 });
 
 describe('buildShellAdminStatus', () => {
+  it('shows a clear as clearing and never as a running walk', () => {
+    const s = buildShellAdminStatus(input({ run: { ...input().run, clearing: true } }));
+    expect(s.run).toMatchObject({ running: false, clearing: true });
+  });
+
+  it('shows the start of an interrupted run, which has no end on record', () => {
+    const s = buildShellAdminStatus(input({ scheduler: { ...input().scheduler, lastStart: 950_000, lastEnd: null, unfinishedStart: 950_000 } }));
+    expect(s.scheduler).toMatchObject({ lastStart: 950_000, lastEnd: null, unfinishedStart: 950_000 });
+  });
+
   it('has the fields the page reads, with a short build id and the folder kind only', () => {
     const s = buildShellAdminStatus(input());
     expect(s).toEqual({
@@ -64,8 +74,8 @@ describe('buildShellAdminStatus', () => {
         diskAt: 999_000,
         fresh: { productMs: 86_400_000, contentMs: 86_400_000, listingMs: 300_000, filteredMs: 120_000, hardMaxMs: 604_800_000, overrideMs: null },
       },
-      scheduler: { armed: true, why: null, at: '05:00', hasBase: true, nextRunAt: 2_000_000, lastStart: 900_000, lastEnd: 905_000 },
-      run: { running: false, startedAt: null, total: null, visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0, pauseMs: null, lastPath: null, stopRequested: false, workers: null, concurrency: null },
+      scheduler: { armed: true, why: null, at: '05:00', hasBase: true, nextRunAt: 2_000_000, lastStart: 900_000, lastEnd: 905_000, unfinishedStart: null },
+      run: { running: false, clearing: false, startedAt: null, total: null, visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0, pauseMs: null, lastPath: null, stopRequested: false, workers: null, concurrency: null },
       settings: {
         effective: { enabled: true, at: '05:00', concurrency: 2, pauseMs: 100, catchUp: true },
         source: { enabled: 'env/default', at: 'env/default', concurrency: 'env/default', pauseMs: 'env/default', catchUp: 'env/default' },
@@ -82,7 +92,7 @@ describe('buildShellAdminStatus', () => {
     const s = buildShellAdminStatus(
       input({
         store: { on: false, build: null, folder: null, pagesInMemory: 0, disk: null, fresh: input().store.fresh },
-        scheduler: { why: 'store-off', at: '05:00', hasBase: true, nextRunAt: null, lastStart: null, lastEnd: null },
+        scheduler: { why: 'store-off', at: '05:00', hasBase: true, nextRunAt: null, lastStart: null, lastEnd: null, unfinishedStart: null },
       }),
     );
     expect(s.store).toMatchObject({ on: false, build: null, folder: null, pagesOnDisk: null, diskBytes: null, diskAt: null });

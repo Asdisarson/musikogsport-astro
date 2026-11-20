@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { productMax, productSoldOne, productStock, snapshotFor, withLive } from './liveStore';
 
 const answer = {
-  product: { id: 5, type: 'variable', priceHtml: '<span>1</span>', percent: null, stock: 'instock' as const, max: 7, soldOne: false },
+  product: { id: 5, type: 'variable', priceHtml: '<span>1</span>', percent: null, stock: 'instock' as const, max: 7, stockMax: 7, soldOne: false },
   variations: [
-    { id: 11, price: '4500', regular_price: '9990', sale_price: '4500', on_sale: true, stock: 'onbackorder' as const, max: null, soldOne: false },
-    { id: 12, price: '9990', regular_price: '9990', sale_price: '', on_sale: false, stock: null, max: 3, soldOne: false },
+    { id: 11, price: '4500', regular_price: '9990', sale_price: '4500', on_sale: true, stock: 'onbackorder' as const, max: null, stockMax: null, sharedStock: false, soldOne: false },
+    { id: 12, price: '9990', regular_price: '9990', sale_price: '', on_sale: false, stock: null, max: 3, stockMax: 3, sharedStock: false, soldOne: false },
   ],
 };
 

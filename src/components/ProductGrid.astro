@@ -1,9 +1,9 @@
 ---
-import type { WooProduct } from '../lib/types';
+import type { CachedWooProduct } from '../lib/types';
 import ProductCard from './ProductCard.astro';
 
 interface Props {
-  products: WooProduct[];
+  products: CachedWooProduct[];
   empty?: string;
   /** Eager-load (no lazy) the first N cards — set on listing pages so the LCP image isn't deferred. */
   eagerCount?: number;

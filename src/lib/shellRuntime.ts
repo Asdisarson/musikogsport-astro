@@ -11,11 +11,59 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { log, runtimeEnv } from './logger';
-import { shellKey } from './shellPolicy';
+import { refreshBackoffMs, shellKey } from './shellPolicy';
 import { createShellStore, type ShellStore } from './shellStore';
 
 const started = Date.now();
 let build: string | null = null;
+
+/** Background refreshes of stored pages that keep failing: per page key, the failures in a row and when the next try may
+ *  start. A refresh that comes back with a 5xx, or that the store would not keep (an incomplete render, a refused
+ *  one), is a failure. The stored copy is served meanwhile, so a WordPress outage or a slow photo host does not turn
+ *  into one full render per visitor. */
+export interface RefreshBackoff {
+  /** A refresh of this page failed: the next waits longer than the last. */
+  note(key: string): void;
+  /** A refresh of this page stored its copy: its failures are forgotten. */
+  clear(key: string): void;
+  /** Whether this page's refreshes are waiting out a backoff now. */
+  backingOff(key: string): boolean;
+}
+
+export function createRefreshBackoff(opts: { now?: () => number; limit?: number } = {}): RefreshBackoff {
+  const now = opts.now ?? Date.now;
+  const limit = opts.limit ?? 1000;
+  const failing = new Map<string, { n: number; until: number }>();
+  return {
+    note(key) {
+      const n = (failing.get(key)?.n ?? 0) + 1;
+      failing.delete(key);
+      failing.set(key, { n, until: now() + refreshBackoffMs(n) });
+      while (failing.size > limit) failing.delete(failing.keys().next().value as string);
+    },
+    clear(key) {
+      failing.delete(key);
+    },
+    backingOff(key) {
+      return (failing.get(key)?.until ?? 0) > now();
+    },
+  };
+}
+
+/** The one backoff of this process, shared by every page (src/middleware.ts). */
+export const refreshBackoff = createRefreshBackoff();
+
+/** A gate for one log line: true at most once per `everyMs`, so a failure that repeats on every refresh is logged once a
+ *  window rather than once per request. */
+export function logGate(everyMs: number, now: () => number = Date.now): () => boolean {
+  let last = -Infinity;
+  return () => {
+    const t = now();
+    if (t - last < everyMs) return false;
+    last = t;
+    return true;
+  };
+}
 
 /** The build this process serves. A page is rendered by the server build (its markup, JSON-LD, copy and island keys)
  *  and names the client build's hashed assets, so both identify it, and so does the server's island key (a stored
@@ -142,6 +190,14 @@ export async function invalidateProducts(): Promise<boolean> {
   const store = await getShell();
   if (!store) return false;
   await store.invalidateProducts();
+  return true;
+}
+
+/** Marks every stored page stale, of every tier (a change to the chrome every page renders: the header, menus and bar). */
+export async function invalidateAllPages(): Promise<boolean> {
+  const store = await getShell();
+  if (!store) return false;
+  await store.invalidateAll();
   return true;
 }
 

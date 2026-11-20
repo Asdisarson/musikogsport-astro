@@ -21,6 +21,10 @@ export function createCachedLoader<T>(opts: {
   ttlMs: number;
   failMemoMs: number;
   now?: () => number;
+  /** Called when a load succeeds after a failed one: the value may now differ from what was served while it failed
+   *  (anything rendered from it in the meantime is stale). Not called for the first load or for a success that followed
+   *  no failure. */
+  onRecovered?: () => void;
 }): CachedLoader<T> {
   const now = opts.now ?? Date.now;
   let cached: { at: number; value: T } | null = null;
@@ -31,8 +35,10 @@ export function createCachedLoader<T>(opts: {
     (inflight ??= opts
       .load()
       .then((value): Loaded<T> => {
+        const recovered = failedAt !== null;
         cached = { at: now(), value };
         failedAt = null;
+        if (recovered) opts.onRecovered?.();
         return { value, degraded: false };
       })
       .catch((err): Loaded<T> => {
@@ -82,6 +88,8 @@ export function createTtlMap<K, V>(maxEntries: number, now: () => number = Date.
       while (entries.size > maxEntries) entries.delete(entries.keys().next().value as K);
     },
     size: () => entries.size,
+    /** Whether an entry is held at all, fresh or stale. Unlike get, it does not count as a use. */
+    has: (key: K): boolean => entries.has(key),
   };
 }
 
@@ -100,7 +108,7 @@ export function createKeyedLoader<V>(opts: {
   failMemoMs: number;
   maxEntries: number;
   now?: () => number;
-}): (key: string) => Promise<V> {
+}): ((key: string) => Promise<V>) & { holds: (key: string) => boolean } {
   const now = opts.now ?? (() => Date.now()); // read at call time: tests swap the global Date
   // The map's own expiry marks "too old to show"; `at` says when to refresh.
   const values = createTtlMap<string, { value: V; at: number }>(opts.maxEntries, now);
@@ -125,7 +133,7 @@ export function createKeyedLoader<V>(opts: {
     return load;
   };
 
-  return (key) => {
+  const get = (key: string): Promise<V> => {
     const hit = values.get(key);
     const failing = failures.get(key)?.fresh ? failures.get(key) : undefined;
     if (!hit) return failing ? Promise.reject(failing.value) : refresh(key);
@@ -135,4 +143,6 @@ export function createKeyedLoader<V>(opts: {
     if (now() - at >= opts.ttlMs) refresh(key).catch(() => undefined); // the failure is memoised above
     return Promise.resolve(value);
   };
+  // Whether a value is held for the key (the loader would answer from it, or from a stale copy after a failed refresh).
+  return Object.assign(get, { holds: (key: string) => values.has(key) });
 }

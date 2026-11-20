@@ -43,7 +43,7 @@ import {
   type SettingKey,
   type SettingSource,
 } from './nightlySettings';
-import { beginRun, endRun, isRunning, lastRun, recordStep, requestStop, setRunConcurrency, setRunTotal, stopRequested, type StopWhy } from './nightlyRebuildState';
+import { beginRun, endRun, isClearing, isRunning, lastRun, recordStep, requestStop, setRunConcurrency, setRunTotal, stopRequested, type StopWhy } from './nightlyRebuildState';
 import { getShell, invalidatePaths, shellDir, shellEnabled } from './shellRuntime';
 
 /** The origin a run walks, from the environment (MOS_SHELL_REBUILD_BASE, else the first MOS_EXTRA_ALLOWED_HOSTS host). */
@@ -54,6 +54,9 @@ export function rebuildBase(): { origin: string | null; problem: string | null }
 const STAMP = 'nightly-rebuild.json';
 const SETTINGS_FILE = 'nightly-settings.json';
 const MAX_TIMER_MS = 2 ** 31 - 1;
+/** A due walk that finds a clear holding the slot is tried again after this (a clear is short, and the walk is due
+ *  until its window ends; moving it to tomorrow would lose the night). */
+const CLEAR_RETRY_MS = 60 * 1000;
 const SITEMAP_TIMEOUT_MS = 20_000;
 /** A probe gives up after this long (no headers, or a render that never ends): the walk gives up on a page at the same
  *  point (WALK_DEFAULTS.maxWaitMs), so one hung render delays a stop by this much at most, not Node's five minutes. */
@@ -151,9 +154,15 @@ const defaultIo: RunIo = {
         signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       });
       await res.arrayBuffer();
-      return { status: res.status, shell: res.headers.get('x-mos-shell'), refreshing: res.headers.get('x-mos-refresh') === 'running' };
+      return {
+        status: res.status,
+        shell: res.headers.get('x-mos-shell'),
+        refreshing: res.headers.get('x-mos-refresh') === 'running',
+        // The raw header: a 429 backs the walk off for as long as it asks (nightlyRebuild parseRetryAfter).
+        retryAfter: res.headers.get('retry-after'),
+      };
     } catch {
-      return { status: 0, shell: null, refreshing: false };
+      return { status: 0, shell: null, refreshing: false, retryAfter: null };
     }
   },
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -265,6 +274,7 @@ export function resetNightlyForTests(): void {
   timer = null;
   schedule = null;
   lastStart = null;
+  unfinishedStart = null;
   armed = false;
 }
 
@@ -272,6 +282,8 @@ export function resetNightlyForTests(): void {
 
 /** When the last run started (from the stamp at arm time, then from each run). */
 let lastStart: number | null = null;
+/** The start of an interrupted run (its stamp has no end), from the stamp at arm time; see nightlyUnfinishedStart. */
+let unfinishedStart: number | null = null;
 let armed = false;
 let schedule: { minutes: number; origin: string; catchUp: boolean } | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -284,6 +296,17 @@ export function nightlyRunning(): boolean {
 /** Asks the running walk to stop before its next path. False when none is running. */
 export function stopNightlyRebuild(): boolean {
   return requestStop();
+}
+
+/** Whether a clear of the page store holds the run slot now (no walk can start meanwhile). */
+export function nightlyClearing(): boolean {
+  return isClearing();
+}
+
+/** The start of the run the stamp shows as never ended (the process stopped during it), until a run starts in this
+ *  process; null otherwise. Such a run has no record, so the status reports it apart from the last record. */
+export function nightlyUnfinishedStart(): number | null {
+  return unfinishedStart;
 }
 
 /** When the last run started (from the stamp at arm time, then from each run); null when there is none on record. */
@@ -305,7 +328,7 @@ export async function runNightlyRebuild(origin: string, options: Partial<WalkOpt
   const started = d.now();
   // Synchronous up to here: a second call in the same tick is refused, not queued.
   if (!beginRun(started)) {
-    log.warn('[rebuild] skipped: the previous run is still in progress');
+    log.warn('[rebuild] skipped: a run or a clear of the store holds the slot');
     return null;
   }
   let begun = false;
@@ -320,6 +343,7 @@ export async function runNightlyRebuild(origin: string, options: Partial<WalkOpt
     }
     await loadStored(d.settings);
     lastStart = started;
+    unfinishedStart = null; // this run supersedes an interrupted one: it is in the record once it ends
     begun = true;
     await d.writeStamp({ lastStart: started, lastEnd: null });
     log.info('[rebuild] started', { base: origin });
@@ -427,7 +451,8 @@ async function arm(): Promise<void> {
   lastStart = stamp?.lastStart ?? null;
   // A stamp that never got its end: the process stopped during that run. It is not resumed; the walk starts again
   // only when it is due (the next run, or this one if still within the window).
-  if (stamp && stamp.lastEnd === null) log.warn('[rebuild] the last run did not finish (the process stopped during it); it is not resumed', { lastStart: stamp.lastStart });
+  unfinishedStart = stamp && stamp.lastEnd === null && !isRunning() ? stamp.lastStart : null;
+  if (unfinishedStart !== null) log.warn('[rebuild] the last run did not finish (the process stopped during it); it is not resumed', { lastStart: unfinishedStart });
   const minutes = minutesOf(s.at);
   if (missedRun(Date.now(), minutes, lastStart, windowOf(s.catchUp))) log.warn('[rebuild] the run due today was missed: no process was up within the catch-up window (see DEPLOY.md)', { at: formatAt(minutes) });
   log.info('[rebuild] armed', { at: s.at, base: base.origin, catchUp: s.catchUp });
@@ -458,6 +483,13 @@ function tick(): void {
   timer = null;
   if (!schedule) return;
   if (runDue(Date.now(), schedule.minutes, lastStart, windowOf(schedule.catchUp))) {
+    if (isClearing()) {
+      // The walk is still due (lastStart has not moved): it is tried again shortly, not moved to tomorrow.
+      log.warn('[rebuild] due while the store is being cleared: tried again shortly');
+      timer = setTimeout(tick, CLEAR_RETRY_MS);
+      timer.unref?.();
+      return;
+    }
     if (isRunning()) log.warn('[rebuild] due while the previous run is still in progress: skipped');
     else void runNightlyRebuild(schedule.origin);
   }

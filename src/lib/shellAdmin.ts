@@ -64,6 +64,9 @@ export interface ShellAdminInput {
     /** The stamp of the last run that started, and of its end (null while it runs or the process died in it). */
     lastStart: number | null;
     lastEnd: number | null;
+    /** The start of a run that never ended (the process stopped during it, and no run has started since): it is not
+     *  in the run record, so the last run shown there may be an older one. Null otherwise. */
+    unfinishedStart: number | null;
   };
   /** The effective settings, where each comes from, the saved copy (null when none), and the last runs (newest first). */
   settings: {
@@ -117,9 +120,14 @@ export interface ShellAdminStatus {
     nextRunAt: number | null;
     lastStart: number | null;
     lastEnd: number | null;
+    /** The start of an interrupted run (see ShellAdminInput); null otherwise. */
+    unfinishedStart: number | null;
   };
   run: {
+    /** A walk is going. False while a clear holds the slot. */
     running: boolean;
+    /** A clear of the page store holds the run slot now (no walk is going). */
+    clearing: boolean;
     startedAt: number | null;
     total: number | null;
     visited: number;
@@ -195,6 +203,7 @@ export function buildShellAdminStatus(i: ShellAdminInput): ShellAdminStatus {
       nextRunAt: i.scheduler.nextRunAt,
       lastStart: i.scheduler.lastStart,
       lastEnd: i.scheduler.lastEnd,
+      unfinishedStart: i.scheduler.unfinishedStart,
     },
     settings: {
       effective: { ...i.settings.effective },
@@ -204,6 +213,7 @@ export function buildShellAdminStatus(i: ShellAdminInput): ShellAdminStatus {
     },
     run: {
       running: r.running,
+      clearing: r.clearing,
       startedAt: r.startedAt,
       total: r.total,
       visited: r.visited,

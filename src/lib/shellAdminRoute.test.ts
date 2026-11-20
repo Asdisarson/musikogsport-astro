@@ -12,13 +12,15 @@ const m = vi.hoisted(() => ({
   refreshOk: true,
   storeOk: true,
   clearBusy: false,
-  removed: 3 as number | null,
+  clearing: false,
+  cleared: { removed: 3, failed: 0 } as { removed: number; failed: number } | null,
   calls: [] as string[],
 }));
 
 vi.mock('../lib/shellRuntime', () => ({ shellEnabled: () => m.enabled }));
 vi.mock('../lib/nightlyRebuildRuntime', () => ({
   nightlyRunning: () => m.running,
+  nightlyClearing: () => m.clearing,
   rebuildBase: () => ({ origin: m.base, problem: null }),
   runNightlyRebuild: async (origin: string) => void m.calls.push(`run:${origin}`),
   stopNightlyRebuild: () => {
@@ -45,9 +47,10 @@ vi.mock('../lib/shellAdminRuntime', () => ({
     return m.refreshOk;
   },
   clearShellPages: async () => {
+    if (m.clearing) return 'clearing';
     if (m.clearBusy) return 'running';
     m.calls.push('clear');
-    return m.removed;
+    return m.cleared;
   },
   storeOpens: async () => m.storeOk,
 }));
@@ -65,7 +68,8 @@ beforeEach(async () => {
   m.refreshOk = true;
   m.storeOk = true;
   m.clearBusy = false;
-  m.removed = 3;
+  m.clearing = false;
+  m.cleared = { removed: 3, failed: 0 };
   m.calls.length = 0;
   process.env.MOS_SHELL_POKE_KEY = KEY;
   const mod = await import('../pages/api/shell-admin');
@@ -135,6 +139,18 @@ describe('POST actions', () => {
     expect(m.calls).toEqual(['run:https://storefront.test']);
   });
 
+  it('while a clear holds the slot, a run is refused as clearing and a stop is answered as no run going', async () => {
+    m.clearing = true;
+    m.stopOk = false; // the runtime answers no when only a clear holds the slot (no walk to stop)
+    const run = await post({ action: 'run' });
+    expect(run.status).toBe(409);
+    expect((await run.json()).error).toBe('clearing');
+    const stop = await post({ action: 'stop' });
+    expect(stop.status).toBe(409);
+    expect((await stop.json()).error).toBe('not-running');
+    expect(m.calls).toEqual(['stop']);
+  });
+
   it('run: a store that does not open answers 409 at once, and nothing is started', async () => {
     m.storeOk = false;
     const r = await post({ action: 'run' });
@@ -164,15 +180,27 @@ describe('POST actions', () => {
   it('clear: the count of removed pages; refused while a run goes or the store is off', async () => {
     const ok = await post({ action: 'clear' });
     expect(ok.status).toBe(200);
-    expect(await ok.json()).toEqual({ ok: true, removed: 3 });
+    expect(await ok.json()).toEqual({ ok: true, removed: 3, failed: 0 });
     m.clearBusy = true;
     const busy = await post({ action: 'clear' });
     expect(busy.status).toBe(409);
     expect((await busy.json()).error).toBe('running');
     expect(m.calls).toEqual(['clear']);
     m.clearBusy = false;
-    m.removed = null;
+    m.clearing = true;
+    const again = await post({ action: 'clear' });
+    expect(again.status).toBe(409);
+    expect((await again.json()).error).toBe('clearing');
+    m.clearing = false;
+    m.cleared = null;
     expect((await post({ action: 'clear' })).status).toBe(409);
+  });
+
+  it('clear: the pages that could not be removed are answered next to the removed count, as failed', async () => {
+    m.cleared = { removed: 1, failed: 2 };
+    const res = await post({ action: 'clear' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, removed: 1, failed: 2 });
   });
 
   it('is limited per process: the 121st keyed request in a minute is 429', async () => {

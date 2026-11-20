@@ -73,10 +73,17 @@ describe('envDefaults', () => {
     expect(envDefaults({ at: 'off' }).values).toMatchObject({ enabled: false, at: '05:00' });
   });
 
-  it('a value that cannot be read gives its default with a problem line', () => {
+  it('a value that cannot be read gives its default with a problem line, and the rebuild stays off (review 53)', () => {
     const e = envDefaults({ at: 'noon', concurrency: '9', pauseMs: 'x' });
-    expect(e.values).toEqual(DEFAULTS);
+    expect(e.values).toEqual({ ...DEFAULTS, enabled: false });
     expect(e.problems).toHaveLength(3);
+  });
+
+  it('an unreadable time never switches the walk on, whatever it looks like', () => {
+    for (const at of ['5 am', '0500', '5:0', '25:00']) {
+      expect(envDefaults({ at }).values).toMatchObject({ enabled: false, at: '05:00' });
+      expect(envDefaults({ at }).problems).toHaveLength(1);
+    }
   });
 });
 

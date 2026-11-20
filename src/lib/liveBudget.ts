@@ -18,8 +18,10 @@ export class LiveBudgetSpent extends Error {
 }
 
 export interface LiveBudget {
-  /** Runs one upstream call under the budget, or throws LiveBudgetSpent without calling it. */
-  upstream<T>(call: () => Promise<T>): Promise<T>;
+  /** Runs one upstream call under the budget, or throws LiveBudgetSpent without calling it. The call gets `spend`: it
+   *  takes one more token, and throws LiveBudgetSpent when none is left, so a call that makes several WooCommerce
+   *  requests (a variable product's variations come in pages) calls it before each request after the first. */
+  upstream<T>(call: (spend: () => void) => Promise<T>): Promise<T>;
 }
 
 export function createLiveBudget(opts: { limit?: number; windowMs?: number; now?: () => number; warn?: (n: number) => void } = {}): LiveBudget {
@@ -28,17 +30,19 @@ export function createLiveBudget(opts: { limit?: number; windowMs?: number; now?
   const limiter = createLimiter(opts.limit ?? LIVE_UPSTREAM_PER_MINUTE, windowMs, now);
   let lastWarn = -Infinity;
   const warn = opts.warn ?? ((n: number) => log.warn('[api/live] upstream budget spent; cards stay neutral', { limit: n }));
+  const spend = (): void => {
+    if (limiter.take('woo')) return;
+    // one line per window, not one per refused request
+    if (now() - lastWarn >= windowMs) {
+      lastWarn = now();
+      warn(opts.limit ?? LIVE_UPSTREAM_PER_MINUTE);
+    }
+    throw new LiveBudgetSpent();
+  };
   return {
     async upstream(call) {
-      if (!limiter.take('woo')) {
-        // one line per window, not one per refused request
-        if (now() - lastWarn >= windowMs) {
-          lastWarn = now();
-          warn(opts.limit ?? LIVE_UPSTREAM_PER_MINUTE);
-        }
-        throw new LiveBudgetSpent();
-      }
-      return call();
+      spend();
+      return call(spend);
     },
   };
 }

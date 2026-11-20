@@ -1,7 +1,7 @@
 // In-place archive updates (ArchiveView's script): the pure parts — which URL a filter click leads to, which
 // clicks the browser keeps, what to announce, where focus goes. Pure: runs in the browser and in vitest.
 import { countWord } from './facets';
-import { FILTER_KEYS, clearFilterHref, clearFiltersHref, toggleFilterHref, withQuery, type FilterKey } from './liveFilters';
+import { excessiveFilterQuery, FILTER_KEYS, clearFilterHref, clearFiltersHref, toggleFilterHref, withQuery, type FilterKey } from './liveFilters';
 
 /** One filter interaction: an option or chip (toggle), a per-group "Hreinsa", "Hreinsa allt", or the sort. */
 export type NavOp =
@@ -26,6 +26,14 @@ export function applyOp(url: string, base: string, op: NavOp): string {
       params.set('orderby', op.value);
       return withQuery(base, params);
   }
+}
+
+/** `applyOp`, unless the URL it leads to would cross a pick cap: then null, and the click does nothing. The middleware
+ *  answers an over-picked listing URL with a redirect that drops every filter and the search text's picks, so a click
+ *  must never lead there. Composed on the pending URL, so two quick clicks cannot add up past a cap either. Pure. */
+export function composeOp(from: string, base: string, op: NavOp): string | null {
+  const url = applyOp(from, base, op);
+  return excessiveFilterQuery(new URL(url, 'http://archive.invalid').searchParams) ? null : url;
 }
 
 export function isFilterKey(key: string | undefined): key is FilterKey {

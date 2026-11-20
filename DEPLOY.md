@@ -14,7 +14,7 @@ Node only sees plain http, so the proxy has to tell it what the visitor saw:
 | Header | Value | Why |
 |---|---|---|
 | `X-Forwarded-Proto` | `https` | Astro's form-POST origin check and `lib/http` `sameOrigin` compare the browser's `Origin` (`https://…`) with `ctx.url`. Without this header every sign-in, address and contact form POST gets a 403. |
-| `Host` (kept) or `X-Forwarded-Host` | `musikogsport.is` / `www.musikogsport.is` | Same check. Only the hosts in `security.allowedDomains` (`astro.config.mjs`) are trusted; add any staging host there. |
+| `Host` (kept) or `X-Forwarded-Host` | `musikogsport.is` / `www.musikogsport.is` | Same check. Only the hosts in `security.allowedDomains` (`astro.config.mjs`) are trusted. That list is generated from `MOS_EXTRA_ALLOWED_HOSTS`, so add an exact staging host to that variable and rebuild. |
 | `X-Forwarded-For` | appended (`$proxy_add_x_forwarded_for`) or overwritten (`$remote_addr`), never passed through untouched | The per-visitor rate limits (sign-in, password reset, contact) key on its last entry; a proxy that forwards the client's own header lets a client pick its key. |
 
 Serve one canonical host (redirect `www.musikogsport.is` to `musikogsport.is`, or the reverse): the
@@ -32,13 +32,13 @@ proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
 
 | Variable | When it's read | Notes |
 |---|---|---|
-| `WP_INTERNAL_URL` | build time | Baked into the bundle: set it before `npm run build`. No page is prerendered, so the build itself does not need WordPress to answer. |
+| `WP_INTERNAL_URL` | build time | Baked into the bundle: set it before `npm run build`. No page is prerendered and nothing is fetched at build time, so the build passes before WordPress answers; pages answer 503 until it does. |
 | `MOS_MEDIA_BASE_URL` | build time (+ runtime for `server.mjs`) | Optional, default `https://musikogsport.is`. The host serving WordPress media: local media URLs are rewritten onto it and `photoBg` samples product photos from it only. Once the apex points at the storefront, set WordPress's public origin (e.g. `https://wp.musikogsport.is`). Inlined into the client bundle too (the cart uses it). |
 | `MOS_WP_ADMIN_URL` | run time | Optional. The origin whose `/wp-admin/` the staff admin bar links to (`api/account/editor`). Default: `MOS_MEDIA_BASE_URL`, WordPress's public origin. Set it only where the two differ (local development: `http://localhost:10025`). |
 | `MOS_TRUSTED_PROXY_HOPS` | build time | How many proxies in front of Node append to `X-Forwarded-For`. Default `1`, the TLS proxy above; add one per extra layer (e.g. a CDN in front of nginx). Never expose Node directly with `1`: a client could then pick its own rate-limit key. `0` is only for Node facing visitors directly: the socket address is the key, and any request carrying `X-Forwarded-For` goes into one shared bucket. Behind a proxy, `0` makes every visitor share one limit. |
 | `MOS_CLIENT_IP_HEADER` | build time | Optional. A header the hosting edge sets to the visitor's IP; when present it is the rate-limit key and `MOS_TRUSTED_PROXY_HOPS` is only the fallback. Leave unset behind nginx; App Platform: `do-connecting-ip`. |
 | `MOS_EXTRA_ALLOWED_HOSTS` | build time | Optional, comma-separated exact hostnames added to `security.allowedDomains` (`src/lib/allowedHosts.mjs`), e.g. a staging host. No wildcards. |
-| `ASTRO_KEY` | build time | Set it in production (a secret): the key Astro encrypts server-island props with (the product page's related products, `server:defer`). Unset, every build makes a new one, so a product page opened before a deploy loses its related row (the island request fails after it). Make one with `npx astro create-key` and keep it across builds. |
+| `ASTRO_KEY` | build time and run time | Set it in production (a secret), in both environments: the key Astro encrypts server-island props with (the product page's related products, `server:defer`), and the page store reads it at run time to name the pages it keeps. Unset, every build makes a new one, so a product page opened before a deploy loses its related row (the island request fails after it). Without it at run time every process start gets a new store id, so the stored pages are never read again after a restart. Make one with `npx astro create-key` and keep it across builds and restarts. |
 | `HOST`, `PORT` | runtime | Own server: leave `HOST` unset (the build's default bind is `127.0.0.1`): Node must only be reachable through the proxy; with `MOS_TRUSTED_PROXY_HOPS=1` a directly reachable Node lets a client choose its own rate-limit key. `PORT` defaults to 4321. App Platform: `HOST=0.0.0.0`, `PORT=8080` (the container is reachable only through DO's ingress). |
 | `WOOCOMMERCE_CONSUMER_KEY`, `WOOCOMMERCE_CONSUMER_SECRET` | runtime only | Secrets: pass them to the Node process (`node --env-file=.env server.mjs`). `lib/woo` reads them when it makes a request, so `npm run build` needs neither (checked with a clean `npm ci && npm run build` without them). Without them every WooCommerce REST call fails (product pages, wishlist, receipts). |
 | `MOS_HSTS` | runtime | `1` sends `Strict-Transport-Security: max-age=31536000; includeSubDomains` (no preload). Off by default: turn it on only once DNS and TLS on the apex are settled. |
@@ -47,13 +47,13 @@ proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
 | `MOS_SHELL` | runtime | Optional. `off` turns the rendered-page store off: every page is rendered on every request, as before. Default: on. |
 | `MOS_SHELL_DIR` | runtime | Optional. The folder the rendered pages are kept in. Default: `mos-shells` in the system temp directory, which a reboot can clear (the pages are then rendered again). Set a durable folder on the server. |
 | `MOS_SHELL_FRESH_MS` | runtime | Optional, milliseconds: overrides every stored page's lifetime. For tests and a quick check of the refresh path; leave unset in production. |
-| `MOS_SHELL_REBUILD_AT` | runtime | Optional. **The nightly rebuild is off by default**: it runs only when this holds a time, or when it is switched on in wp-admin (Stillingar → Síðugeymsla). The time of day (`HH:MM`, Atlantic/Reykjavik, which is UTC all year) at which every stored product page and listing is marked stale and walked again ("Nightly rebuild" below). `off` turns it off. A value that cannot be read gives 05:00 and a log line. |
-| `MOS_SHELL_REBUILD_BASE` | runtime | Optional, an `https://` (or `http://`, for a local run) origin: the one the nightly walk requests (only its origin is used). Default: `https://` plus the first host of `MOS_EXTRA_ALLOWED_HOSTS`, which must then also be in the run-time environment (set it here when it is not). Never the apex, which is behind the CDN cache. With neither, the nightly rebuild does nothing (the development server does nothing too). |
+| `MOS_SHELL_REBUILD_AT` | runtime | Optional. **The nightly rebuild is off by default**: it runs only when this holds a time, or when it is switched on in wp-admin (Stillingar → Síðugeymsla). The time of day (`HH:MM`, Atlantic/Reykjavik, which is UTC all year) at which every stored product page and listing is marked stale and walked again ("Nightly rebuild" below). `off` turns it off. A value that is neither a time nor `off` leaves the rebuild off (05:00 is then only the time it would use) and writes one log line; fix it and restart the app. |
+| `MOS_SHELL_REBUILD_BASE` | runtime | Optional, an `https://` (or `http://`, for a local run) origin: the one the nightly walk requests (only its origin is used). Default: `https://` plus the first host of `MOS_EXTRA_ALLOWED_HOSTS`, read from the run-time environment or, when that is unset, from the build-time value (so the build-time value is enough). Never the apex, which is behind the CDN cache. With neither, the nightly rebuild does nothing (the development server does nothing too). |
 | `MOS_SHELL_REBUILD_CONCURRENCY` | runtime | Optional, default `2`: how many pages the nightly walk renders at once, an integer `1` to `4`. Anything else gives `2` and a log line. Drops to `1` by itself while WordPress answers badly (see "Nightly rebuild"). |
-| `MOS_SHELL_REBUILD_PAUSE_MS` | runtime | Optional, default `100`: the base pause in milliseconds between renders, an integer `0` to `30000`. Anything else gives `100` and a log line. The pause doubles on each bad answer and halves back to this value. |
+| `MOS_SHELL_REBUILD_PAUSE_MS` | runtime | Optional, default `100`: the base pause in milliseconds between renders, an integer `0` to `30000`. Anything else gives `100` and a log line. The pause doubles on each bad answer (from at least 100 ms, so a base of `0` still backs off to 200 ms, 400 ms and so on, up to 30 s) and halves back towards this value. |
 | `MOS_IMG_CACHE_DIR` | runtime | Optional. The folder the converted `/img/` files (AVIF and WebP) are kept in. Default: `mos-img` in the system temp directory (a reboot clears it; the files are made again on the next request). |
 | `MOS_SHELL_BASE` | `npm run shells` only | Optional, default `http://127.0.0.1:10026`: the origin the pre-build script visits. The server does not read it. On the server, pass `--base` instead (see "Pre-building pages"). |
-| `MOS_SHELL_POKE_KEY` | runtime | Optional. A shared secret for `POST /api/shell-refresh` and for the admin endpoint `/api/shell-admin` (where, without it, every request is refused: 403). Set the same value as the WordPress constant `MOS_SHELL_POKE_KEY` (in `wp-config.php`): WordPress then sends it as `X-Mos-Shell-Key`, and any other caller is refused (403) before it counts against a limit. Unset: the route stays open but bounded to a budget of path actions (see Rate limits). **Set it in production**: until it is set, any address can spend that budget. No secret is shared by WordPress and the storefront today (the only credential both hold is the WooCommerce key pair, which this route does not use), so generate a new one, for example `openssl rand -hex 32`, and put it in both places. Changing it needs a restart only. |
+| `MOS_SHELL_POKE_KEY` | runtime | Optional. A shared secret for `POST /api/shell-refresh` and for the admin endpoint `/api/shell-admin` (where, without it, every request is refused: 403). Set the same value as the WordPress constant `MOS_SHELL_POKE_KEY` (in `wp-config.php`): WordPress then sends it as `X-Mos-Shell-Key`, and any other caller is refused (403) before it counts against a limit. Unset: the route stays open but bounded by the path budgets (see Rate limits). **Set it in production**: until it is set, any address can spend that budget. No secret is shared by WordPress and the storefront today (the only credential both hold is the WooCommerce key pair, which this route does not use), so generate a new one, for example `openssl rand -hex 32`, and put it in both places. Changing it needs a restart only. |
 
 Run the built app with `node server.mjs` (graceful shutdown and headers on static files, see
 [Production hardening](#production-hardening)); `node dist/server/entry.mjs` still works for a quick local preview.
@@ -105,6 +105,9 @@ Run the built app with `node server.mjs` (graceful shutdown and headers on stati
   front-end URLs to the storefront only when `MOS_STOREFRONT_URL` is set, and that includes the card-payment
   returns: WooCommerce builds them on `WP_HOME` (`/gera-upp/order-received/<id>/`, and
   `/gera-upp/?straumurStatus=failed` from the bridge).
+- Define `MOS_SHELL_POKE_KEY` in `wp-config.php` as well, with the same value as the storefront's `MOS_SHELL_POKE_KEY`.
+  The product poke (`mos-shell-poke.php`) and the Síðugeymsla page (`mos-shell-admin.php`) both send it; without it the
+  storefront treats the poke as unkeyed, and the admin page shows what to set instead of its cards.
 
 ## App Platform
 
@@ -153,8 +156,11 @@ rebuild).
 | `WOOCOMMERCE_CONSUMER_SECRET` | RUN_TIME | yes | `cs_…` of the same key |
 | `MOS_HSTS` | RUN_TIME | no | `0`; `1` after cutover once DNS and TLS on `musikogsport.is` are settled |
 | `MOS_LOG_LEVEL` | RUN_TIME | no | `info` |
-| `ASTRO_KEY` | BUILD_TIME | yes | output of `npx astro create-key`, kept across builds (server-island props, see [Environment](#environment)) |
-| `WP_INTERNAL_URL` | BUILD_TIME | no | WordPress origin: `https://wp.musikogsport.is`, WordPress's own hostname (step 1). It must resolve and serve valid HTTPS before the first build, and it does not change at cutover. |
+| `ASTRO_KEY` | RUN_AND_BUILD_TIME | yes | output of `npx astro create-key`, kept across builds and restarts (server-island props, and the page store's identity at run time, see [Environment](#environment)) |
+| `MOS_SHELL_POKE_KEY` | RUN_TIME | yes | the same value as the WordPress constant `MOS_SHELL_POKE_KEY` (WordPress host, checklist step 4). Without it `/api/shell-admin` answers 403 and the poke is unkeyed (see [Rate limits](#rate-limits)). |
+| `WP_INTERNAL_URL` | BUILD_TIME | no | WordPress origin: `https://wp.musikogsport.is`, WordPress's own hostname (step 1). The build does not call it, but pages answer 503 until it resolves and serves valid HTTPS. It does not change at cutover. |
+
+`.do/app.yaml` has to match this table. Until its spec carries the `ASTRO_KEY` scope and the `MOS_SHELL_POKE_KEY` secret, set both by hand in the control panel with the scopes shown.
 | `MOS_MEDIA_BASE_URL` | RUN_AND_BUILD_TIME | no | WordPress's public origin, where its media is served: `https://wp.musikogsport.is`, the same as `WP_INTERNAL_URL`. `photoBg` samples product photos from this host only. |
 | `MOS_CLIENT_IP_HEADER` | BUILD_TIME | no | `do-connecting-ip` |
 | `MOS_TRUSTED_PROXY_HOPS` | BUILD_TIME | no | `1` (fallback only) |
@@ -177,16 +183,20 @@ rebuild).
    - The storefront calls WordPress server-side only, so no CORS change is needed. The storefront's cookies are
      host-only on `musikogsport.is`; WordPress cookies are not shared with it.
 2. **Check the spec**: `WP_INTERNAL_URL` and `MOS_MEDIA_BASE_URL` are `https://wp.musikogsport.is`, the WordPress
-   hostname of step 1. Until that name resolves and answers over valid HTTPS, every build fails. Set `github.branch`
-   to the branch to deploy (the spec says `main`). Validate it: `doctl apps spec validate .do/app.yaml`. If a CDN or
-   WAF in front of that hostname challenges App Platform's requests, the build fails or pages answer 503: allow
-   `/wp-json/` for server traffic there.
+   hostname of step 1. The build does not call WordPress (no page is prerendered), so it passes before that name
+   resolves; the pages answer 503 until it does, while `/api/healthz`, which calls nothing upstream, still passes. Set
+   `github.branch` to the branch to deploy (the spec says `main`). Validate it: `doctl apps spec validate .do/app.yaml`.
+   If a CDN or WAF in front of that hostname challenges the app's requests, the pages answer 503: allow `/wp-json/` for
+   server traffic there.
 3. **Create the app**: `doctl apps create --spec .do/app.yaml` (or Apps → Create App → import the spec in the
    control panel). Connect GitHub to DigitalOcean first so it can read `Asdisarson/musikogsport-astro`. The spec has no
    custom domain yet, on purpose (step 6).
 4. **Secrets**: in Settings → `storefront` → Environment Variables, enter `WOOCOMMERCE_CONSUMER_KEY` and
    `WOOCOMMERCE_CONSUMER_SECRET`, tick **Encrypt**, keep the scope "Run time", save, and redeploy. The build
    succeeds without them, but until they are set every WooCommerce REST call fails (product pages answer 503).
+   Also enter `MOS_SHELL_POKE_KEY` the same way (encrypted, run time; the value WordPress holds too, see
+   [Environment](#environment)) and `ASTRO_KEY` (encrypted, scope "Run and build time", so the page store keeps its
+   pages across restarts).
 5. **Point `new.musikogsport.is` at the app**: the spec lists it as the primary domain. At the DNS provider add a
    CNAME `new` → the `<app>.ondigitalocean.app` name shown in Settings → Domains, **DNS-only** (in Cloudflare: grey
    cloud). Proxied through Cloudflare, App Platform sees Cloudflare's addresses as the visitor, so the per-visitor
@@ -246,6 +256,9 @@ rebuild).
 - Nothing has been created on DigitalOcean; no deploy, no DNS change, no WordPress change.
 - Open owner decisions (ticket 02): enforcing the CSP, turning HSTS on, rate limits on the rest of the payment-flow routes (checkout itself is done),
   the Node 24 move.
+- Open owner decisions from the review: the 30 s cache of the in-stock option count; a photo original too big to sample,
+  kept as a decided null for 24 hours; whether `POST /api/content-refresh` needs a key or a cap (today it has neither,
+  only the two-second window).
 
 ## Plesk
 
@@ -262,9 +275,11 @@ The storefront on the same server as WordPress, under Plesk's Node.js extension 
 - **Pre-building pages (after Restart App):** wait until `/api/healthz` answers 200 and one light page (for example `/`)
   renders. Only then, and only on the owner's word, run `npm run shells -- <args>` against the storefront. It visits
   the product and category URLs from `sitemap.xml` one at a time, with a pause (`--delay`, default 500 ms) that
-  doubles on any 5xx, timeout or answer slower than `--slow` (default 3000 ms), and it stops after `--max-failures`
-  (default 5) failures in a row with exit status 2. Run it slowly, for example `--delay=1000`, and start with
-  `--limit=30`. It can be run again later and carries on from the pages already kept. Stop it if WordPress slows
+  doubles on any answer other than 2xx, 3xx, 404 or 410 (so 401, 403, 429 and 5xx), on a timeout, and on an answer
+  slower than `--slow` (default 3000 ms). It stops after `--max-failures` (default 5) failures in a row with exit
+  status 2. Run it slowly, for example `--delay=1000`, and start with `--limit=30`. It can be run again later and
+  carries on from the pages already kept, while the app keeps the same `ASTRO_KEY` (see [Environment](#environment)).
+  Stop it if WordPress slows
   down; cold caches are what stalled production WordPress once (see the mu-plugin checklist).
   **The run on the server.** Passenger takes the port, so there is no fixed local address; run it against the host
   the storefront answers on, which the app keeps pages for (`MOS_EXTRA_ALLOWED_HOSTS` lists it):
@@ -292,7 +307,9 @@ The storefront on the same server as WordPress, under Plesk's Node.js extension 
   root as static files, and the root holds the source and any `.env`. Changing it moves the Application Root to its
   parent (`dist`): set the Application Root back to the project folder afterwards.
 - **Custom environment variables** (Node.js → Environment): `WOOCOMMERCE_CONSUMER_KEY`,
-  `WOOCOMMERCE_CONSUMER_SECRET`, `MOS_HSTS`, `MOS_LOG_LEVEL`. `ASTRO_KEY` has to be in the environment of the build.
+  `WOOCOMMERCE_CONSUMER_SECRET`, `MOS_HSTS`, `MOS_LOG_LEVEL`, `MOS_MEDIA_BASE_URL` (the run-time CSP reads it),
+  `MOS_SHELL_POKE_KEY` (the same value as WordPress's) and `ASTRO_KEY`. `ASTRO_KEY` has to be in the environment of the
+  build as well: without it at run time the page store starts a new set of pages at every restart (see Environment).
 - **Visitor IP:** `build:plesk` sets `MOS_CLIENT_IP_HEADER=cf-connecting-ip`, because Cloudflare is in front. That
   header is only trustworthy if the server accepts web traffic from Cloudflare's addresses alone; a caller reaching
   the server's IP directly can forge it and get its own rate-limit bucket.
@@ -352,26 +369,47 @@ responses are never stored. To turn page caching off again, disable the rule.
 
 The storefront keeps rendered pages itself (`src/lib/shellStore.ts`, policy in `src/lib/shellPolicy.ts`), on disk
 under `MOS_SHELL_DIR`, and serves a kept page at once: product pages for a day, listings and the home page for five
-minutes, filtered listing URLs for two minutes in memory only (at most 500). A page past its lifetime is still served
+minutes, filtered listing URLs for two minutes in memory only (at most 500; a stock-filtered one, `?lager=1`, is never kept, see below). A page past its lifetime is still served
 and rendered again in the background. WordPress marks a saved product's page stale through `mos-shell-poke.php`
-(`POST /api/shell-refresh`), and a product that leaves the shop is dropped. A product whose slug or category changed
+(`POST /api/shell-refresh`), and a product that leaves the shop is dropped. A save of the front page or its chrome (`POST /api/content-refresh`, WordPress's "Forsíða" save, with no key) re-reads the front page and the chrome; calls within two seconds share one read. When what the pages render has changed, every stored page is marked stale. The answer is 204, or 502 when WordPress could not be read in full. A product whose slug or category changed
 has its old address dropped too, and a stored page whose re-render answers 404 or a redirect is removed (it is not
-served as 200 any more); a re-render that fails (5xx, an incomplete page) keeps the stored copy and waits longer before
-the next try (30 s, doubling, up to 30 minutes). A bulk change (more than 50 paths in one save or import) is sent in batches of 50 without `MOS_SHELL_POKE_KEY`
+served as 200 any more); a re-render that fails (5xx, an incomplete page, a copy the store will not keep, or an error) keeps the stored copy and
+waits longer before the next try (30 s, doubling, up to 30 minutes). Background re-renders run six at a time; up to 200
+more wait, and any beyond that are skipped while the stored copy is served. A bulk change (more than 50 paths in one save or import) is sent in batches of 50 without `MOS_SHELL_POKE_KEY`
 (at most 20 batches; the rest is logged as unsent). With the key it may be sent as one "every product" mark, which also
 makes the storefront's product and grid lookups read WooCommerce again (the mark is refused without the key). A page rendered while a poke arrived is not kept if the
 poke came after the render started. A drop that lands while a page is being written wins: the write is not renamed
 into place, and a page on disk that was rendered before a drop is not served. A failed write removes its partial file
 at once, and `prune` removes any partial file older than ten minutes. A scheduled sale (WooCommerce's cron, or the
 Action Scheduler actions that start and end a product's sale, save the product with no one logged in) pokes as an
-editor's save does, unless the save changed only stock. A render that is running when a poke arrives is treated as
+editor's save does, unless the save changed only stock. Any change between published and not published pokes too: a
+scheduled product going live without a save is marked, and one taken off the shop is dropped. A render that is running when a poke arrives is treated as
 stored, so the poke still applies to it. A path longer than
 200 characters is logged and left out of its poke; the rest of the poke is sent. The build id covers the server build and the island key, so a release that
 changes only server markup starts a new set of pages. Stock is never in a rendered page and is
 never kept: it is read live from `/api/live/` (`no-store`) and filled in the browser. A price is baked into the page
 and corrected in the browser from the same live answer, so a changed price shows within about a tenth of a second
-of the page's arrival. Cart and checkout read WooCommerce live. A page rendered with content missing (a failed
-lookup, a product photo whose colour sampling timed out) is sent `no-store` and never held, neither by the CDN nor
+of the page's arrival. Cart and checkout read WooCommerce live. The product and variation caches hold no stock, and search suggestions carry
+none (their sold-out marks come from `/api/live`). The product page's related row is rendered with 24 candidates for its
+12 tiles, and the browser hides the ones the live answer names sold out, so a spare shows in their place. The in-stock
+count on the stock-filter row is the one exception: it is held for 30 seconds with the other option counts (an open
+owner decision, see Not done). A variable product with more than 500 variations (five pages of 100, `MAX_VARIATION_PAGES`
+in `src/lib/woo.ts`) is shown as degraded: its sizes are unavailable, the page is not stored as complete, and its live
+stock answers 502. A page rendered with content missing (a failed lookup, a product photo whose colour sampling failed
+or timed out, or filter terms that are degraded) is sent `no-store` and never held, neither by the CDN nor by the store.
+
+**Filtered listings.** A stock-filtered listing (`?lager=1`) is never stored, not even in memory. It is sent
+`private, no-store`, and its grid is read from WordPress on each request, at most 120 new reads a minute for the whole
+process (`STOCK_GRIDS_PER_MINUTE` in `src/lib/storeCatalog.ts`). Past that the listing answers 503 with `Retry-After: 30`.
+Picks are capped at 6 values per filter group and 12 in all (`MAX_PICKED_PER_FILTER` and `MAX_PICKED_TOTAL` in
+`src/lib/liveFilters.ts`). A URL over the cap is redirected (302) to the same page with only its search text kept, and
+the rail shows the options past the cap as unavailable, with a note. Sizes, price and flags are not capped.
+
+**Product photos.** A photo whose colour sample fails with a transient error (a reset, a timeout, a 5xx, or a 403 or 429
+from the media host) stays undecided for 60 seconds and is then tried again, so a page showing it is not kept as
+complete. A decided outcome (a 404 or 410 from the media host, or bytes the image library cannot read) is kept for 24
+hours.
+
 **Nightly rebuild.** Off by default; switched on in wp-admin (Stillingar → Síðugeymsla) or by a time in `MOS_SHELL_REBUILD_AT`. When on, once a day at its time (05:00 unless set), the storefront walks the product and category
 URLs of its own sitemap, marking each path stale just before it is requested (so only the pages the walk has reached are stale, and
 real visitors see the stored copy until then), by requesting their paths on `MOS_SHELL_REBUILD_BASE` (the storefront's own host;
@@ -383,7 +421,7 @@ The pause between renders is `MOS_SHELL_REBUILD_PAUSE_MS` (100 ms by default) pe
 (card "Stillingar næturkeyrslu") saves five settings, which win over them: `enabled` (on or off), `at` (`HH:MM`, Reykjavík),
 `concurrency` (1 to 4), `pauseMs` (0 to 30000 milliseconds) and `catchUp` (whether a run missed while no process was up is
 caught up within three hours; off leaves only a five-minute grace after the time). The precedence, per field: a saved value;
-else the environment (an unset `MOS_SHELL_REBUILD_AT`, or `off`, is `enabled` false, with the time 05:00; a time in it is `enabled` true); else the default. A field that is
+else the environment (an unset `MOS_SHELL_REBUILD_AT`, or `off`, is `enabled` false, with the time 05:00; a time in it is `enabled` true; a value that is neither a time nor `off` is `enabled` false too, with a log line); else the default. A field that is
 not saved falls back the same way. Out-of-range values are refused with a line of text, never clamped.
 The copy on the storefront is kept in `nightly-settings.json` beside the stamp file (in `MOS_SHELL_DIR`, or the temp folder), with
 the last seven runs, written whole and atomically. A save takes effect at once: a new time moves the next run, but a save never starts
@@ -392,9 +430,12 @@ one. Switching the run off does not stop a walk already going; use "Stöðva key
 and a reboot that clears its temp folder loses that copy. The page therefore compares the storefront's saved copy with the option on
 each fresh status read and re-sends the option when they differ (at most once per read, and not again within a minute of a failed
 push). When it has re-sent, the page says so. "Nota sjálfgefin gildi" removes the option and asks the storefront to drop its copy.
-Fallback: a bad answer (5xx, a timeout, or a render over three seconds) drops the walk to one page at a time and doubles the pause
-(up to 30 s); a good answer halves it back. After 20 good answers in a row with the pause back at the base, the walk returns to its
-configured workers. Failures are counted across both workers, and five bad answers in a row stop the run, as before. The admin page
+Fallback: a bad answer drops the walk to one page at a time and doubles the pause (from at least 100 ms, up to 30 s); a good
+answer halves it back towards the base. A bad answer is any status other than 2xx, 3xx, 404 or 410 (so a 401, 403, 429 or
+5xx), a timeout, or a first answer over three seconds. A stale page's refresh is judged by that first answer, and a refresh
+that runs past 90 seconds or ends stale is bad too. A `Retry-After` on a bad answer (a 429 or 503 that carries one) sets the
+pause before the next page to that delay when it is longer than the backoff, capped at 30 s: the walk waits what the
+storefront asked, not the backoff. After 20 good answers in a row with the pause back at the base, the walk returns to its configured workers. Failures are counted across both workers, and five bad answers in a row stop the run, as before. The admin page
 shows the workers in use ("2 síður í einu", or "1 síða í einu (hægt á vegna svartíma)" while degraded).
 The run is logged: its start, a progress line every 500 pages, and an end line with
 the visited, hit, rendered, gone and failed counts, whether it stopped early, and its duration. A stamp file
@@ -413,11 +454,14 @@ page at a time while it is. Run it at the hour the shop is quietest and watch Wo
 JSON (`no-store`). `POST /api/shell-admin` takes `{"action": …}`:
 
 - `run`: starts the walk now (202). 409 with `error` `no-base` (no `MOS_SHELL_REBUILD_BASE` nor `MOS_EXTRA_ALLOWED_HOSTS`),
-  `store-off`, or `running` (never a second run). Works whether or not the nightly time is set.
+  `store-off`, `running` (never a second run) or `clearing` (a clear is going). Works whether or not the nightly time is set.
 - `stop`: asks the walk to stop before its next page (202; the pause after the current page still runs first). 409 `not-running`.
 - `refresh` with `"path"`: marks one stored page stale, so the next visit renders it (200). The path must be a storefront
   product or category path (`/vara/nafn/`, `/verslun/flokkur/nafn/`); anything else, a full URL included, is 400.
-- `clear`: drops every stored page of this build (200, `removed`). 409 while a run goes or the store is off.
+- `clear`: drops every stored page of this build and answers 200 with `removed` and `failed`. `failed` counts page files that
+  could not be removed; above zero, some may still be served, and the page warns. A clear holds the run slot, so a walk
+  cannot start meanwhile. 409 `running` while a walk goes, `clearing` while another clear goes, `store-off` when the store
+  is off.
 - `settings` with `"settings": {…}`: saves the nightly settings (200, with `settings` (the effective values), `source` (`saved` or
   `env/default` per field), `saved` and `persisted`). Any field may be left out (it then falls back to the environment); an unknown
   field, or a value out of range, is 400 with `problems` (one line of Icelandic text each) and nothing changes. `"settings": null`
@@ -428,11 +472,12 @@ same value as `X-Mos-Shell-Key`. 120 keyed requests a minute per process (429 be
 Disk counts are taken at most once a minute. The status fields: `store` (`on`, `build` (8 characters), `folder` (`durable` when
 `MOS_SHELL_DIR` is set, else `temp`; never the path), `pagesInMemory`, `pagesOnDisk`, `diskBytes`, `diskAt`, `fresh`),
 `scheduler` (`armed`, `why` (null when armed; else `store-off`, `off` (saved or environment), `no-base` or `waiting` for a first
-request), `at` (null when off), `hasBase`, `nextRunAt`, `lastStart`, `lastEnd`), `settings` (`effective`: `enabled`, `at`,
+request), `at` (null when off), `hasBase`, `nextRunAt`, `lastStart`, `lastEnd`, `unfinishedStart` (the start of a run that never
+ended, null when none)), `settings` (`effective`: `enabled`, `at`,
 `concurrency`, `pauseMs`, `catchUp`; `source`: per field `saved` or `env/default`; `saved`: the saved copy or null; `estimateMs`:
 the estimated duration of a run of every page at the effective concurrency, from the last run's measured time per page, or null),
 `run` (`running`, `startedAt`, `total`, `visited`, `hits`, `rendered`, `gone`, `failures`, `pauseMs`, `lastPath`, `stopRequested`,
-`workers`, `concurrency`), `lastRun` (the newest of `recentRuns`, or null: `startedAt`, `endedAt`, `durationMs`, `total`, `visited`,
+`workers`, `concurrency`, `clearing` (true while a clear holds the slot)), `lastRun` (the newest of `recentRuns`, or null: `startedAt`, `endedAt`, `durationMs`, `total`, `visited`,
 `hits`, `rendered`, `gone`, `failures`, `stoppedEarly`, `stoppedWhy`, `concurrency`, `msPerPage`, `pagesPerMinute`), `recentRuns` (the
 last seven runs, newest first, the same fields) and `failures` (the last 20 bad answers, newest first: `path`, `status`, `at`).
 
@@ -440,10 +485,10 @@ The WordPress page "Síðugeymsla" (`wp-mu-plugins/mos-shell-admin.php`, a subpa
 reads that status with a 5 s timeout and sends the four actions through admin-post with nonces. It needs
 `MOS_SHELL_POKE_KEY` in `wp-config.php` (the same value as the storefront's) and `MOS_STOREFRONT_URL`. When the key is missing,
 the storefront does not answer, or it answers 403, the page explains what to set instead of the cards. The status is kept
-for 10 seconds in WordPress, and the page reloads itself every 15 seconds only while a run is going. Run now and clear need
+for 10 seconds in WordPress, and the page reloads itself every 15 seconds only while a run or a clear is going. Run now and clear need
 `manage_options` (administrators); stop and rebuild one page stay with editors.
 
-by the store.
+Cache-Control by response:
 
 | Response | Cache-Control |
 |---|---|
@@ -494,12 +539,17 @@ carriers put many phones behind one address (CGNAT).
 | `POST /api/checkout` | 10 / min (the order-placing route; checked before WooCommerce is called; approved by the owner 2026-10-26) |
 | `POST /api/checkout/status` | 30 / min (the checkout page's follow-up after an order whose answer was lost: about 6 asks per lost answer; read-only, checked after the attempt id is validated) |
 | `GET /api/order` | 20 **misses** / 15 min (a found order gives its slot back, so the thank-you poll is never limited) |
-| `/api/live` and `/api/live/product/<id>/` | 120 requests per minute per visitor (429 with Retry-After). Process-wide: 600 WooCommerce calls per minute across both routes (503 with Retry-After 60 and no-store when spent; cards stay neutral, the product page shows its retry state; one warning per minute in the log). |
-| `GET /img/<width>/<format>/…` (AVIF or WebP conversion of a media photo) | 60 **cache misses** / min per visitor, a kept file costs nothing. At most 2 conversions run at once per process, 40 wait; past that the request gets 429 |
-| `POST /api/shell-refresh` (WordPress's "a product was saved" poke) | With `MOS_SHELL_POKE_KEY` set: 600 / min for the whole process, any other caller is refused (403), and a bulk "every product" mark is honoured. Without it (set the key in production): a budget of **path actions**, 600 a minute for the whole process and 300 a minute per address (WordPress is one address, so a bulk edit uses that share). Only paths with a stored page, a poke waiting for a render, or a render running now are marked or dropped; the cached product of each path is forgotten either way. Every request costs at least one action, and a request past the budget gets 429 when none of its paths fits. The bulk mark is refused (WordPress then sends bulk changes in batches of 50, at most 20 per change), and a listings mark is honoured once in five minutes. Refusals are counted and logged once a minute (`shell poke refused`), never with their bodies. A body over 16 KB is refused before it is read. |
+| `/api/live` and `/api/live/product/<id>/` | 120 requests per minute per visitor (429 with Retry-After). Process-wide: 600 upstream calls per minute across both routes (one call can make up to five WooCommerce requests, for a variable product's variations; 503 with Retry-After 60 and no-store when spent; cards stay neutral, the product page shows its retry state; one warning per minute in the log). |
+| `GET /img/<width>/<format>/…` (AVIF or WebP conversion of a media photo) | 60 **cache misses** / min per visitor, a kept file costs nothing. A miss is never waited for: it gets a 302 to the original on the media host (`no-store`) at once, and the conversion runs in the background, at most 2 at once per process with 40 waiting. Past the visitor's 60, or with the queue full, the 302 is still sent and no conversion starts. |
+| `POST /api/shell-refresh` (WordPress's "a product was saved" poke) | With `MOS_SHELL_POKE_KEY` set: 600 / min for the whole process, any other caller is refused (403), and a bulk "every product" mark is honoured. Without it (set the key in production): 300 requests a minute per address, counted before the body is read; then 300 **path slots** a minute per address, taken before any store lookup, so junk paths cost only their own address's share. Only a path the store knows (a stored page, or a render waiting for it) also spends the shared pool of 600 a minute for the whole process, forgets its cached product and is marked or dropped; any other path costs nothing shared. A poke cut short by a budget applies the paths it could take and answers 429 with `Retry-After: 60` and `{message, untaken}`, the list of paths it did not apply, so the sender can resend exactly those. A poke that applies nothing is refused whole. An empty poke costs one slot. The bulk mark is refused (WordPress then sends bulk changes in batches of 50, at most 20 per change). A listings mark is honoured once in five minutes, and that window starts only once the mark is applied. Refusals are counted and logged once a minute (`shell poke refused`), never with their paths. A body over 16 KB is refused before it is read. |
 | Filtered listings | Not per visitor: cold Store API count requests (`collection-data`) are capped at 240 a minute per process. Past that, listings render without option counts (or with stale ones) instead of asking WordPress; the product grid is unaffected. |
+| Stock-filtered listings (`?lager=1`) | Not per visitor: a new read of the stock-filtered grid is capped at 120 a minute per process. Past that the listing answers 503 with `Retry-After: 30` and `no-store`; joining a read already in flight costs nothing. |
+| `GET /api/search/suggest` | 120 / min per visitor (429 with Retry-After) |
+| `POST /api/newsletter` | 5 / 15 min per visitor; a failure of the upstream service gives the slot back |
+| Product page related row (`/_server-islands/RelatedProducts`) | 60 / min per visitor. Over it the row is left out, as when every lookup fails. |
+| Edit account, wrong current password | 5 / 15 min **per customer**, not per visitor. Further attempts in the window are refused. |
 
-Accepted limits, shared by design: the 600 WooCommerce calls a minute for `/api/live` are one budget for every visitor, so a few addresses sending many different id sets can use it up, and until the minute ends product cards stay neutral and stock calls answer 503. The image conversion queue (2 running, 40 waiting) is shared the same way, and misses are limited per visitor only, so many addresses can fill it and legitimate requests then get unoptimised originals until it drains.
+Accepted limits, shared by design: the 600 upstream calls a minute for `/api/live` are one budget for every visitor, so a few addresses sending many different id sets can use it up, and until the minute ends product cards stay neutral and stock calls answer 503. The image conversion queue (2 running, 40 waiting) is shared the same way, and misses are limited per visitor only, so many addresses can fill it and legitimate requests then get unoptimised originals until it drains.
 
 Not limited, on purpose: `GET /api/cart` (every page view), and the rest of the payment flow — the calls
 the checkout page makes (`/api/cart/customer`, `/api/cart/select-shipping`, `/api/cart/coupon`,
@@ -585,6 +635,8 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    `mos-headless-mode.php`; without it the storefront is not told when a product is saved, and its pages stay stale
    until their lifetime ends. `mos-headless-mode.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), so uploading
    it before cutover is safe; the others act at once but only add routes, fields and the wp-admin "Stillingar" page.
+   `mos-shell-poke.php` and `mos-shell-admin.php` changed in the latest round (a scheduled product going live pokes, and
+   the Síðugeymsla page reports a clear that left files behind): copy them again where a copy is already installed.
 3. **Size index backfill**: `wp mos-size reindex` (seconds; rerunnable). Until it runs, size filters match nothing.
    Check: it prints per-group counts, and
    `curl -s 'https://<wp-host>/wp-json/wc/store/v1/products/collection-data?mos_size_counts=1' | jq '.mos_size_counts | length'`
@@ -630,9 +682,12 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    to `wp-content/uploads/mos-instagram/`, which must be publicly served like the rest of `uploads/` (no deny rule).
 4. **`wp-config.php` constants** (at cutover, not before): `MOS_STOREFRONT_URL` = `https://musikogsport.is`,
    `MOS_HEADLESS_REDIRECT_STATUS` = `301`.
+   Also `MOS_SHELL_POKE_KEY` = the same value as the storefront's (see [WordPress host](#wordpress-host)): the poke and the
+   Síðugeymsla page both need it.
    Check: `wp eval 'echo MOS_STOREFRONT_URL, " ", MOS_HEADLESS_REDIRECT_STATUS;'`, and
    `curl -sI https://<wp-host>/verslun/` answers `301` to `https://musikogsport.is/verslun/`, while
-   `curl -sI 'https://<wp-host>/wp-json/'` still answers 200 (REST is never redirected).
+   `curl -sI 'https://<wp-host>/wp-json/'` still answers 200 (REST is never redirected), and
+   `wp eval 'echo defined("MOS_SHELL_POKE_KEY") ? "set" : "MISSING";'` prints `set` (the value itself is never printed).
 5. **WooCommerce settings.**
    - Guest checkout on (Settings → Accounts & Privacy). Check: `wp option get woocommerce_enable_guest_checkout` is
      `yes`.

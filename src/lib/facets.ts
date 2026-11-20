@@ -1,6 +1,6 @@
 // Facet rules for the archive's filter rail — pure, no server imports (archive.ts wires them to the Store API).
 import { CARD_SALE_ROOT_SLUG, childrenOf } from './categoryTree';
-import { MERGED_COLOURS, type CategoryTerm, type FilterKey, type TermRef } from './liveFilters';
+import { MAX_PICKED_PER_FILTER, MAX_PICKED_TOTAL, MERGED_COLOURS, type CategoryTerm, type FilterKey, type TermRef } from './liveFilters';
 import { countWord as pluralWord } from './plural';
 
 /** Whether a filter option is listed. With counts in hand (even an empty result: nothing matches) an option without
@@ -8,6 +8,44 @@ import { countWord as pluralWord } from './plural';
  *  `source` is null only when the count request failed: then every option shows, without counts. */
 export function keepOption(o: { active: boolean; count?: number }, source: ReadonlyMap<unknown, number> | null): boolean {
   return o.active || source === null || (o.count ?? 0) > 0;
+}
+
+/** The filter keys that count toward the picking caps (lib/liveFilters excessiveFilterQuery): the comma lists. Sizes keep
+ *  their own, much higher, limit and are not counted here. */
+const CAPPED_KEYS: ReadonlySet<FilterKey> = new Set<FilterKey>(['kyn', 'brand', 'team', 'product-category', 'ithrott', 'litur']);
+
+/** The values a URL holds per capped filter, and in all: what the caps are checked against. */
+export interface PickCounts {
+  perKey: ReadonlyMap<FilterKey, number>;
+  total: number;
+}
+
+/** The counts for the picked values of each filter (the lists as parseLiveFilters reads them). Pure. */
+export function pickCounts(picked: Partial<Record<FilterKey, string[]>>): PickCounts {
+  const perKey = new Map<FilterKey, number>();
+  let total = 0;
+  for (const key of CAPPED_KEYS) {
+    const n = picked[key]?.length ?? 0;
+    perKey.set(key, n);
+    total += n;
+  }
+  return { perKey, total };
+}
+
+/** Why one more value of this filter cannot be picked, in Icelandic, or undefined when it can. A URL over the caps is
+ *  redirected without its filters (middleware), so the rail shows such a pick as unavailable instead of offering it. An
+ *  option already picked is never blocked: unticking it is always allowed. Pure. */
+export function pickNote(key: FilterKey, counts: PickCounts): string | undefined {
+  if (!CAPPED_KEYS.has(key)) return undefined;
+  if (counts.total >= MAX_PICKED_TOTAL) return `Mest er hægt að velja ${MAX_PICKED_TOTAL} síur í einu. Afveldu eina til að velja aðra.`;
+  if ((counts.perKey.get(key) ?? 0) >= MAX_PICKED_PER_FILTER) return `Mest er hægt að velja ${MAX_PICKED_PER_FILTER} í þessum flokki. Afveldu eitt til að velja annað.`;
+  return undefined;
+}
+
+/** The query a redirect for an over-picked URL keeps: the search text alone, encoded ('' without one). The picks are what
+ *  went over the limit, so they are the part that is dropped. Pure. */
+export function searchOnlyQuery(search: string | null): string {
+  return search ? new URLSearchParams({ s: search }).toString() : '';
 }
 
 /** The number of products a query matches, from its collection-data stock-status counts: every status, or only the

@@ -21,6 +21,8 @@ export interface LiveProduct {
   stock: LiveStock;
   /** Most the customer may buy at once (purchasableMax): a number, or null for no cap. */
   max: number | null;
+  /** What the stock alone allows (stockCap), or null for no cap. The cart's lines of the same stock are taken off it. */
+  stockMax: number | null;
   /** Sold individually: one per cart, whatever the stock (soldIndividually). Not a stock shortage. */
   soldOne: boolean;
 }
@@ -34,6 +36,10 @@ export interface LiveVariation {
   stock: LiveStock;
   /** Most the customer may buy at once (purchasableMax), or null for no cap. */
   max: number | null;
+  /** What the stock alone allows (stockCap; the parent's when this variation shares it), or null for no cap. */
+  stockMax: number | null;
+  /** Managed by the parent: its stock is the parent's, shared with every variation managed that way (sharedStock). */
+  sharedStock: boolean;
   /** Sold individually: one per cart, whatever the stock (soldIndividually). */
   soldOne: boolean;
 }
@@ -107,17 +113,22 @@ export interface StockRules {
   sold_individually?: boolean;
 }
 
-/** The most one customer may put in the cart, or null when there is no cap (not managed, backorders allowed, or a
+/** What the stock alone allows one customer to take, or null when there is no cap (not managed, backorders allowed, or a
  *  field missing: nothing is guessed). Managed with a quantity and no backorders: the quantity, floored, never below 0.
- *  Sold individually caps it at 1. `parent` is the variable product: its stock is read when the variation says 'parent', its sold-individually flag always. */
-export function purchasableMax(v: StockRules, parent?: StockRules): number | null {
+ *  `parent` is the variable product: its stock is read when the variation says 'parent'. Sold individually is not in it. */
+export function stockCap(v: StockRules, parent?: StockRules): number | null {
   const src = v.manage_stock === 'parent' ? parent : v;
-  let max: number | null = null;
   if (src && src.manage_stock === true && typeof src.stock_quantity === 'number' && Number.isFinite(src.stock_quantity)) {
     const allowed = src.backorders_allowed === true || src.backorders === 'yes' || src.backorders === 'notify';
-    if (!allowed) max = Math.max(0, Math.floor(src.stock_quantity));
+    if (!allowed) return Math.max(0, Math.floor(src.stock_quantity));
   }
-  if (soldIndividually(v, parent)) max = max === null ? 1 : Math.min(max, 1);
+  return null;
+}
+
+/** The most one customer may put in the cart, or null when there is no cap: the stock cap, and sold individually caps it at 1. */
+export function purchasableMax(v: StockRules, parent?: StockRules): number | null {
+  const max = stockCap(v, parent);
+  if (soldIndividually(v, parent)) return max === null ? 1 : Math.min(max, 1);
   return max;
 }
 
@@ -141,6 +152,7 @@ export function liveProductOf(p: WooProduct): LiveProduct {
     percent: salePercent(p.price_html),
     stock: stockOf(p),
     max: purchasableMax(p),
+    stockMax: stockCap(p),
     soldOne: soldIndividually(p),
   };
 }
@@ -155,6 +167,8 @@ export function liveVariationOf(v: WooVariation, parent?: WooProduct): LiveVaria
     on_sale: Boolean(v.on_sale),
     stock: stockOf(v),
     max: purchasableMax(v, parent),
+    stockMax: stockCap(v, parent),
+    sharedStock: v.manage_stock === 'parent',
     soldOne: soldIndividually(v, parent),
   };
 }

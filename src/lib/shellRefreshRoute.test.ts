@@ -9,6 +9,7 @@ const m = vi.hoisted(() => {
   return {
     calls,
     known: new Set<string>(),
+    cached: new Set<string>(),
     fns: {
       invalidatePaths: async (ps: string[]) => void calls.push(`stale:${ps.join(',')}`),
       dropPage: async (p: string) => void calls.push(`drop:${p}`),
@@ -18,6 +19,7 @@ const m = vi.hoisted(() => {
       forgetProduct: (slug: string) => void calls.push(`forget:${slug}`),
       forgetAllProducts: () => void calls.push('forgetAllProducts'),
       forgetAllGrids: () => void calls.push('grids'),
+      productCached: (slug: string) => m.cached.has(slug),
     },
   };
 });
@@ -29,7 +31,11 @@ vi.mock('../lib/shellRuntime', () => ({
   invalidateListings: m.fns.invalidateListings,
   knowsPath: m.fns.knowsPath,
 }));
-vi.mock('../lib/woo', () => ({ forgetProduct: m.fns.forgetProduct, forgetAllProducts: m.fns.forgetAllProducts }));
+vi.mock('../lib/woo', () => ({
+  forgetProduct: m.fns.forgetProduct,
+  forgetAllProducts: m.fns.forgetAllProducts,
+  productCached: m.fns.productCached,
+}));
 vi.mock('../lib/storeCatalog', () => ({ forgetAllGrids: m.fns.forgetAllGrids }));
 
 let POST: typeof import('../pages/api/shell-refresh').POST;
@@ -37,9 +43,19 @@ beforeEach(async () => {
   vi.resetModules(); // fresh budgets per test
   m.calls.length = 0;
   m.known.clear();
+  m.cached.clear();
   delete process.env.MOS_SHELL_POKE_KEY;
   POST = (await import('../pages/api/shell-refresh')).POST;
 });
+
+/** Fifty stored paths under one prefix, so each call is a fresh batch the store knows. */
+function known(prefix: string, n: number): string[] {
+  return Array.from({ length: n }, (_, i) => {
+    const p = `/vara/${prefix}${i}/`;
+    m.known.add(p);
+    return p;
+  });
+}
 
 function poke(body: unknown, opts: { addr?: string; key?: string } = {}) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -91,11 +107,102 @@ describe('POST /api/shell-refresh: without the key (review 5, 9)', () => {
     expect(m.calls.filter((c) => c.startsWith('drop:'))).toHaveLength(300);
   });
 
-  it('another address has its own share', async () => {
-    const paths = Array.from({ length: 50 }, (_, i) => `/vara/e${i}/`);
-    paths.forEach((p) => m.known.add(p));
-    for (let round = 0; round < 6; round++) await poke({ drop: paths }, { addr: '203.0.113.8' });
-    expect((await poke({ drop: paths }, { addr: '203.0.113.9' })).status).toBe(204);
+  // One address is held to its own 300 a minute while the shared pool still has room, and its share does not cost another
+  // address anything. A regression to the shared pool alone (600, no per-address share) lets the seventh round through,
+  // which this test catches; the earlier version passed under that regression because two addresses fill 600 anyway.
+  it('an address is held to its own share, and that does not cost another address its share', async () => {
+    const a = known('e', 50);
+    for (let round = 0; round < 6; round++) expect((await poke({ drop: a }, { addr: '203.0.113.8' })).status, `a round ${round}`).toBe(204);
+    expect((await poke({ drop: known('e7-', 50) }, { addr: '203.0.113.8' })).status, 'a seventh round').toBe(429);
+    const b = known('f', 50);
+    for (let round = 0; round < 6; round++) expect((await poke({ drop: b }, { addr: '203.0.113.9' })).status, `b round ${round}`).toBe(204);
+    expect(m.calls.filter((c) => c.startsWith('drop:'))).toHaveLength(600);
+  });
+
+  // Finding 26: a path the store does not hold costs its address's share but nothing of the shared pool, so strangers
+  // flooding junk cannot starve a real poke. (Known paths from several addresses can still share the pool; only the key
+  // closes that, and production sets it.)
+  it('junk paths spend no shared budget: two strangers flooding unknown paths cannot starve a real poke', async () => {
+    for (const addr of ['203.0.113.60', '203.0.113.61']) {
+      for (let round = 0; round < 6; round++) {
+        const junk = Array.from({ length: 50 }, (_, i) => `/vara/junk${round}-${i}/`);
+        expect((await poke({ stale: junk }, { addr })).status, `${addr} round ${round}`).toBe(204);
+      }
+    }
+    const real = known('real', 50);
+    expect((await poke({ drop: real }, { addr: '203.0.113.62' })).status).toBe(204);
+    expect(m.calls.filter((c) => c.startsWith('drop:'))).toHaveLength(50);
+  });
+
+  // Finding 27: paths the budget cut are answered with 429 and their list, so the sender can resend exactly those; the
+  // paths that fit are applied.
+  it('answers 429 with the paths it did not apply, and applies the rest', async () => {
+    for (let r = 0; r < 5; r++) expect((await poke({ stale: known(`w${r}-`, 50) }, { addr: '203.0.113.70' })).status).toBe(204);
+    const stale = known('s', 50);
+    const drop = known('d', 50);
+    const res = await poke({ stale, drop }, { addr: '203.0.113.70' });
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('60');
+    expect((await res.json()).untaken).toEqual(drop);
+    expect(m.calls).toContain(`stale:${stale.join(',')}`);
+    expect(m.calls.some((c) => c.startsWith('drop:'))).toBe(false);
+  });
+
+  // Finding 28: the cached product is forgotten only for a path the store holds, and before its mark.
+  it('forgets the cached product only for a path the store knows, and before the mark', async () => {
+    m.known.add('/vara/known/');
+    expect((await poke({ stale: ['/vara/known/', '/vara/junk/'], drop: ['/vara/junk2/'] })).status).toBe(204);
+    expect(m.calls.filter((c) => c.startsWith('forget:'))).toEqual(['forget:known']);
+    expect(m.calls.indexOf('forget:known')).toBeLessThan(m.calls.indexOf('stale:/vara/known/'));
+  });
+
+  // Finding 29: a listings-only poke the budget refuses must not use up the five-minute window. Time is faked (Date only)
+  // and the module is re-imported, because the limiters read Date.now when they are created. (Confirmed 2 changed the
+  // other case: a listings mark on a poke whose paths are refused is applied, see the test below.)
+  it('a listings mark refused for lack of budget does not use up the five-minute window', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-11-20T10:00:00Z'));
+      vi.resetModules();
+      POST = (await import('../pages/api/shell-refresh')).POST;
+      for (let r = 0; r < 6; r++) await poke({ drop: known(`y${r}-`, 50) }, { addr: '203.0.113.82' });
+      expect((await poke({ listings: true }, { addr: '203.0.113.82' })).status).toBe(429);
+      expect(m.calls).not.toContain('listings');
+      expect((await poke({ listings: true }, { addr: '203.0.113.83' })).status).toBe(204);
+      expect(m.calls.filter((c) => c === 'listings')).toHaveLength(1);
+      vi.setSystemTime(Date.now() + 60_000); // still inside the five minutes: a second mark is refused as before
+      await poke({ listings: true }, { addr: '203.0.113.84' });
+      expect(m.calls.filter((c) => c === 'listings')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Confirmed 2: a listings mark is applied when the budget refuses every path of the same poke. Before, the early 429
+  // return came first, so the mark was lost and the sender's resend (paths only) never carried it.
+  it('applies a listings mark even when the budget refuses every path of the same poke', async () => {
+    for (const addr of ['203.0.113.90', '203.0.113.91']) {
+      for (let r = 0; r < 6; r++) await poke({ drop: known(`q${addr.slice(-2)}r${r}-`, 50) }, { addr });
+    }
+    const late = known('late', 2);
+    const res = await poke({ stale: late, listings: true }, { addr: '203.0.113.92' });
+    expect(res.status).toBe(429);
+    expect((await res.json()).untaken).toEqual(late);
+    expect(m.calls).toContain('listings');
+    expect(m.calls.some((c) => c.startsWith('stale:'))).toBe(false);
+  });
+
+  // Confirmed 4 and 8: a path the store does not hold, whose product is cached, forgets that product (a cached product
+  // read before a save would otherwise be stored for 24 h). Junk slugs are never cached, so they still cost nothing.
+  it('forgets the cached product of an unknown path, and marks nothing for it', async () => {
+    m.cached.add('cachedonly');
+    expect((await poke({ stale: ['/vara/cachedonly/'] })).status).toBe(204);
+    expect(m.calls).toEqual(['forget:cachedonly']);
+  });
+
+  it('an unknown path whose product is not cached is forgotten and marked for nothing', async () => {
+    expect((await poke({ stale: ['/vara/nowhere/'] })).status).toBe(204);
+    expect(m.calls).toEqual([]);
   });
 
   it('a request with no paths still costs one action, so an empty flood is bounded too', async () => {
@@ -108,5 +215,14 @@ describe('POST /api/shell-refresh: without the key (review 5, 9)', () => {
   it('still refuses the every-product mark without the key', async () => {
     await poke({ products: true });
     expect(m.calls).not.toContain('products');
+  });
+});
+
+describe('POST /api/shell-refresh: with the key, nothing changes (keyed pin)', () => {
+  it('forgets and marks a path the store does not hold, with no budget applied', async () => {
+    process.env.MOS_SHELL_POKE_KEY = 'secret-key';
+    const res = await poke({ stale: ['/vara/unknown/'] }, { key: 'secret-key' });
+    expect(res.status).toBe(204);
+    expect(m.calls).toEqual(['forget:unknown', 'stale:/vara/unknown/']);
   });
 });

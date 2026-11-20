@@ -25,6 +25,29 @@ export function stillAddable(cap: number | null, inCart: number): number | null 
   return cap === null ? null : Math.max(0, cap - inCart);
 }
 
+/** How many of these ids the cart already holds, all their lines together: the lines that draw on one stock. */
+export function inCartAmong(items: CartItem[], ids: number[]): number {
+  const want = new Set(ids);
+  return items.filter((i) => want.has(i.id)).reduce((n, i) => n + i.quantity, 0);
+}
+
+/** The cart ids whose lines count against a selection's stock. A variation managed by its parent draws on the parent's
+ *  stock, which every variation managed that way shares (WooCommerce sums their lines by the managed id), so all of
+ *  `parentShared` count; any other selection counts its own id alone. */
+export function cappedIds(selectedId: number, parentShared: number[]): number[] {
+  return parentShared.includes(selectedId) ? parentShared : [selectedId];
+}
+
+/** What one more of a selection may add: the stock left (its cap less the lines drawing on the same stock), and, when sold
+ *  individually, one per cart line (its own lines only, as WooCommerce refuses a line of more than one). Null: no cap. */
+export function remainingFor(stockCap: number | null, stockInCart: number, soldOne: boolean, ownInCart: number): number | null {
+  const fromStock = stockCap === null ? null : Math.max(0, stockCap - stockInCart);
+  const fromOne = soldOne ? Math.max(0, 1 - ownInCart) : null;
+  if (fromStock === null) return fromOne;
+  if (fromOne === null) return fromStock;
+  return Math.min(fromStock, fromOne);
+}
+
 /** The quiet line under the product counter. Nothing when the cart already holds all there is (the button is off);
  *  it says "stock" only when the cap is a stock cap, never for sold individually. */
 export function purchaseNote(

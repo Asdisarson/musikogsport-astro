@@ -96,6 +96,31 @@ export interface WooVariation {
   sku?: string;
 }
 
+/** The stock fields of a product or a variation: WooCommerce's stock settings and the figures derived from them
+ *  (backordered, low_stock_amount). Only a value read live carries them (getProductsByIds with LIVE_PRODUCT_FIELDS,
+ *  getVariationStock). A value a cache holds is typed without them (CachedWooProduct, CachedWooVariation) and is
+ *  stripped with withoutStock before it is held, so a cached stock figure can't be read by mistake. */
+export const STOCK_FIELDS = [
+  'stock_status',
+  'stock_quantity',
+  'manage_stock',
+  'backorders',
+  'backorders_allowed',
+  'sold_individually',
+  'backordered',
+  'low_stock_amount',
+] as const;
+export type StockField = (typeof STOCK_FIELDS)[number];
+export type CachedWooProduct = Omit<WooProduct, StockField>;
+export type CachedWooVariation = Omit<WooVariation, StockField>;
+
+/** A copy of `v` without its stock fields (none left behind, not even as undefined). For a value about to be held. */
+export function withoutStock<T extends object>(v: T): Omit<T, StockField> {
+  const out = { ...v } as Record<string, unknown>;
+  for (const k of STOCK_FIELDS) delete out[k];
+  return out as Omit<T, StockField>;
+}
+
 export interface WooCategory {
   id: number;
   name: string;
@@ -289,6 +314,8 @@ export interface PdpVariation {
   stock_status?: string;
   /** Never set on the page either: the most one customer may buy (lib/livePrices purchasableMax). From the live answer only. */
   max?: number | null;
+  /** From the live answer only: what the stock alone allows (lib/livePrices stockCap), before the cart's lines of that stock. */
+  stockMax?: number | null;
   /** From the live answer only: sold individually (one per cart), which is not a stock shortage. */
   soldOne?: boolean;
   sku?: string;

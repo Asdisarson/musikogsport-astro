@@ -1,6 +1,6 @@
 // cartQty.ts: the cart line maximum and what the product page may still add. Pure, no browser.
 import { describe, expect, it } from 'vitest';
-import { clampLineQty, inCartQty, lineMax, purchaseNote, stillAddable } from './cartQty';
+import { cappedIds, clampLineQty, inCartAmong, inCartQty, lineMax, purchaseNote, remainingFor, stillAddable } from './cartQty';
 import type { CartItem } from './types';
 
 const line = (over: Partial<CartItem>): CartItem => ({ key: 'k', id: 5, quantity: 1, variation: [], ...over } as CartItem);
@@ -82,3 +82,33 @@ describe('purchaseNote (the quiet line under the product counter)', () => {
     expect(purchaseNote({ cap: 1, inCart: 1, remaining: 0, soldOne: true, atMax: false }, 5)).toBeNull();
   });
 });
+
+// A variation managed by its parent draws on the parent's stock with every variation managed that way: WooCommerce sums
+// their lines by the managed id, so all of them count against that one cap. Sold individually is per cart line.
+describe('stock shared through the parent', () => {
+  it('counts the lines of every id that draws on the same stock', () => {
+    const items = [line({ id: 11, quantity: 2 }), line({ id: 12, quantity: 1 }), line({ id: 13, quantity: 4 })];
+    expect(inCartAmong(items, [11, 12])).toBe(3);
+    expect(inCartAmong(items, [])).toBe(0);
+  });
+
+  it('a variation managed by its parent counts the shared ids; any other selection counts its own id only', () => {
+    expect(cappedIds(12, [11, 12])).toEqual([11, 12]);
+    expect(cappedIds(13, [11, 12])).toEqual([13]);
+    expect(cappedIds(7, [])).toEqual([7]);
+  });
+
+  it('what is left under a stock cap is the cap less the shared lines (parent stock 3, S holds 3: M may add none)', () => {
+    expect(remainingFor(3, 3, false, 0)).toBe(0);
+    expect(remainingFor(3, 2, false, 0)).toBe(1);
+    expect(remainingFor(null, 9, false, 0)).toBeNull();
+  });
+
+  it('sold individually is one per own line, whatever the shared stock says (parent 5, S holds 1: M may still add 1)', () => {
+    expect(remainingFor(5, 1, true, 0)).toBe(1);
+    expect(remainingFor(5, 1, true, 1)).toBe(0);
+    expect(remainingFor(null, 0, true, 0)).toBe(1);
+    expect(remainingFor(0, 0, true, 0)).toBe(0);
+  });
+});
+

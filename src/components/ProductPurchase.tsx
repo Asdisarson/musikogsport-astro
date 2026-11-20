@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useStore } from '@nanostores/react';
 import { addToCart, cart, ensureLoaded, openCart } from '../lib/cartStore';
-import { inCartQty, purchaseNote, stillAddable } from '../lib/cartQty';
+import { cappedIds, inCartAmong, inCartQty, purchaseNote, remainingFor } from '../lib/cartQty';
 import { buyable, clampQty, stockLabel } from '../lib/livePrices';
-import { liveStore, productMax, productSoldOne, productStock, retryLive, startLive, withLive } from '../lib/liveStore';
+import { liveStore, productSoldOne, productStock, productStockMax, retryLive, startLive, withLive } from '../lib/liveStore';
 import { formatISK } from '../lib/format';
 import { gridStep } from '../lib/gridNav';
 import { mainSources } from '../lib/img';
 import { applyPhotoFit, photoBgProps, type PhotoFit } from '../lib/photoBg';
 import { isColourAttribute } from '../lib/productCard';
-import { choiceHint, isSizeAttribute, optionImages, optionState, resolveVariation } from '../lib/variations';
+import { choiceHint, isSizeAttribute, nothingToBuy, optionImages, optionState, resolveVariation } from '../lib/variations';
 import { qtyFromInput } from '../lib/validate';
 import type { PdpVariation } from '../lib/types';
 
@@ -118,9 +118,14 @@ export default function ProductPurchase({
   const live = useStore(liveStore);
   useEffect(() => startLive(productId), [productId]);
   const liveVars = useMemo(() => variations.map((v) => withLive(v, live.state === 'ready' ? live.variations : undefined)), [variations, live]);
+  // The variations managed by their parent's stock (from the live answer): they share that stock, so their cart lines count together.
+  const parentShared = useMemo(
+    () => (live.state === 'ready' ? Object.values(live.variations ?? {}).filter((v) => v.sharedStock).map((v) => v.id) : []),
+    [live],
+  );
   // The product's own stock: undefined while pending, null once failed (no guess either way).
   const simpleStock = productStock(live);
-  const simpleMax = productMax(live);
+  const simpleStockMax = productStockMax(live);
   const simpleSoldOne = productSoldOne(live);
   const [selected, setSelected] = useState<Record<string, string>>({});
   // The field's raw text, so clearing it to type a new number works; read through qtyFromInput.
@@ -217,14 +222,15 @@ export default function ProductPurchase({
   // The stock this selection shows: a variation's, or the product's. undefined = not known yet (pending or failed).
   const stock = isVariable ? resolved?.stock_status : simpleStock;
   const known = stock !== undefined && stock !== null;
-  // The most this selection may take (the live cap). null: no cap, while pending, failed, or not managed. Stock is never
-  // kept from an earlier answer, so a pending refetch leaves no cap rather than a stale one (WooCommerce checks on add).
-  const liveCap = isVariable ? resolved?.max : simpleMax;
-  const cap = liveCap ?? null;
+  // The stock cap of this selection (live only): null while pending, failed, or not managed. Stock is never kept from an
+  // earlier answer, so a pending refetch leaves no cap rather than a stale one (WooCommerce checks on add).
+  const cap = (isVariable ? resolved?.stockMax : simpleStockMax) ?? null;
+  // Sold individually counts the chosen variation's own cart lines alone (one per line); the stock cap counts every
+  // line that draws on the same stock, including the sibling variations that share the parent's (cappedIds).
   const soldOne = (isVariable ? resolved?.soldOne : simpleSoldOne) === true;
-  // What this selection already has in the cart: a variable product counts only the chosen variation (its own id).
-  const inCart = isVariable ? (resolved ? inCartQty(cartNow?.items ?? [], resolved.id) : 0) : inCartQty(cartNow?.items ?? [], productId);
-  const remaining = stillAddable(cap, inCart);
+  const own = isVariable ? (resolved?.id ?? null) : productId;
+  const inCart = own === null ? 0 : inCartAmong(cartNow?.items ?? [], cappedIds(own, parentShared));
+  const remaining = remainingFor(cap, inCart, soldOne, own === null ? 0 : inCartQty(cartNow?.items ?? [], own));
   // Nothing more can be added: the counter shows 1 and the button is off.
   const none = remaining === 0;
   const limit = remaining === null ? null : Math.max(1, remaining);
@@ -237,13 +243,18 @@ export default function ProductPurchase({
   }, [limit, qty]);
   // Pending stays pressable: WooCommerce checks stock when the item is added. Only a known sold-out choice is blocked.
   const pending = live.state === 'pending' && (!isVariable || !!resolved);
-  // A known sold-out choice: nothing to count, so the quantity box is not shown at all.
-  const soldOut = known && !buyable(stock as 'instock');
+  // No variation chosen, yet the live answer says nothing of this product can be bought (the product or every variation
+  // is sold out): the selection is sold out too. Without this the button would add the parent with no variation and
+  // WooCommerce's English error would show. Pending or failed answers never get here (nothingToBuy needs known stock).
+  const sellsNothing = isVariable && live.state === 'ready' && !resolved && nothingToBuy(productStock(live), liveVars.map((v) => v.stock_status));
+  // A known sold-out choice, or one with nothing to buy: nothing to count, so the quantity box is not shown at all.
+  const soldOut = (known && !buyable(stock as 'instock')) || sellsNothing;
   const canAdd = !adding && !none && !soldOut;
   // Guidance under the button until every attribute is chosen ("Veldu stærð"); the button stays pressable then and
   // points at the missing choice instead of doing nothing.
   // Only when the missing attribute has an option left to pick: a hint over all-crossed-out swatches can't be acted on.
-  const hint = isVariable && !variationsFailed ? choiceHint(attrNames, selected, { attrs: variationAttrs, variations: liveVars }) : null;
+  // Not for a product with nothing to buy: there is no choice that would help.
+  const hint = isVariable && !variationsFailed && !sellsNothing ? choiceHint(attrNames, selected, { attrs: variationAttrs, variations: liveVars }) : null;
   const hintId = `pdp-hint-${productId}`;
   // Phones: a bottom bar with "Setja í körfu" once every option is picked and that variation is in stock (never on a
   // simple product), sliding in while the form's own button is out of sight
@@ -361,7 +372,7 @@ export default function ProductPurchase({
           <p className="pdp-variation__price price">{price(resolved)}</p>
         </div>
       )}
-      <StockLine state={live.state} stock={stock} hasChoice={!isVariable || !!resolved} />
+      <StockLine state={live.state} stock={sellsNothing ? 'outofstock' : stock} hasChoice={!isVariable || !!resolved || sellsNothing} />
 
       <div className="pdp-cart" ref={cartRef}>
         {!soldOut && <div className="pdp-qty" role="group" aria-label="Fjöldi">
@@ -379,12 +390,12 @@ export default function ProductPurchase({
               const typed = qtyFromInput(e.target.value);
               setQtyText(limit !== null && typed > limit ? String(limit) : e.target.value);
             }}
-            onBlur={() => setQtyText(String(clampQty(qty, cap)))}
+            onBlur={() => setQtyText(String(clampQty(qty, limit)))}
             aria-label="Fjöldi"
           />
           <button
             type="button"
-            onClick={() => { if (!atMax) setQtyText(String(clampQty(qtyFromInput(String(qty + 1)), cap))); }}
+            onClick={() => { if (!atMax) setQtyText(String(clampQty(qtyFromInput(String(qty + 1)), limit))); }}
             aria-disabled={atMax}
             aria-label={atMax ? 'Fjölga (hámarki náð)' : 'Fjölga'}
           >

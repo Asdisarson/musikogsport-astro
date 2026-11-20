@@ -1,7 +1,7 @@
 // The product page's related row (components/RelatedProducts): the products the shop linked by hand in
 // WooCommerce's "Tengdar vörur" lead it, ahead of the category's best sellers and WooCommerce's own suggestions.
 // Pure.
-import type { WooProduct } from './types';
+import type { CachedWooProduct, WooProduct } from './types';
 import { isPosInt } from './validate';
 
 /** The hand-picked product ids in the shop's order: upsells, then cross-sells; each once, never the product itself. */
@@ -14,21 +14,21 @@ export function pickedIds(product: Pick<WooProduct, 'id' | 'upsell_ids' | 'cross
 export interface RelatedParts {
   /** The product the page shows, never in its own row. */
   productId: number;
-  /** The hand-picked products, in the shop's order. A sold-out one is left out of the whole row (the best sellers
-   *  are in stock too); one on backorder can still be bought, so it stays. */
-  picked: WooProduct[];
-  /** The category's best sellers in stock. */
-  scoped: WooProduct[];
+  /** The hand-picked products, in the shop's order, sold out or not. */
+  picked: CachedWooProduct[];
+  /** The category's best sellers, sold out or not. */
+  scoped: CachedWooProduct[];
   /** WooCommerce's own suggestions. */
-  topUp: WooProduct[];
+  topUp: CachedWooProduct[];
   limit: number;
 }
 
-/** The row: hand-picked, then best sellers, then the top-up; each product once, at most `limit`. */
-export function relatedOrder({ productId, picked, scoped, topUp, limit }: RelatedParts): WooProduct[] {
-  const soldOut = picked.filter((p) => p.stock_status === 'outofstock').map((p) => p.id);
-  const seen = new Set([productId, ...soldOut]);
-  const row: WooProduct[] = [];
+/** The candidates for the row: hand-picked, then best sellers, then the top-up; each product once, at most `limit`.
+ *  Stock plays no part here: the server's HTML is cached, so which products it names must not depend on stock. The
+ *  browser decides what is shown (relatedVisible). */
+export function relatedOrder({ productId, picked, scoped, topUp, limit }: RelatedParts): CachedWooProduct[] {
+  const seen = new Set([productId]);
+  const row: CachedWooProduct[] = [];
   for (const product of [...picked, ...scoped, ...topUp]) {
     if (row.length >= limit) break;
     if (seen.has(product.id)) continue;
@@ -36,4 +36,22 @@ export function relatedOrder({ productId, picked, scoped, topUp, limit }: Relate
     row.push(product);
   }
   return row;
+}
+
+/** The ids the row shows, in row order: the first `limit` candidates not known to be sold out. A candidate with no
+ *  live answer counts as available, so before the answer, and when the answer fails, the row shows its first `limit`
+ *  as it was rendered. Pure; the browser runs it on every live answer, so a restock brings a product back. */
+export function relatedVisible(ids: readonly number[], soldOut: ReadonlySet<number>, limit: number): number[] {
+  const shown: number[] = [];
+  for (const id of ids) {
+    if (shown.length >= limit) break;
+    if (!soldOut.has(id)) shown.push(id);
+  }
+  return shown;
+}
+
+/** Whether the candidate at `index` is a spare the row renders hidden: from `shown` on (the row's length), so that
+ *  without JavaScript, or before the live answer, the row shows its first `shown` and nothing more. */
+export function isRowSpare(index: number, shown: number | undefined): boolean {
+  return shown !== undefined && index >= shown;
 }

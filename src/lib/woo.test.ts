@@ -612,3 +612,93 @@ describe('uncached live lookups', () => {
     expect(liveFetch).toHaveBeenCalledTimes(2);
   });
 });
+
+// A variable product's variations are read page by page (WooCommerce caps a page at 100), and a value a cache holds has
+// no stock on it: stock is read live (getVariationStock, getProductsByIds) and only there.
+describe('variation lists are read in full, and cached values hold no stock', () => {
+  const pageOf = (url: unknown) => Number(new URL(String(url)).searchParams.get('page') ?? 1);
+  // Variations 1..total, a WooCommerce page (100) at a time, with the stock fields WooCommerce sends.
+  const variationPages = (total: number) => (url: unknown) => {
+    const from = (pageOf(url) - 1) * 100 + 1;
+    const n = Math.max(0, Math.min(100, total - from + 1));
+    const rows = Array.from({ length: n }, (_, i) => ({
+      id: from + i,
+      menu_order: 0,
+      attributes: [],
+      stock_status: 'instock',
+      stock_quantity: 3,
+      manage_stock: true,
+      backorders: 'no',
+      backorders_allowed: false,
+      sold_individually: false,
+      backordered: false,
+      low_stock_amount: '',
+    }));
+    return new Response(JSON.stringify(rows), { status: 200, headers: { 'X-WP-Total': String(total), 'X-WP-TotalPages': String(Math.ceil(total / 100)) } });
+  };
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    secrets.WOOCOMMERCE_CONSUMER_KEY = KEY;
+    secrets.WOOCOMMERCE_CONSUMER_SECRET = SECRET;
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('reads every page of a product with more than 100 variations (getVariations)', async () => {
+    const f = vi.fn(async (url: string) => variationPages(120)(url));
+    vi.stubGlobal('fetch', f);
+    const { getVariations } = await import('./woo');
+    const all = await getVariations(42);
+    expect(all).toHaveLength(120);
+    expect(all.map((v) => v.id)).toContain(120);
+    expect(f.mock.calls.map(([u]) => pageOf(u))).toEqual([1, 2]);
+    // paged by id, which is unique, so a tie in menu_order cannot move a variation across a page edge
+    expect(String(f.mock.calls[0][0])).toContain('orderby=id');
+  });
+
+  it('reads every page for the live stock too (getVariationStock), and keeps the stock on it', async () => {
+    const f = vi.fn(async (url: string) => variationPages(101)(url));
+    vi.stubGlobal('fetch', f);
+    const { getVariationStock } = await import('./woo');
+    const live = await getVariationStock(42);
+    expect(live).toHaveLength(101);
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(live[0].stock_status).toBe('instock');
+    expect(live[0].stock_quantity).toBe(3);
+  });
+
+  it('gives up past five pages with an error, never a partial list (both reads)', async () => {
+    const f = vi.fn(async (url: string) => variationPages(600)(url));
+    vi.stubGlobal('fetch', f);
+    const { getVariations, getVariationStock } = await import('./woo');
+    await expect(getVariations(42)).rejects.toThrow(/500 variations/);
+    await expect(getVariationStock(42)).rejects.toThrow(/500 variations/);
+    expect(f).toHaveBeenCalledTimes(2); // one request each: the first page's header already says it is over the limit
+  });
+
+  it('a cached product and its variations hold no stock field', async () => {
+    const stock = ['stock_status', 'stock_quantity', 'manage_stock', 'backorders', 'backorders_allowed', 'sold_individually', 'backordered', 'low_stock_amount'];
+    const product = { id: 42, name: 'Bolur', slug: 'bolur', type: 'variable', stock_status: 'instock', stock_quantity: 3, manage_stock: true, backorders: 'no', backorders_allowed: false, sold_individually: false, backordered: false, low_stock_amount: '' };
+    const f = vi.fn(async (url: string) =>
+      String(url).includes('/variations')
+        ? variationPages(2)(url)
+        : new Response(JSON.stringify([product]), { status: 200, headers: { 'X-WP-Total': '1', 'X-WP-TotalPages': '1' } }),
+    );
+    vi.stubGlobal('fetch', f);
+    const { getProductBySlug, getVariations } = await import('./woo');
+    const p = await getProductBySlug('bolur');
+    const vs = await getVariations(42);
+    expect(p?.name).toBe('Bolur');
+    expect(vs.map((v) => v.id)).toEqual([1, 2]);
+    for (const key of stock) {
+      expect(p ?? {}, key).not.toHaveProperty(key);
+      for (const v of vs) expect(v, key).not.toHaveProperty(key);
+    }
+  });
+});

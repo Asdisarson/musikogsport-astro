@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeFilterList, colourSwatch, countWord, coversEnough, filterTitle, HIDDEN_SHOP_CATEGORY_SLUGS, isPlainColour, keepOption, matchCountFromStock, pseudoCategoryIds, sizeBlocks, SIZE_GROUP_HEADINGS } from './facets';
+import { activeFilterList, colourSwatch, countWord, coversEnough, filterTitle, HIDDEN_SHOP_CATEGORY_SLUGS, isPlainColour, keepOption, matchCountFromStock, pickCounts, pickNote, pseudoCategoryIds, searchOnlyQuery, sizeBlocks, SIZE_GROUP_HEADINGS } from './facets';
 import { colourTermIds, type CategoryTerm, type FilterKey, type TermRef } from './liveFilters';
 
 describe('keepOption (the dead-end fix)', () => {
@@ -309,5 +309,54 @@ describe('activeFilterList (chips, title labels)', () => {
   });
   it('is empty without a selection', () => {
     expect(activeFilterList([{ key: 'brand', options: [o('nike', 'Nike', false)] }])).toEqual([]);
+  });
+});
+
+describe('pickNote: no pick the caps refuse is offered (review 33)', () => {
+  const counts = (perKey: Partial<Record<FilterKey, number>>) => pickCounts(
+    Object.fromEntries(Object.entries(perKey).map(([k, n]) => [k, Array.from({ length: n ?? 0 }, (_, i) => `v${i}`)])) as Partial<Record<FilterKey, string[]>>,
+  );
+
+  it('counts the six comma lists per key and in all, and nothing else', () => {
+    const c = counts({ brand: 2, kyn: 1 });
+    expect(c.perKey.get('brand')).toBe(2);
+    expect(c.perKey.get('litur')).toBe(0);
+    expect(c.total).toBe(3);
+    expect(pickCounts({ staerd: ['42', '43'], utsala: ['1'] } as Partial<Record<FilterKey, string[]>>).total).toBe(0);
+  });
+
+  it('is undefined while a filter has room and the total is under 12', () => {
+    expect(pickNote('brand', counts({ brand: 5, kyn: 6 }))).toBeUndefined();
+    expect(pickNote('brand', counts({ brand: 5 }))).toBeUndefined();
+  });
+
+  it('gives the per-filter reason once the filter holds 6, for that filter only', () => {
+    const c = counts({ brand: 6 });
+    expect(pickNote('brand', c)).toMatch(/^Mest er hægt að velja 6 í þessum flokki/);
+    expect(pickNote('litur', c)).toBeUndefined();
+  });
+
+  it('gives the total reason once 12 are picked in all, for every capped filter', () => {
+    const c = counts({ brand: 5, kyn: 4, litur: 3 });
+    expect(c.total).toBe(12);
+    for (const key of ['brand', 'kyn', 'litur', 'team', 'product-category', 'ithrott'] as FilterKey[]) {
+      expect(pickNote(key, c)).toMatch(/^Mest er hægt að velja 12 síur í einu/);
+    }
+  });
+
+  it('never blocks the size, price and flag filters', () => {
+    const c = counts({ brand: 6, kyn: 6 });
+    expect(pickNote('staerd', c)).toBeUndefined();
+    expect(pickNote('verd', c)).toBeUndefined();
+    expect(pickNote('utsala', c)).toBeUndefined();
+  });
+});
+
+describe('searchOnlyQuery: a redirect for an over-picked URL keeps the search text', () => {
+  it('is the search text alone, encoded', () => {
+    expect(searchOnlyQuery('hlaupa skór')).toBe('s=hlaupa+sk%C3%B3r');
+  });
+  it('is empty without a search', () => {
+    expect(searchOnlyQuery(null)).toBe('');
   });
 });

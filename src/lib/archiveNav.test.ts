@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { announceText, applyOp, chipFocusIndex, focusFallbacks, historyAction, initialScroll, isFilterKey, isPlainClick, matchesSearch, viewKey, withTimeout } from './archiveNav';
+import { announceText, applyOp, chipFocusIndex, composeOp, focusFallbacks, historyAction, initialScroll, isFilterKey, isPlainClick, matchesSearch, viewKey, withTimeout } from './archiveNav';
 
 describe('matchesSearch: the search box in long option lists', () => {
   it('matches however the name is typed: case, accents, Icelandic letters', () => {
@@ -49,6 +49,37 @@ describe('applyOp (the URL a filter click leads to, composed on the pending URL)
     expect(applyOp('http://127.0.0.1:4323/verslun/?brand=nike#main', '/verslun/', { type: 'toggle', key: 'lager', value: '1' })).toBe(
       '/verslun/?brand=nike&lager=1',
     );
+  });
+});
+
+describe('composeOp: a click that would cross a pick cap does nothing (confirmed 1)', () => {
+  const base = '/verslun/';
+  const brands = (...slugs: string[]) => `${base}?brand=${slugs.join(',')}`;
+  const pick = (key: 'brand' | 'kyn' | 'team', value: string) => ({ type: 'toggle' as const, key, value });
+
+  it('refuses a seventh brand composed onto a pending URL that already holds six, and allows the sixth', () => {
+    const shown = brands('b1', 'b2', 'b3', 'b4', 'b5');
+    const pending = composeOp(shown, base, pick('brand', 'b6'));
+    expect(pending).not.toBeNull();
+    expect(composeOp(pending!, base, pick('brand', 'b7'))).toBeNull();
+  });
+
+  it('refuses the seventh pick when a second click arrives while the first is still in flight', () => {
+    // the page shows five; the first click (b6) is pending and has not landed; the second (b7) composes onto the pending URL
+    const pending = composeOp(brands('b1', 'b2', 'b3', 'b4', 'b5'), base, pick('brand', 'b6'))!;
+    expect(composeOp(pending, base, pick('brand', 'b7'))).toBeNull();
+  });
+
+  it('refuses the thirteenth pick across groups (12 in all), but still allows unticking', () => {
+    const kyn = Array.from({ length: 6 }, (_, i) => `k${i + 1}`).join(',');
+    const url = `${base}?kyn=${kyn}&brand=b1,b2,b3,b4,b5,b6`;
+    expect(composeOp(url, base, pick('team', 't1'))).toBeNull();
+    expect(composeOp(url, base, { type: 'toggle', key: 'brand', value: 'b1' })).toBe(`${base}?kyn=${encodeURIComponent(kyn)}&brand=b2%2Cb3%2Cb4%2Cb5%2Cb6`);
+  });
+
+  it('is the same as applyOp when the composed URL is within the caps', () => {
+    expect(composeOp(brands('b1'), base, pick('brand', 'b2'))).toBe(applyOp(brands('b1'), base, pick('brand', 'b2')));
+    expect(composeOp(base, base, { type: 'sort', value: 'price' })).toBe(applyOp(base, base, { type: 'sort', value: 'price' }));
   });
 });
 

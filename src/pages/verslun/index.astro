@@ -5,7 +5,7 @@ import NotFound from '../../components/NotFound.astro';
 import { loadArchive } from '../../lib/archive';
 import { filterTitle } from '../../lib/facets';
 import { listingCanonicalSearch, SITE_NAME } from '../../lib/seo';
-import { markUnavailable } from '../../lib/http';
+import { markDegraded, markUnavailable } from '../../lib/http';
 import { pageLinks } from '../../lib/paths';
 
 export const prerender = false;
@@ -13,6 +13,9 @@ export const prerender = false;
 const params = Astro.url.searchParams;
 const archive = await loadArchive(params, 1);
 if (archive.unavailable) markUnavailable(Astro.response);
+// The rail's categories, brands, teams, sports and colours come from the catalogue terms: without them the page is drawn
+// short, so it is not stored or held at the CDN (review 23).
+else if (archive.terms.degraded) markDegraded(Astro.response);
 // Konur, Karlar and Börn (?kyn=<slug> alone) are pages of their own: self-canonical, with their own description.
 // Only when the value is a real gender category (exactly one active filter came out of it).
 const gender = !archive.unavailable && listingCanonicalSearch(params) && archive.activeLabels.length === 1 ? archive.activeLabels[0] : undefined;

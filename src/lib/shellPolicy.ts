@@ -6,7 +6,7 @@
 // src/middleware.ts). Freshness is a plain age: inside `freshMs` a stored page is served as it is; past it, it is
 // still served at once and rendered again in the background (stale-while-revalidate).
 import { isPersonalPath } from './cachePolicy';
-import { FILTER_KEYS, MAX_PICKED_TOTAL, excessiveFilterQuery, parseLiveFilters } from './liveFilters';
+import { FILTER_KEYS, MAX_PICKED_TOTAL, excessiveFilterQuery, isStockFiltered, parseLiveFilters } from './liveFilters';
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -110,10 +110,17 @@ export function shellPolicy(pathname: string, search: URLSearchParams): ShellPol
   if (NEVER.some((re) => re.test(pathname)) || isPersonalPath(pathname)) return null;
   const keys = [...new Set([...search.keys()])];
   if (keys.some((k) => !SAFE_QUERY.has(k))) return null;
+  // A key given twice: the page reads its first value, while the store key sorts both in, so two URLs that render
+  // differently (?orderby=price&orderby=date and its reverse) would share one stored page. The site never links one.
+  if (keys.length !== [...search.keys()].length) return null;
   if (keys.length > 0) {
     // Only the archive pages take filters; a filter on anything else is a different page.
     if (!LISTING.some((re) => re.test(pathname)) && !pathname.startsWith('/verslun/')) return null;
     if (PRODUCT.some((re) => re.test(pathname))) return null;
+    // A stock filter (lager=1) is never stored, not even in memory: which products it lists and its counts change
+    // with stock, and a stored copy would show a sold-out product for as long as it is kept (owner rule: stock is
+    // never cached). Such a page is sent no-store and read from WordPress on each request (ArchiveView, storeCatalog).
+    if (isStockFiltered(search)) return null;
     // Only filter combinations the archive can produce get a key: each junk value would be a page held in memory.
     if (!storableFilterQuery(search)) return null;
     return { tier: 'filtered', freshMs: FRESH_MS.filtered, memoryOnly: true };
@@ -156,6 +163,19 @@ export function freshness(entry: { at: number; freshMs: number; invalidatedAt?: 
  *  render): 30 s after the first failure, doubling, at most 30 min. The stale copy is served meanwhile. */
 export function refreshBackoffMs(failures: number): number {
   return Math.min(30 * 60 * 1000, 30 * 1000 * 2 ** Math.max(0, failures - 1));
+}
+
+/** Background re-renders of stale pages that may run at once across the process, and how many may wait behind them. A
+ *  content save marks every stored page stale, so the first visits after it would otherwise start one WordPress-heavy
+ *  render per page at the same time (owner rule 2). */
+export const BACKGROUND_REFRESHES = 6;
+export const BACKGROUND_QUEUE = 200;
+
+/** Whether a background refresh starts now, waits for a free slot, or is not made at all (the stale copy is served
+ *  either way, and the next visit asks again). Pure. */
+export function refreshAdmission(active: number, waiting: number): 'start' | 'queue' | 'skip' {
+  if (active < BACKGROUND_REFRESHES) return 'start';
+  return waiting < BACKGROUND_QUEUE ? 'queue' : 'skip';
 }
 
 export interface StoreInput {

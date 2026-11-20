@@ -25,7 +25,7 @@ export const GET: APIRoute = async (ctx) => {
     const answer = await coalesce(`product:${id}`, async () => {
       const [product] = await liveBudget.upstream(() => getProductsByIds([id], 1, LIVE_PRODUCT_FIELDS));
       if (!product) return null;
-      const variations = product.type === 'variable' ? (await liveBudget.upstream(() => getVariationStock(id))).map((v) => liveVariationOf(v, product)) : [];
+      const variations = product.type === 'variable' ? (await liveBudget.upstream((spend) => getVariationStock(id, spend))).map((v) => liveVariationOf(v, product)) : [];
       return { product: liveProductOf(product), variations };
     });
     if (!answer) return jsonResponse({ message: 'Vara fannst ekki.' }, 404);

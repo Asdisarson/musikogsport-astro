@@ -174,11 +174,19 @@ export function excessiveFilterQuery(params: URLSearchParams): boolean {
   return total > MAX_PICKED_TOTAL;
 }
 
-/** Where an over-filtered page URL is sent: the same path without its query, or null to serve the request as it
- *  is. Never for API routes or assets (`/_astro/`), and never a path a browser would read as another host (`//host`, `/\\host`). */
+/** Where an over-filtered page URL is sent: the same path without its filters (the search text `s=` is kept by the
+ *  middleware, which appends it), or null to serve the request as it is. Never for API routes or assets (`/_astro/`),
+ *  and never a path a browser would read as another host (`//host`, `/\\host`). */
 export function unfilteredTarget(pathname: string, params: URLSearchParams): string | null {
   if (pathname.startsWith('/api/') || pathname.startsWith('/_') || /^\/[/\\]/.test(pathname)) return null;
   return excessiveFilterQuery(params) ? pathname : null;
+}
+
+/** Whether a listing is filtered by stock (Á lager, `lager=1`). Its membership and counts change with stock, so it is
+ *  never kept in the page store and its counts and grid are read from WordPress on each request (lib/shellPolicy,
+ *  lib/storeCatalog, components/ArchiveView). Pure. */
+export function isStockFiltered(params: URLSearchParams): boolean {
+  return params.get('lager') === '1';
 }
 
 export function parseLiveFilters(params: URLSearchParams): LiveFilterState {

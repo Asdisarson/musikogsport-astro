@@ -89,3 +89,15 @@ describe('cacheControlFor', () => {
     expect(cacheControlFor({ ...base, path: '/min-sida', status: 301 })).toBe('private, no-store');
   });
 });
+
+describe('cacheControlFor: a listing filtered by stock (owner rule 1)', () => {
+  it('is private, no-store, whatever its status, so neither the CDN nor the browser keeps its membership or count', () => {
+    expect(cacheControlFor({ ...base, path: '/verslun/skor/', stockFiltered: true })).toBe('private, no-store');
+    expect(cacheControlFor({ ...base, path: '/verslun/skor/', stockFiltered: true, status: 404 })).toBe('private, no-store');
+  });
+
+  it('leaves a redirect its own, and any other listing public', () => {
+    expect(cacheControlFor({ ...base, path: '/verslun/skor/', stockFiltered: true, status: 301, current: 'public, max-age=60' })).toBe('public, max-age=60');
+    expect(cacheControlFor({ ...base, path: '/verslun/skor/' })).toBe(PUBLIC_HTML);
+  });
+});

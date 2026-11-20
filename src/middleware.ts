@@ -1,16 +1,17 @@
 import type { APIContext } from 'astro';
 import { defineMiddleware } from 'astro:middleware';
 import { slashRedirect } from './lib/paths';
-import { unfilteredTarget } from './lib/liveFilters';
+import { parseLiveFilters, unfilteredTarget } from './lib/liveFilters';
+import { searchOnlyQuery } from './lib/facets';
 import { finishResponse } from './lib/responseHeaders';
 import { isCanonicalHost } from './lib/seo';
 import { hstsEnabled, securityHeaders } from './lib/securityHeaders.mjs';
 import { MEDIA_BASE_URL } from './lib/img';
 import { installProcessHandlers, log, runtimeEnv } from './lib/logger';
 import { NOTICE_PATH, PREVIEW_COOKIE, PREVIEW_PARAM, maintenanceDecision, maintenanceSettings, type MaintenanceDecision } from './lib/maintenance';
-import { canStore, filterValuesKnown, freshFor, normalPath, refreshBackoffMs, replayHeaderNames, shellPolicy, shellKey, type ShellPolicy } from './lib/shellPolicy';
+import { BACKGROUND_REFRESHES, canStore, filterValuesKnown, freshFor, normalPath, refreshAdmission, replayHeaderNames, shellPolicy, shellKey, type ShellPolicy } from './lib/shellPolicy';
 import { loadCatalogTerms } from './lib/catalogTerms';
-import { shellBuildId, shellFreshOverride, getShell } from './lib/shellRuntime';
+import { logGate, refreshBackoff, shellBuildId, shellFreshOverride, getShell } from './lib/shellRuntime';
 import { armNightlyRebuild } from './lib/nightlyRebuildRuntime';
 import { isIncomplete, shellTierOf } from './lib/shellIncomplete';
 import type { ShellStore } from './lib/shellStore';
@@ -27,19 +28,9 @@ const NOINDEX: [string, string] = ['X-Robots-Tag', 'noindex, nofollow'];
 type ShellState = 'hit' | 'stale' | 'miss' | 'refused' | 'skip';
 /** Pages being re-rendered in the background, by key: one refresh per page at a time. */
 const refreshing = new Set<string>();
-/** Pages whose background refreshes keep failing (5xx or an incomplete render): key -> failures, and when to try
- *  again. The stored copy is served meanwhile, so a WordPress outage does not turn into a render per visitor. */
-const failing = new Map<string, { n: number; until: number }>();
-const FAILING_LIMIT = 1000;
-
-function noteFailure(key: string): void {
-  const n = (failing.get(key)?.n ?? 0) + 1;
-  failing.delete(key);
-  failing.set(key, { n, until: Date.now() + refreshBackoffMs(n) });
-  while (failing.size > FAILING_LIMIT) failing.delete(failing.keys().next().value as string);
-}
-
-const backingOff = (key: string): boolean => (failing.get(key)?.until ?? 0) > Date.now();
+/** A background refresh the store did not keep is logged at most once a minute: a slow photo host makes every one of them
+ *  incomplete, and each would otherwise write a line. */
+const refusedRefreshLog = logGate(60 * 1000);
 
 interface ShellPlan {
   store: ShellStore;
@@ -85,21 +76,21 @@ function keepIfStorable(ctx: APIContext, res: Response): boolean {
 }
 
 /** Reads a rendered page to its end and stores it. The read completes only when the stream did, so a page cut off
- *  mid-way is never stored. `renderAt` is when the render STARTED: a poke or drop that arrived during it wins. Never
- *  throws. */
-async function keep(ctx: APIContext, plan: ShellPlan, res: Response, path: string, renderAt: number): Promise<void> {
+ *  mid-way is never stored. `renderAt` is when the render STARTED: a poke or drop that arrived during it wins. Resolves
+ *  whether the page was stored, false when it was not kept or the store refused it. Never throws. */
+async function keep(ctx: APIContext, plan: ShellPlan, res: Response, path: string, renderAt: number): Promise<boolean> {
   try {
     const body = await res.text();
-    if (isIncomplete(ctx.locals)) return; // a photo or count went missing while rendering: serve it, don't keep it
+    if (isIncomplete(ctx.locals)) return false; // a photo or count went missing while rendering: serve it, don't keep it
     const headers = [...res.headers.entries()].filter(([name]) => replayHeaderNames([name]).length > 0);
     // The page may say what it is (a product under /verslun/): that tier's lifetime, unless overridden.
     const tier = shellTierOf(ctx.locals) ?? plan.policy.tier;
     // A product with a filter in its address is a query variant of a product page: never kept.
-    if (plan.policy.memoryOnly && tier === 'product') return;
+    if (plan.policy.memoryOnly && tier === 'product') return false;
     // A filtered page is kept only when every value in its address is a term the catalogue has (the render has just
     // loaded the terms, so this is a cache read): a made-up value would be a page held in memory for nothing.
-    if (plan.policy.memoryOnly && !filterValuesKnown(ctx.url.searchParams, await loadCatalogTerms())) return;
-    await plan.store.put({
+    if (plan.policy.memoryOnly && !filterValuesKnown(ctx.url.searchParams, await loadCatalogTerms())) return false;
+    return await plan.store.put({
       key: plan.key,
       path: normalPath(path),
       tier,
@@ -112,42 +103,74 @@ async function keep(ctx: APIContext, plan: ShellPlan, res: Response, path: strin
     });
   } catch (err) {
     log.debug('[shell] page not kept', { path, err });
+    return false;
   }
 }
 
+/** Background refreshes running now, and those waiting for a slot (lib/shellPolicy refreshAdmission): a content save marks
+ *  every stored page stale, and the visits after it must not start one render per page at once. */
+let activeRefreshes = 0;
+const waitingRefreshes: { start: () => void }[] = [];
+
 /** Re-renders a stale page in the background. The visitor already has the stored copy; this request's own render
- *  (next() continued after the response was chosen) is kept if it is complete, and dropped otherwise. */
+ *  (next() continued after the response was chosen) is kept if it is complete, and dropped otherwise. A refresh past the
+ *  slots waits for one (its page reads as refreshing, so the nightly walk waits too); past the queue it is not made, and
+ *  the stale copy is served as it is until the next visit. */
 function refreshInBackground(ctx: APIContext, next: () => Promise<Response>, plan: ShellPlan, path: string): void {
-  if (refreshing.has(plan.key) || backingOff(plan.key)) return;
+  if (refreshing.has(plan.key) || refreshBackoff.backingOff(plan.key)) return;
+  const admission = refreshAdmission(activeRefreshes, waitingRefreshes.length);
+  if (admission === 'skip') return;
   refreshing.add(plan.key);
-  void (async () => {
-    const endRender = plan.store.beginRender(path);
-    try {
-      const renderAt = Date.now(); // before the render: a poke that lands during it must win over this copy
-      const res = await next();
-      const status = res.status;
-      // A definite answer that the page is gone or moved (a slug changed, a product unpublished and the poke lost):
-      // the stored copy must not answer 200 any more.
-      if (status === 404 || status === 410 || (status >= 300 && status < 400)) {
-        await res.body?.cancel();
-        failing.delete(plan.key);
-        await plan.store.remove(plan.key);
-      } else if (keepIfStorable(ctx, res)) {
-        failing.delete(plan.key);
-        await keep(ctx, plan, res, path, renderAt);
-      } else {
-        // 5xx or an incomplete render: keep the stale copy (it beats an error) and wait longer before the next try.
-        await res.body?.cancel();
-        noteFailure(plan.key);
-      }
-    } catch (err) {
-      noteFailure(plan.key);
-      log.warn('[shell] refresh failed', { path, err });
-    } finally {
-      endRender();
+  const start = () => {
+    activeRefreshes++;
+    void renderRefresh(ctx, next, plan, path).finally(() => {
+      activeRefreshes--;
       refreshing.delete(plan.key);
+      startWaitingRefreshes();
+    });
+  };
+  if (admission === 'start') start();
+  else waitingRefreshes.push({ start });
+}
+
+function startWaitingRefreshes(): void {
+  while (activeRefreshes < BACKGROUND_REFRESHES && waitingRefreshes.length > 0) waitingRefreshes.shift()!.start();
+}
+
+/** A background render the store did not keep: it backs off like a failure, and is logged at most once a minute. */
+function refreshNotKept(ctx: APIContext, plan: ShellPlan, path: string): void {
+  refreshBackoff.note(plan.key);
+  if (refusedRefreshLog()) log.warn('[shell] background refresh not kept', { path, incomplete: isIncomplete(ctx.locals) });
+}
+
+async function renderRefresh(ctx: APIContext, next: () => Promise<Response>, plan: ShellPlan, path: string): Promise<void> {
+  const endRender = plan.store.beginRender(path);
+  try {
+    const renderAt = Date.now(); // before the render: a poke that lands during it must win over this copy
+    const res = await next();
+    const status = res.status;
+    // A definite answer that the page is gone or moved (a slug changed, a product unpublished and the poke lost):
+    // the stored copy must not answer 200 any more.
+    if (status === 404 || status === 410 || (status >= 300 && status < 400)) {
+      await res.body?.cancel();
+      refreshBackoff.clear(plan.key);
+      await plan.store.remove(plan.key);
+    } else if (keepIfStorable(ctx, res)) {
+      // The refresh counts as done only once the store has the copy: a render that came back incomplete (found only
+      // while its body was read) or refused is a failure, as a 5xx is, so it backs off too (review 20).
+      if (await keep(ctx, plan, res, path, renderAt)) refreshBackoff.clear(plan.key);
+      else refreshNotKept(ctx, plan, path);
+    } else {
+      // 5xx or an incomplete render: keep the stale copy (it beats an error) and wait longer before the next try.
+      await res.body?.cancel();
+      refreshNotKept(ctx, plan, path);
     }
-  })();
+  } catch (err) {
+    refreshBackoff.note(plan.key);
+    log.warn('[shell] refresh failed', { path, err });
+  } finally {
+    endRender();
+  }
 }
 
 /** The page for a GET or HEAD: from the store when it has one (served at once, re-rendered if stale), otherwise
@@ -232,12 +255,14 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
     } else {
       // A direct request for /500/ is a missing page: Astro forces status 500 on that route (it renders it for real
       // errors, with the original path), and a public URL answering 500 would only inflate the error metrics.
-      // A page URL with more filter values than a shopper picks (lib/liveFilters) goes to the same page unfiltered,
-      // before any lookup: each such combination would be a fresh WooCommerce query.
+      // A page URL with more filter values than a shopper picks (lib/liveFilters) goes to the same page without its
+      // filters, before any lookup: each such combination would be a fresh WooCommerce query. The search text is kept
+      // (the picks are what went over the limit); the rail never offers a pick that would get here (lib/facets pickNote).
       const unfiltered = (method === 'GET' || method === 'HEAD') && ctx.url.search !== '' ? unfilteredTarget(path, ctx.url.searchParams) : null;
       if (unfiltered) {
         log.debug('filter query refused', { method, path }); // debug: a crawl would write one line per URL
-        res = ctx.redirect(target ?? unfiltered, 302);
+        const kept = searchOnlyQuery(parseLiveFilters(ctx.url.searchParams).search);
+        res = ctx.redirect((target ?? unfiltered) + (kept ? `?${kept}` : ''), 302);
       } else if (target) {
         res = ctx.redirect(target + ctx.url.search, 301);
       } else if (path === '/500/') {
@@ -257,7 +282,8 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
   // On any host but the site's own (new.musikogsport.is before the move) the pages are duplicates: keep them out of
   // search engines. On the real host nothing is added.
   const headers = isCanonicalHost(ctx.url.host, ctx.site) ? HEADERS : [...HEADERS, NOINDEX];
-  const out = finishResponse(res, { path, method, cookiesPending: !ctx.cookies.headers().next().done, cdn: !MAINTENANCE.enabled, headers });
+  // The query goes in so a stock-filtered listing (?lager=1) is sent no-store at the CDN, not held for 5 minutes.
+  const out = finishResponse(res, { path, method, cookiesPending: !ctx.cookies.headers().next().done, cdn: !MAINTENANCE.enabled, headers, query: ctx.url.searchParams });
   if (shell !== null) out.headers.set('X-Mos-Shell', shell);
   const fields = { method, path, status: out.status, ms: Math.round(performance.now() - started) };
   // The shop closed on purpose is not an outage: keep it out of the warnings.

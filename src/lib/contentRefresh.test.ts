@@ -4,6 +4,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('astro:env/server', () => ({ WP_INTERNAL_URL: 'http://wp.test' }));
 vi.mock('astro:env/client', () => ({ MOS_MEDIA_BASE_URL: 'https://media.example' }));
+// The stored pages carry the header, menus and bar, so a refresh marks them all stale (review 24). The mark records how
+// many front-page reads had happened when it was made: it must come after the refetch.
+const marks = vi.hoisted(() => ({ calls: 0, frontReadsAtMark: [] as number[] }));
+vi.mock('./shellRuntime', () => ({
+  invalidateAllPages: async () => {
+    marks.calls++;
+    marks.frontReadsAtMark.push(frontCalls);
+    return true;
+  },
+}));
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
 const img = (name: string) => ({ url: `http://wp.test/wp-content/uploads/${name}`, width: 10, height: 10, alt: '' });
@@ -16,6 +26,8 @@ beforeEach(() => {
   vi.resetModules(); // the caches and the window are module state
   footerLogo = 'old.webp';
   frontCalls = 0;
+  marks.calls = 0;
+  marks.frontReadsAtMark = [];
   now = 1_000_000;
   vi.spyOn(Date, 'now').mockImplementation(() => now);
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -39,6 +51,37 @@ describe('refreshContent', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 503 })));
     expect(await refreshContent()).toBe(false);
     expect((await loadFrontPage())?.logos.footer?.url).toContain('old.webp');
+  });
+
+  it('marks every stored page stale once the content is refetched, so the next visit renders it with the new chrome', async () => {
+    const { refreshContent } = await import('./contentRefresh');
+    footerLogo = 'new.webp';
+    expect(await refreshContent()).toBe(true);
+    expect(marks.calls).toBe(1);
+    expect(marks.frontReadsAtMark).toEqual([frontCalls]); // after the refetch, not before it
+  });
+
+  // A poke that changes nothing (an editor saves without a change, or a stranger pokes) marks nothing: the stored pages
+  // are not all rendered again for it.
+  it('marks nothing when the refetch found the content unchanged', async () => {
+    const { refreshContent } = await import('./contentRefresh');
+    expect(await refreshContent()).toBe(true);
+    expect(marks.calls).toBe(1); // the first poke of a process always marks
+    now += 5000;
+    expect(await refreshContent()).toBe(true);
+    expect(marks.calls).toBe(1);
+    footerLogo = 'new.webp';
+    now += 5000;
+    expect(await refreshContent()).toBe(true);
+    expect(marks.calls).toBe(2);
+  });
+
+  it('marks the stored pages even when WordPress could not be read: the chrome may have been refetched in part', async () => {
+    const { refreshContent } = await import('./contentRefresh');
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 503 })));
+    expect(await refreshContent()).toBe(false);
+    expect(marks.calls).toBe(1);
   });
 
   it('makes the next read of the front page and the chrome see what WordPress has now', async () => {

@@ -34,12 +34,16 @@ export interface CacheInput {
   isHtml: boolean;
   /** False while public pages must not be held at the CDN (the shop is closed for maintenance). */
   cdn: boolean;
+  /** The listing is filtered by stock (Á lager): which products it lists and its counts change with stock, so it is
+   *  never held (owner rule 1). See lib/liveFilters isStockFiltered. */
+  stockFiltered?: boolean;
 }
 
 /** The Cache-Control to send, or null to leave the response's own (a public redirect). */
-export function cacheControlFor({ path, method, status, current, setsCookie, isHtml, cdn }: CacheInput): string | null {
+export function cacheControlFor({ path, method, status, current, setsCookie, isHtml, cdn, stockFiltered = false }: CacheInput): string | null {
   if (setsCookie || isPersonalPath(path)) return 'private, no-store';
   if (status >= 300 && status < 400) return current;
+  if (stockFiltered) return 'private, no-store';
   if (status >= 400) return 'no-store';
   if (method !== 'GET' && method !== 'HEAD') return 'no-store';
   if (current) return current;

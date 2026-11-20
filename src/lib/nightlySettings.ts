@@ -73,16 +73,17 @@ export function validateSettings(input: unknown): { ok: true; value: SavedSettin
 }
 
 /** The built-in defaults and the environment's values (MOS_SHELL_REBUILD_AT, _CONCURRENCY, _PAUSE_MS), with a line for
- *  each value the environment holds that cannot be read. The rebuild is OFF by default: an unset MOS_SHELL_REBUILD_AT, or =off, is enabled false (the time stays
- *  05:00); a time in it is enabled true. */
+ *  each value the environment holds that cannot be read. The rebuild is OFF by default: an unset MOS_SHELL_REBUILD_AT, or
+ *  =off, is enabled false (the time stays 05:00); a time in it is enabled true. A value that cannot be read is enabled
+ *  false too, with its problem line: a typo must not start a walk of the storefront that nobody asked for. */
 export function envDefaults(env: { at?: string; concurrency?: string; pauseMs?: string }): { values: NightlySettings; problems: string[] } {
   const at = parseRebuildAt(env.at);
   const c = parseConcurrency(env.concurrency);
   const p = parsePauseMs(env.pauseMs);
   return {
     values: {
-      // off unless asked for: a time in the environment, or the saved switch (wp-admin), turns the rebuild on
-      enabled: at.at.kind === 'at' && (env.at ?? '').trim() !== '',
+      // off unless asked for: only a readable time in the environment, or the saved switch (wp-admin), turns the rebuild on
+      enabled: at.at.kind === 'at' && at.problem === null && (env.at ?? '').trim() !== '',
       at: at.at.kind === 'at' ? formatAt(at.at.minutes) : '05:00',
       concurrency: c.value,
       pauseMs: p.value,

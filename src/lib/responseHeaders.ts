@@ -1,6 +1,7 @@
 // The last step of every on-demand response (src/middleware.ts): security headers (lib/securityHeaders.mjs) and the
 // Cache-Control lib/cachePolicy picks. SERVER-ONLY by use.
 import { cacheControlFor } from './cachePolicy';
+import { isStockFiltered } from './liveFilters';
 
 export interface FinishInput {
   /** The request's pathname (no query). */
@@ -11,11 +12,14 @@ export interface FinishInput {
   /** False while public pages must not be held at the CDN (lib/cachePolicy). */
   cdn: boolean;
   headers: [string, string][];
+  /** The request's query. A listing filtered by stock is sent no-store (lib/cachePolicy stockFiltered). Optional: without
+   *  it no listing is taken for a stock-filtered one. */
+  query?: URLSearchParams;
 }
 
 /** `res` with its headers settled. A Response with immutable headers (Response.redirect, one passed through from
  *  fetch) is copied first. */
-export function finishResponse(res: Response, { path, method, cookiesPending, cdn, headers }: FinishInput): Response {
+export function finishResponse(res: Response, { path, method, cookiesPending, cdn, headers, query }: FinishInput): Response {
   const cache = cacheControlFor({
     path,
     method,
@@ -24,6 +28,7 @@ export function finishResponse(res: Response, { path, method, cookiesPending, cd
     setsCookie: cookiesPending || res.headers.has('Set-Cookie'),
     isHtml: (res.headers.get('Content-Type') ?? '').includes('text/html'),
     cdn,
+    stockFiltered: query ? isStockFiltered(query) : false,
   });
   const apply = (r: Response) => {
     for (const [name, value] of headers) r.headers.set(name, value);

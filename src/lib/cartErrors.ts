@@ -14,18 +14,29 @@ export const CART_ERROR_TEXT: Record<string, string> = {
   // update or add over the line maximum (or under the minimum, or off a multiple): WooCommerce's code is the same
   invalid_quantity: 'Þetta magn er ekki leyft í körfunni.',
   readonly_quantity: 'Ekki er hægt að breyta magni þessarar vöru.',
+  // a variable product added without its size or other choice (the Store API cannot tell which variation was meant)
+  woocommerce_rest_missing_attributes: 'Veldu alla valkosti vörunnar áður en hún er sett í körfuna.',
+  woocommerce_rest_missing_variation_data: 'Veldu alla valkosti vörunnar áður en hún er sett í körfuna.',
+  // a chosen value that no variation of the product offers
+  woocommerce_rest_invalid_variation_data: 'Þetta val er ekki gilt fyrir þessa vöru.',
+  woocommerce_rest_variation_id_from_variation_data: 'Ekkert afbrigði vörunnar passar við þetta val.',
 };
 
 /** Any other stock or quantity code that is not listed above. */
 export const CART_QUANTITY_FALLBACK = 'Ekki tókst að breyta magninu. Reyndu aftur.';
 
-const STOCK_OR_QUANTITY = /stock|quantity/;
+/** Any other variation-choice code that is not listed above. */
+export const CART_VARIATION_FALLBACK = 'Ekki tókst að velja þetta afbrigði. Veldu aftur.';
 
-/** The text to show for a failed cart call: the Icelandic text for a known stock or quantity code, the generic line for
- *  an unknown one of those, otherwise the message as it came. */
+const STOCK_OR_QUANTITY = /stock|quantity/;
+const VARIATION_CHOICE = /variation|attributes/;
+
+/** The text to show for a failed cart call: the Icelandic text for a known stock, quantity or variation-choice code, the
+ *  generic line for an unknown one of those, otherwise the message as it came. */
 export function cartErrorText(code: unknown, message: string): string {
   if (typeof code !== 'string') return message;
   if (Object.prototype.hasOwnProperty.call(CART_ERROR_TEXT, code)) return CART_ERROR_TEXT[code];
   if (STOCK_OR_QUANTITY.test(code)) return CART_QUANTITY_FALLBACK;
+  if (VARIATION_CHOICE.test(code)) return CART_VARIATION_FALLBACK;
   return message;
 }

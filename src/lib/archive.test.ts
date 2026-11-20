@@ -146,3 +146,51 @@ describe('loadArchive', () => {
     expect(a.unavailable).toBe(false);
   });
 });
+
+describe('loadArchive: degraded catalogue terms (review 23)', () => {
+  it('a plain shop still loads with its terms degraded, and reports them, so its page can mark itself degraded', async () => {
+    currentTerms = { ...terms, degraded: true };
+    const a = await loadArchive(P(), 1);
+    expect(a.unavailable).toBe(false);
+    expect(a.terms.degraded).toBe(true);
+  });
+});
+
+describe('loadArchive: the picking caps (review 33)', () => {
+  const brands = Array.from({ length: 8 }, (_, i) => ({ id: 60 + i, slug: `b${i}`, name: `B${i}` }));
+  const group = (a: Awaited<ReturnType<typeof loadArchive>>, key: string) => a.groups.find((g) => g.key === key)!;
+  beforeEach(() => {
+    currentTerms = { ...terms, brands };
+    counts.mockResolvedValue({
+      ...mainCounts,
+      taxonomy: new Map<number, number>([...brands.map((b): [number, number] => [b.id, 2]), [1, 5], [2, 3], [3, 4], [10, 9], [11, 4], [12, 3]]),
+      attribute: new Map<number, number>([[364, 2], [363, 2]]),
+    });
+  });
+
+  it('a brand group with 6 picks offers no more: its other brands are unavailable, with the reason', async () => {
+    const a = await loadArchive(P('brand=b0,b1,b2,b3,b4,b5'), 1);
+    const g = group(a, 'brand');
+    expect(g.note).toMatch(/^Mest er hægt að velja 6 í þessum flokki/);
+    expect(g.options.filter((o) => o.active).every((o) => o.blocked === undefined)).toBe(true);
+    expect(g.options.filter((o) => !o.active).map((o) => [o.slug, o.blocked !== undefined])).toEqual([
+      ['b6', true],
+      ['b7', true],
+    ]);
+  });
+
+  it('a group with room is not blocked and has no note', async () => {
+    const a = await loadArchive(P('brand=b0,b1'), 1);
+    const g = group(a, 'brand');
+    expect(g.note).toBeUndefined();
+    expect(g.options.every((o) => o.blocked === undefined)).toBe(true);
+  });
+
+  it('twelve picks in all block every other option of every capped filter, and say so', async () => {
+    const a = await loadArchive(P('brand=b0,b1,b2,b3,b4,b5&kyn=konur,karlar&product-category=skor,fatnadur,hlaupaskor&litur=svartur'), 1);
+    expect(group(a, 'litur').options.find((o) => o.slug === 'svartur')?.blocked).toBeUndefined();
+    expect(group(a, 'litur').options.find((o) => o.slug === 'blar')?.blocked).toMatch(/^Mest er hægt að velja 12 síur í einu/);
+    expect(group(a, 'brand').note).toMatch(/^Mest er hægt að velja 12 síur í einu/);
+    expect(group(a, 'product-category').note).toMatch(/^Mest er hægt að velja 12 síur í einu/);
+  });
+});

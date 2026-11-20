@@ -16,6 +16,7 @@ import {
   WALK_DEFAULTS,
   parseConcurrency,
   parsePauseMs,
+  parseRetryAfter,
   type WalkIo,
   type WalkOptions,
 } from './nightlyRebuild';
@@ -39,6 +40,7 @@ describe('parseRebuildAt', () => {
     const r = parseRebuildAt('5 am');
     expect(r.at).toEqual({ kind: 'at', minutes: FIVE });
     expect(r.problem).toMatch(/MOS_SHELL_REBUILD_AT/);
+    expect(r.problem).toMatch(/stays off/);
     expect(parseRebuildAt('25:00').problem).not.toBeNull();
   });
 });
@@ -314,6 +316,82 @@ describe('walkStorefront', () => {
     const tally = await walkStorefront(['//evil.example/vara/', '/vara/ok/'], OPTS, f.io);
     expect(f.calls).toEqual(['/vara/ok/']);
     expect(tally.visited).toBe(1);
+  });
+});
+
+describe('walkStorefront: the slow rule reads the storefront\'s first answer (review 17)', () => {
+  it('a healthy stale refresh longer than slowMs is not a failure: the page is being rebuilt, not answered slowly', async () => {
+    const paths = Array.from({ length: 6 }, (_, i) => `/vara/p${i}/`);
+    const f = renderFake({ stale: paths, renderMs: 3500 });
+    const tally = await walkStorefront(paths, { ...OPTS, concurrency: 1 }, f.io);
+    expect(tally).toMatchObject({ visited: 6, failures: 0, stoppedEarly: false, stoppedBy: null });
+    expect(f.renders).toHaveLength(6);
+  });
+});
+
+describe('walkStorefront: any answer but a success, a redirect or a gone page is bad (review 19)', () => {
+  it.each([403, 429])('a %i answer is a failure: the pause grows and five in a row stop the walk', async (status) => {
+    const paths = Array.from({ length: 12 }, (_, i) => `/vara/p${i}/`);
+    const script = Object.fromEntries(paths.map((p) => [p, [[status, null]]])) as Record<string, [number, string | null][]>;
+    const tally = await walkStorefront(paths, { ...OPTS, concurrency: 1 }, fakeIo(script).io);
+    expect(tally).toMatchObject({ visited: 5, failures: 5, stoppedEarly: true, stoppedBy: 'failures' });
+  });
+
+  it('a single 429 is a failure, but a 410 is still a gone page and not a failure', async () => {
+    const one = await walkStorefront(['/vara/a/'], OPTS, fakeIo({ '/vara/a/': [[429, null]] }).io);
+    expect(one).toMatchObject({ visited: 1, failures: 1, stoppedBy: null });
+    const gone = await walkStorefront(['/vara/a/'], OPTS, fakeIo({ '/vara/a/': [[410, null]] }).io);
+    expect(gone).toMatchObject({ visited: 1, failures: 0, gone: 1 });
+  });
+
+  it('honours Retry-After on a bad answer: the next pause is what the server asked, capped at 30 s', async () => {
+    const pausesFor = async (retryAfter: string | null) => {
+      const pauses: number[] = [];
+      let t = 0;
+      const io: WalkIo = {
+        get: async () => ({ status: 429, shell: null, retryAfter }),
+        sleep: async (ms) => void (t += ms),
+        now: () => t,
+        progress: () => undefined,
+        step: (s) => pauses.push(s.pauseMs),
+      };
+      await walkStorefront(['/vara/a/'], { ...OPTS, concurrency: 1, delayMs: 100 }, io);
+      return pauses[0];
+    };
+    expect(await pausesFor('10')).toBe(10_000);
+    expect(await pausesFor('3600')).toBe(30_000);
+    // without the header the backoff alone decides
+    expect(await pausesFor(null)).toBe(200);
+  });
+});
+
+describe('walkStorefront: a base pause of 0 backs off from a floor (review 3)', () => {
+  it('doubles from the floor, and returns to two workers only with the pause back at 0', async () => {
+    const bad = Array.from({ length: 4 }, (_, i) => `/vara/bad${i}/`);
+    const good = Array.from({ length: 20 }, (_, i) => `/vara/good${i}/`);
+    const script = Object.fromEntries(bad.map((p) => [p, [[503, null]]])) as Record<string, [number, string | null][]>;
+    const f = fakeIo(script);
+    const steps: { workers: number; pauseMs: number }[] = [];
+    const io: WalkIo = { ...f.io, step: (s) => steps.push({ workers: s.workers, pauseMs: s.pauseMs }) };
+    await walkStorefront([...bad, ...good], { ...WALK_DEFAULTS, concurrency: 2, delayMs: 0, pollMs: 50, maxFailures: 5 }, io);
+    expect(steps.slice(0, 4).map((s) => s.pauseMs)).toEqual([200, 400, 800, 1600]);
+    // the pause halves back to 0 after eleven good answers; the twentieth good answer restores two workers
+    expect(steps[22].workers).toBe(1);
+    expect(steps[23]).toMatchObject({ workers: 2, pauseMs: 0 });
+  });
+});
+
+describe('parseRetryAfter', () => {
+  // 2026-11-19 05:00 UTC
+  const NOW = Date.UTC(2026, 10, 19, 5, 0, 0);
+  it('reads delay-seconds or an HTTP-date as milliseconds from now, and undefined for none or an unreadable value', () => {
+    expect(parseRetryAfter('120', NOW)).toBe(120_000);
+    expect(parseRetryAfter(' 0 ', NOW)).toBe(0);
+    expect(parseRetryAfter('Thu, 19 Nov 2026 05:01:00 GMT', NOW)).toBe(60_000);
+    expect(parseRetryAfter('Thu, 19 Nov 2026 04:59:00 GMT', NOW)).toBe(0);
+    expect(parseRetryAfter(null, NOW)).toBeUndefined();
+    expect(parseRetryAfter('', NOW)).toBeUndefined();
+    expect(parseRetryAfter('soon', NOW)).toBeUndefined();
   });
 });
 

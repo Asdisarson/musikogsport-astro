@@ -23,6 +23,7 @@ import Icon from './Icon.astro';
 
 <script>
   import { SUGGEST_MIN_LENGTH, suggestQuery } from '../lib/searchSuggest';
+  import { parseLiveAnswer, suggestSoldOut } from '../lib/liveCards';
   import type { ProductSummary } from '../lib/types';
 
   interface Suggestions {
@@ -60,8 +61,9 @@ import Icon from './Icon.astro';
     }
     img.src = p.image;
     media.append(img);
-    const price = el('span', 'search-hit__price', p.outOfStock ? 'Uppselt' : (p.priceText ?? ''));
-    if (!p.outOfStock && p.percent) price.append(' ', el('span', 'search-hit__off', `-${p.percent}%`));
+    // The suggestion's answer carries no stock: the price shows now, and a sold-out mark comes from /api/live (fillStock).
+    const price = el('span', 'search-hit__price', p.priceText ?? '');
+    if (p.percent) price.append(' ', el('span', 'search-hit__off', `-${p.percent}%`));
     link.append(media, el('span', 'search-hit__name', p.name));
     if (p.subtitle) link.append(el('span', 'search-hit__sub', p.subtitle));
     link.append(price);
@@ -70,8 +72,37 @@ import Icon from './Icon.astro';
     return item;
   }
 
-  function show(data: Suggestions): void {
-    if (!box) return;
+  /** A suggestion's price line once its stock is known: "Uppselt" for a sold-out product (no sale badge), else the
+   *  price with its sale badge, as hit() drew it. */
+  function paint(price: HTMLElement, p: ProductSummary, soldOut: boolean): void {
+    price.textContent = soldOut ? 'Uppselt' : (p.priceText ?? '');
+    if (!soldOut && p.percent) price.append(' ', el('span', 'search-hit__off', `-${p.percent}%`));
+  }
+
+  // The live stock answer for the suggestions on screen. One call per answer, and the last one is abandoned when the
+  // field asks again, so an old answer never lands on a new list.
+  let filling: AbortController | null = null;
+
+  /** Fills the sold-out marks of the suggestions shown from one /api/live call. Until it answers, or if it fails, a
+   *  suggestion shows its price and no sold-out mark: nothing is guessed. */
+  async function fillStock(data: Suggestions, prices: HTMLElement[], signal: AbortSignal): Promise<void> {
+    if (data.products.length === 0) return; // /api/live needs at least one id
+    try {
+      const res = await fetch(`/api/live/?ids=${data.products.map((p) => p.id).join(',')}`, { cache: 'no-store', headers: { accept: 'application/json' }, signal });
+      if (!res.ok) return;
+      const answer = parseLiveAnswer(await res.json());
+      data.products.forEach((p, i) => {
+        const soldOut = suggestSoldOut(answer.get(p.id));
+        if (soldOut !== null && prices[i]) paint(prices[i], p, soldOut);
+      });
+    } catch {
+      // No answer (or abandoned): the price stays as it is.
+    }
+  }
+
+  /** Draws the suggestions; returns their price lines, in the same order, for fillStock. */
+  function show(data: Suggestions): HTMLElement[] {
+    if (!box) return [];
     const wrap = el('div', 'search-results');
     if (data.terms.length > 0) {
       const terms = el('div', 'search-results__terms');
@@ -87,9 +118,11 @@ import Icon from './Icon.astro';
       wrap.append(terms);
     }
     const products = el('div', 'search-results__products');
+    let prices: HTMLElement[] = [];
     if (data.products.length > 0) {
       const list = el('ul', 'search-hits');
       list.append(...data.products.map(hit));
+      prices = [...list.querySelectorAll<HTMLElement>('.search-hit__price')];
       const all = el('a', 'btn-dark search-results__all', data.total > data.products.length ? `Sjá allar ${data.total} niðurstöður` : 'Opna leitarniðurstöður');
       all.href = data.url;
       products.append(el('h2', 'search-results__heading', 'Vörur'), list, all);
@@ -99,6 +132,7 @@ import Icon from './Icon.astro';
     wrap.append(products);
     box.replaceChildren(wrap);
     box.hidden = false;
+    return prices;
   }
 
   if (input && box) {
@@ -108,6 +142,7 @@ import Icon from './Icon.astro';
 
     const clear = () => {
       asking?.abort();
+      filling?.abort();
       shown = '';
       box.hidden = true;
       box.replaceChildren();
@@ -126,7 +161,9 @@ import Icon from './Icon.astro';
         // Only the answer to what the field says now is shown.
         if (mine.signal.aborted || suggestQuery(input.value) !== query) return;
         shown = query;
-        show(data);
+        filling?.abort();
+        filling = new AbortController();
+        void fillStock(data, show(data), filling.signal);
       } catch {
         // No answer. Results for an earlier text would now sit beside a different one, so they go; Enter still
         // opens the results page. (A newer question that took over shows its own.)

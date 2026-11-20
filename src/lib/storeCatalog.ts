@@ -9,13 +9,14 @@
 // WooProduct card subset so ProductGrid/ProductCard/PriceTag render unchanged.
 import { WP_INTERNAL_URL } from 'astro:env/server';
 import { createKeyedLoader, createTtlMap } from './cache';
+import { coalesce } from './liveCoalesce';
 import { upstreamGet } from './upstream';
 import { log } from './logger';
 import { createLimiter } from './rateLimit';
 import { matchCountFromStock } from './facets';
 import { COLOUR_TAXONOMY, SPORT_TAXONOMY, TEAM_TAXONOMY, type SizeRef } from './liveFilters';
 import { mapStoreProduct, type StoreProductRaw } from './storeMap';
-import type { AttributeFilter, Paged, WooProduct } from './types';
+import { withoutStock, type AttributeFilter, type CachedWooProduct, type Paged } from './types';
 
 const BASE = `${WP_INTERNAL_URL}/wp-json/wc/store/v1`;
 
@@ -89,16 +90,19 @@ async function catalogFetch(url: string, what: string): Promise<Response> {
 }
 
 // The grid is held for a minute per request URL (stale-while-revalidate, lib/cache createKeyedLoader): a render never
-// waits on WordPress for a grid it has seen, and a price or stock change shows within about a minute. Cart and
-// checkout don't read this. Concurrent identical requests share one call, and while WordPress fails a URL isn't asked
-// (and waited on) by every render: the failure is remembered for a few seconds (the caller degrades as it does for
-// any failure, or keeps the last good grid). Per process, like the other caches.
+// waits on WordPress for a grid it has seen, and a price change shows within about a minute. Cart and checkout don't
+// read this. Concurrent identical requests share one call, and while WordPress fails a URL isn't asked (and waited
+// on) by every render: the failure is remembered for a few seconds (the caller degrades as it does for any failure,
+// or keeps the last good grid). Per process, like the other caches.
+// A grid filtered by stock (stockStatus) is never held: which products it lists changes with stock, and stock is
+// never cached (owner rule 1). It is read on each request; identical requests in flight still share one call.
+// Every product a grid returns has its stock taken off (fetchProducts), so nothing held here carries a stock figure.
 const PRODUCTS_TTL_MS = 60 * 1000;
 const PRODUCTS_MAX_STALE_MS = 5 * 60 * 1000; // a grid nobody asked for in that long is loaded afresh, not shown
 const PRODUCTS_FAIL_MEMO_MS = 10 * 1000;
 // After a poke (forgetAllGrids), every grid is asked for again: the key carries a generation (see lib/woo forgetProduct).
 let gridGeneration = 0;
-const productsByUrl = createKeyedLoader<Paged<WooProduct>>({
+const productsByUrl = createKeyedLoader<Paged<CachedWooProduct>>({
   load: (key) => {
     const url = key.slice(key.indexOf('|') + 1);
     return fetchProducts(url, Number(new URL(url).searchParams.get('page')));
@@ -109,7 +113,35 @@ const productsByUrl = createKeyedLoader<Paged<WooProduct>>({
   maxEntries: 500,
 });
 
-export function storeProducts(q: StoreQuery = {}): Promise<Paged<WooProduct>> {
+/** A stock-filtered grid is read on each request (see above), so nothing else holds it back from WordPress: its failures
+ *  are remembered per URL for a few seconds, as the other grids' are, and new reads are capped per minute. A crawler
+ *  walking ?lager=1 pages would otherwise send one WordPress request per view (owner rule 2). Joining a read already in
+ *  flight costs nothing. Past the cap the grid is refused, as a failed read is, and the listing shows as unavailable. */
+const STOCK_GRID_FAIL_MEMO_MS = 10 * 1000;
+export const STOCK_GRIDS_PER_MINUTE = 120;
+const stockGridFailed = createTtlMap<string, true>(500, () => Date.now());
+const stockGridBudget = createLimiter(STOCK_GRIDS_PER_MINUTE, 60 * 1000, () => Date.now());
+let lastStockCapWarn = -Infinity;
+
+function stockGrid(url: string, page: number): Promise<Paged<CachedWooProduct>> {
+  return coalesce(`grid|${url}`, () => {
+    if (stockGridFailed.get(url)?.fresh) return Promise.reject(new Error('stock-filtered grid failed a moment ago'));
+    if (!stockGridBudget.take('stock-grid')) {
+      if (Date.now() - lastStockCapWarn >= 60 * 1000) {
+        lastStockCapWarn = Date.now();
+        log.warn('[store-catalog] stock-filtered grid budget spent; listing refused', { limit: STOCK_GRIDS_PER_MINUTE });
+      }
+      return Promise.reject(new Error('stock-filtered grid budget spent'));
+    }
+    return fetchProducts(url, page).catch((err: unknown) => {
+      stockGridFailed.set(url, true, STOCK_GRID_FAIL_MEMO_MS);
+      throw err;
+    });
+  });
+}
+
+/** A page of products for a listing or a search, without stock (see fetchProducts). For stock, read the live answer. */
+export function storeProducts(q: StoreQuery = {}): Promise<Paged<CachedWooProduct>> {
   const page = q.page && q.page > 0 ? q.page : 1;
   const per_page = q.per_page ?? CATALOG_PER_PAGE;
   const usp = new URLSearchParams();
@@ -118,7 +150,9 @@ export function storeProducts(q: StoreQuery = {}): Promise<Paged<WooProduct>> {
   usp.set('orderby', q.orderby ?? 'date');
   usp.set('order', q.order ?? 'desc');
   appendFilters(usp, q);
-  return productsByUrl(`${gridGeneration}|${BASE}/products?${usp.toString()}`);
+  const url = `${BASE}/products?${usp.toString()}`;
+  if (q.stockStatus?.length) return stockGrid(url, page);
+  return productsByUrl(`${gridGeneration}|${url}`);
 }
 
 /** After a catalogue change (a poke): every product grid is read again, not shown from the minute's cache. */
@@ -126,7 +160,9 @@ export function forgetAllGrids(): void {
   gridGeneration += 1;
 }
 
-async function fetchProducts(url: string, page: number): Promise<Paged<WooProduct>> {
+// The Store API's stock (is_in_stock, read into stock_status by mapStoreProduct) is taken off here, for every grid,
+// the cached and the stock-filtered alike: no caller of this module reads it, and a cached grid must not hold it.
+async function fetchProducts(url: string, page: number): Promise<Paged<CachedWooProduct>> {
   const res = await catalogFetch(url, 'products');
   const data = (await res.json()) as StoreProductRaw[];
   const mu = data[0]?.prices?.currency_minor_unit;
@@ -134,7 +170,7 @@ async function fetchProducts(url: string, page: number): Promise<Paged<WooProduc
   // Mirror wooGet's 0/0 fallback: if the pagination headers are ever absent, surface a
   // visible "0 vörur" rather than silently capping the catalog to one page of results.
   return {
-    items: data.map(mapStoreProduct),
+    items: data.map((p) => withoutStock(mapStoreProduct(p))),
     total: Number(res.headers.get('X-WP-Total') ?? 0),
     totalPages: Number(res.headers.get('X-WP-TotalPages') ?? 0),
     page,
@@ -230,7 +266,10 @@ export async function collectionCounts(q: StoreQuery, req: CountsRequest): Promi
     if (req.extra.onSale) usp.set('mos_sale_count', '1');
   }
   const url = `${BASE}/products/collection-data?${usp.toString()}`;
-  const hit = countsCache.get(url);
+  // A stock-filtered query's counts are read live as its grid is: a cached or stale count would show stock that has
+  // changed (owner rule 1), so none is read from the cache or kept, and a failed one falls back to nothing.
+  const stockLive = Boolean(q.stockStatus?.length);
+  const hit = stockLive ? undefined : countsCache.get(url);
   if (hit?.fresh) return hit.value;
   const pending = countsInflight.get(url);
   if (pending) return pending;
@@ -244,9 +283,10 @@ export async function collectionCounts(q: StoreQuery, req: CountsRequest): Promi
   }
   const load = fetchCounts(url, req)
     .then((counts) => {
-      if (counts) countsCache.set(url, counts, COUNTS_TTL_MS);
-      else countsFailed.set(url, true, COUNTS_FAIL_MEMO_MS);
-      return counts ?? hit?.value ?? null; // a stale count beats none
+      if (counts) {
+        if (!stockLive) countsCache.set(url, counts, COUNTS_TTL_MS);
+      } else countsFailed.set(url, true, COUNTS_FAIL_MEMO_MS);
+      return counts ?? hit?.value ?? null; // a stale count beats none (never a stale stock count: hit is unset when stockLive)
     })
     .finally(() => countsInflight.delete(url));
   countsInflight.set(url, load);

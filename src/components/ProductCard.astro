@@ -7,7 +7,7 @@
 // badge are reserved, empty or hidden, and the card script fills them from /api/live/ (see lib/liveCards). A
 // buyable simple product's link becomes "Setja í körfu" once that answer comes in.
 // variant 'tile' (home carousels): no label or colours line, up to two categories, the "Uppselt" badge on the image.
-import type { WooProduct } from '../lib/types';
+import type { CachedWooProduct } from '../lib/types';
 import { modestCandidate, productImage } from '../lib/img';
 import { cardFillFor } from '../lib/photoBgServer';
 import { decodeEntities } from '../lib/decode';
@@ -20,7 +20,7 @@ import ProductImage from './ProductImage.astro';
 import PriceTag from './PriceTag.astro';
 
 interface Props {
-  product: WooProduct;
+  product: CachedWooProduct;
   eager?: boolean;
   /** 'grid' (the wall) or 'tile' (home carousels). */
   variant?: 'grid' | 'tile';
@@ -107,7 +107,8 @@ const actionText = product.type === 'variable' ? 'Veldu kosti' : 'Frekari upplý
   // a call at least as new as the one that filled it, so a slow older response can't overwrite a newer one.
   import { addToCart, openCart } from '../lib/cartStore';
   import { chunkIds, LIVE_MAX_IDS, priceChanged } from '../lib/livePrices';
-  import { cardFill, LIVE_RETRY_MS, parseLiveAnswer, shouldRetry, takesAnswer, type CardFill } from '../lib/liveCards';
+  import { cardFill, LIVE_RETRY_MS, LIVE_TIMEOUT_MS, parseLiveAnswer, shouldRetry, takesAnswer, type CardFill } from '../lib/liveCards';
+  import { relatedVisible } from '../lib/relatedPicks';
   import { formatSaleBadge } from '../lib/price';
   import { onPageRestored, onTabVisible } from '../lib/pageLifecycle';
 
@@ -156,7 +157,8 @@ const actionText = product.type === 'variable' ? 'Veldu kosti' : 'Frekari upplý
     for (const group of chunkIds([...byId.keys()], LIVE_MAX_IDS)) {
       const cards = group.flatMap((id) => byId.get(id) ?? []);
       try {
-        const res = await fetch(`/api/live/?ids=${group.join(',')}`, { cache: 'no-store', headers: { accept: 'application/json' } });
+        // A hung call fails after LIVE_TIMEOUT_MS: the cards keep their neutral state, the related rows settle, and a retry follows.
+        const res = await fetch(`/api/live/?ids=${group.join(',')}`, { cache: 'no-store', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(LIVE_TIMEOUT_MS) });
         if (!res.ok) throw new Error(`live ${res.status}`);
         const answer = parseLiveAnswer(await res.json());
         for (const card of cards) {
@@ -165,6 +167,8 @@ const actionText = product.type === 'variable' ? 'Veldu kosti' : 'Frekari upplý
           const fill = cardFill(card.dataset.productType ?? '', bakedPrice(card), live);
           if (!fill) continue;
           filledBy.set(card, seq);
+          // The last stock answer the card had, for settleRelated (a card never answered carries none).
+          if (live?.stock) card.dataset.stock = live.stock;
           apply(card, fill);
         }
       } catch {
@@ -173,8 +177,30 @@ const actionText = product.type === 'variable' ? 'Veldu kosti' : 'Frekari upplý
         for (const card of cards) seen.delete(card);
       }
     }
+    settleRelated();
     if (failed) retryLater();
     else retries = 0;
+  }
+
+  /** The related rows (components/RelatedProducts): the first `limit` candidates the live answer does not name sold out
+   *  show, in row order, and the rest stay hidden, so a sold-out product's place goes to the next spare. Worked out from
+   *  scratch on every pass (lib/relatedPicks relatedVisible), so a restock brings a product back. A candidate with no
+   *  answer counts as available: before the answer the row shows as the server rendered it. A row with nothing left
+   *  to show is hidden as a whole. Tiles are hidden through their list item, which has no display of its own. */
+  function settleRelated(): void {
+    for (const row of document.querySelectorAll<HTMLElement>('[data-related-limit]')) {
+      const limit = Number(row.dataset.relatedLimit);
+      if (!Number.isInteger(limit) || limit <= 0) continue;
+      const cards = [...row.querySelectorAll<HTMLElement>('[data-product-id]')];
+      const ids = cards.map((card) => Number(card.dataset.productId));
+      const soldOut = new Set(cards.filter((card) => card.dataset.stock === 'outofstock').map((card) => Number(card.dataset.productId)));
+      const shown = new Set(relatedVisible(ids, soldOut, limit));
+      cards.forEach((card, i) => {
+        const item = card.closest<HTMLElement>('.product-row__item') ?? card;
+        item.hidden = !shown.has(ids[i]);
+      });
+      row.hidden = shown.size === 0;
+    }
   }
 
   function retryLater(): void {

@@ -20,6 +20,10 @@ interface Props {
 const { option, groupKey, showCounts, basePath, params, variant = 'row', minor = false } = Astro.props;
 const key = option.key ?? groupKey;
 const href = toggleFilterHref(basePath, params, key, option.slug);
+// A pick the caps refuse (lib/facets pickNote) is shown unavailable: a span, not a link, so it cannot be clicked into the
+// redirect for an over-picked URL. Its reason is the group's note (ArchiveView).
+const blocked = option.blocked !== undefined;
+const Tag = blocked ? 'span' : 'a';
 const hasChildren = option.children.length > 0;
 const subId = `filter-${key}-${option.id}`;
 const counted = showCounts && option.count != null;
@@ -50,13 +54,14 @@ const swatch = option.swatch ? `--swatch-a:${option.swatch[0]};--swatch-b:${opti
   ) : (
     <li class="filter-option" data-open={option.open ? 'true' : undefined} data-name={option.name}>
       <div class="filter-option__row">
-        <a
-          class="filter-option__link"
-          href={href}
+        <Tag
+          class:list={['filter-option__link', blocked && 'filter-option__link--blocked']}
+          href={blocked ? undefined : href}
           role="checkbox"
           aria-checked={option.active ? 'true' : 'false'}
-          rel="nofollow"
-          data-op="toggle"
+          aria-disabled={blocked ? 'true' : undefined}
+          rel={blocked ? undefined : 'nofollow'}
+          data-op={blocked ? undefined : 'toggle'}
           data-filter-key={key}
           data-filter-value={option.slug}
           data-fkey={fkey}
@@ -64,7 +69,7 @@ const swatch = option.swatch ? `--swatch-a:${option.swatch[0]};--swatch-b:${opti
           <span class="filter-option__box" aria-hidden="true"></span>
           {swatch && <span class="filter-option__swatch" style={swatch} aria-hidden="true"></span>}
           <span class="filter-option__label">{option.name}</span>
-        </a>
+        </Tag>
         {
           hasChildren && (
             <button class="filter-option__toggle" type="button" data-filter-expand data-fkey={`expand:${subId}`} aria-expanded={option.open ? 'true' : 'false'} aria-controls={subId} aria-label={`Sýna undirflokka ${option.name}`}>
@@ -85,3 +90,10 @@ const swatch = option.swatch ? `--swatch-a:${option.swatch[0]};--swatch-b:${opti
     </li>
   )
 }
+
+<style>
+  .filter-option__link--blocked {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+</style>

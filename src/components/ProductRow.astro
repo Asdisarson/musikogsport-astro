@@ -4,13 +4,17 @@
 // 1440, ~300px on phones with the next one peeking), bleeding off the right edge. Scroll-snap does the sliding;
 // the arrows step one tile at a time.
 import ProductCard from './ProductCard.astro';
-import type { WooProduct } from '../lib/types';
+import type { CachedWooProduct } from '../lib/types';
+import { isRowSpare } from '../lib/relatedPicks';
 
 interface Props {
   title: string;
-  products: WooProduct[];
+  products: CachedWooProduct[];
+  /** How many of the products the row shows; the rest are rendered hidden as spares (components/RelatedProducts). Unset:
+   *  every product shows. */
+  shown?: number;
 }
-const { title, products } = Astro.props;
+const { title, products, shown } = Astro.props;
 const prevIcon = '<path d="m15 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.8" />';
 const nextIcon = '<path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.8" />';
 ---
@@ -32,8 +36,8 @@ const nextIcon = '<path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" strok
       </div>
       <div class="product-row__viewport">
         <ul class="product-row__track" data-carousel-track>
-          {products.map((p) => (
-            <li class="product-row__item">
+          {products.map((p, i) => (
+            <li class="product-row__item" hidden={isRowSpare(i, shown)}>
               <ProductCard product={p} variant="tile" />
             </li>
           ))}

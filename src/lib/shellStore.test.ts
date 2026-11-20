@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -116,7 +116,8 @@ describe('shellStore', () => {
     expect(await readdir(dir)).not.toContain('old');
     const broken = createShellStore({ dir: join(dir, 'file-not-dir'), build: 'b1', now: () => NOW });
     await writeFile(join(dir, 'file-not-dir'), 'x');
-    await expect(broken.put(base())).resolves.toBeUndefined();
+    // put now reports whether the page was accepted (review 20): a write that fails on disk is not a refused page
+    await expect(broken.put(base())).resolves.toBe(true);
     await expect(broken.flush()).resolves.toBeUndefined();
   });
 });
@@ -180,6 +181,26 @@ describe('shellStore: races, bounds and the epochs (review 2, 4, 8, 10, 19)', ()
     await s.invalidateProducts();
     expect((await s.get('b1|/vara/x/', NOW + 1000))?.state).toBe('stale');
     expect((await s.get('b1|/', NOW + 1000))?.state).toBe('fresh');
+  });
+
+  it('invalidateAll marks every stored page of every tier stale, and a page rendered after it is fresh (content saves, review 24)', async () => {
+    const s = createShellStore({ dir, build: 'b1', now: () => NOW + 1000 });
+    await s.put(base());
+    await s.put(base({ key: 'b1|/', path: '/', tier: 'listing', freshMs: 300_000 }));
+    await s.put(base({ key: 'b1|/um-okkur/', path: '/um-okkur/', tier: 'content' }));
+    await s.put(base({ key: 'b1|/verslun/?verd=a', path: '/verslun/', tier: 'filtered', freshMs: 120_000, memoryOnly: true }));
+    await s.invalidateAll();
+    await s.flush();
+    for (const key of ['b1|/vara/x/', 'b1|/', 'b1|/um-okkur/', 'b1|/verslun/?verd=a']) {
+      expect((await s.get(key, NOW + 1000))?.state).toBe('stale');
+    }
+    // A render that starts after the mark is fresh again; the marks file keeps the one bulk mark, not one per page.
+    await s.put(base({ at: NOW + 2000 }));
+    expect((await s.get('b1|/vara/x/', NOW + 2000))?.state).toBe('fresh');
+    const again = createShellStore({ dir, build: 'b1', now: () => NOW + 2000 });
+    await again.init();
+    expect((await again.get('b1|/um-okkur/', NOW + 2000))?.state).toBe('stale');
+    expect(again.markCount()).toBe(1);
   });
 
   it('bounds the memory-only tier by bytes as well as by count', async () => {
@@ -332,11 +353,109 @@ describe('shellStore: a render in flight counts as known to the unkeyed poke (ad
     const other = createShellStore({ dir, build: 'b2', now: () => NOW });
     expect((await other.diskStats()).files).toBe(0);
 
-    expect(await s.clear()).toBe(2);
+    expect(await s.clear()).toEqual({ removed: 2, failed: 0 });
     expect(s.memoryCount()).toBe(0);
     expect(await s.diskStats()).toEqual({ files: 0, bytes: 0 });
     expect(await s.get('b1|/vara/x/', NOW)).toBeNull();
     const names = await readdir(join(dir, 'b1'));
     expect(names).toContain('invalidated.json');
+  });
+
+  it('a page file that cannot be removed is counted as failed, and the store still answers the count it removed', async () => {
+    // A folder without write permission keeps its files readable but cannot unlink them. Root may unlink anything, so the
+    // test does not apply there.
+    if (process.getuid?.() === 0) return;
+    const s = createShellStore({ dir, build: 'b1', now: () => NOW });
+    await s.put(base());
+    await s.put(base({ key: 'b1|/vara/y/', path: '/vara/y/', body: '<html>yy</html>' }));
+    await s.flush();
+    const buildDir = join(dir, 'b1');
+    await chmod(buildDir, 0o555);
+    try {
+      expect(await s.clear()).toEqual({ removed: 0, failed: 2 });
+    } finally {
+      await chmod(buildDir, 0o755);
+    }
+    // The files that could not go are still on disk: the next visit may serve them while they are fresh.
+    expect((await s.diskStats()).files).toBe(2);
+  });
+});
+
+describe('shellStore: review 25 (a mark for a stored page is never lost at the cap)', () => {
+  const listing = (over: Partial<ShellEntry> = {}): ShellEntry => base({ key: 'b1|/', path: '/', tier: 'listing', freshMs: 300_000, ...over });
+
+  it('a product mark evicted at the cap leaves its page stale through the product bulk mark, also after a restart', async () => {
+    let t = NOW;
+    const s = createShellStore({ dir, build: 'b1', now: () => t, markLimit: 1 });
+    await s.put(base({ key: 'b1|/vara/a/', path: '/vara/a/' }));
+    await s.put(base({ key: 'b1|/vara/b/', path: '/vara/b/' }));
+    await s.put(listing()); // stored and never marked: must stay fresh
+    t = NOW + 1000;
+    await s.invalidate(['/vara/a/']);
+    t = NOW + 2000;
+    await s.invalidate(['/vara/b/']); // two marks, cap of one: a's (the oldest) goes, and a is stored
+    expect(s.markCount()).toBe(2); // b's mark and the product bulk mark
+    expect((await s.get('b1|/vara/a/', NOW + 3000))?.state).toBe('stale');
+    expect((await s.get('b1|/vara/b/', NOW + 3000))?.state).toBe('stale');
+    expect((await s.get('b1|/', NOW + 3000))?.state).toBe('fresh');
+    await s.flush();
+    const again = createShellStore({ dir, build: 'b1', now: () => NOW + 3000 });
+    await again.init();
+    expect((await again.get('b1|/vara/a/', NOW + 3000))?.state).toBe('stale');
+  });
+
+  it('a content mark evicted at the cap falls back to the content bulk mark, which reaches every stored content page', async () => {
+    let t = NOW;
+    const s = createShellStore({ dir, build: 'b1', now: () => t, markLimit: 1 });
+    await s.put(base({ key: 'b1|/um-okkur/', path: '/um-okkur/', tier: 'content' }));
+    await s.put(base({ key: 'b1|/hafa-samband/', path: '/hafa-samband/', tier: 'content' })); // never marked
+    await s.put(base());
+    t = NOW + 1000;
+    await s.invalidate(['/um-okkur/']);
+    t = NOW + 2000;
+    await s.invalidate(['/vara/x/']); // the content mark is the oldest and goes
+    expect((await s.get('b1|/um-okkur/', NOW + 3000))?.state).toBe('stale');
+    expect((await s.get('b1|/hafa-samband/', NOW + 3000))?.state).toBe('stale');
+    expect((await s.get('b1|/vara/x/', NOW + 3000))?.state).toBe('stale');
+    await s.flush();
+  });
+
+  it('a page rendered after the evicted mark is not made stale by the fallback', async () => {
+    let t = NOW;
+    const s = createShellStore({ dir, build: 'b1', now: () => t, markLimit: 1 });
+    await s.put(base({ key: 'b1|/vara/a/', path: '/vara/a/', at: NOW + 1500 })); // rendered after a's poke
+    await s.put(base({ key: 'b1|/vara/b/', path: '/vara/b/' }));
+    t = NOW + 1000;
+    await s.invalidate(['/vara/a/']);
+    t = NOW + 2000;
+    await s.invalidate(['/vara/b/']);
+    expect((await s.get('b1|/vara/a/', NOW + 3000))?.state).toBe('fresh');
+    await s.flush();
+  });
+
+  it('a mark for a path with no stored page is dropped at the cap, with no bulk mark', async () => {
+    let t = NOW;
+    const s = createShellStore({ dir, build: 'b1', now: () => t, markLimit: 1 });
+    await s.put(base({ key: 'b1|/vara/x/', path: '/vara/x/' }));
+    t = NOW + 1000;
+    await s.invalidate(['/vara/x/']);
+    await s.remove('b1|/vara/x/'); // the page is gone; its mark is not
+    await s.put(base({ key: 'b1|/vara/y/', path: '/vara/y/' }));
+    await s.put(base({ key: 'b1|/vara/z/', path: '/vara/z/' })); // unmarked
+    t = NOW + 2000;
+    await s.invalidate(['/vara/y/']);
+    expect(s.markCount()).toBe(1);
+    expect((await s.get('b1|/vara/z/', NOW + 3000))?.state).toBe('fresh');
+    await s.flush();
+  });
+});
+
+describe('shellStore.put reports whether it kept the page (review 20)', () => {
+  it('is false for a render a drop overtook, and true for one that is kept', async () => {
+    const s = createShellStore({ dir, build: 'b1', now: () => NOW });
+    await s.remove('b1|/vara/x/');
+    expect(await s.put(base({ at: NOW - 1 }))).toBe(false);
+    expect(await s.put(base({ at: NOW + 1 }))).toBe(true);
+    await s.flush();
   });
 });

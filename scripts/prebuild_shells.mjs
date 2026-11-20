@@ -5,8 +5,10 @@
 // Why so slow: a burst on cold caches stalled production WordPress for minutes once (see the team notes). So:
 //   - one request at a time, with a pause between them (--delay, default 500 ms);
 //   - a page the store already holds answers at once from the store (X-Mos-Shell: hit) and is not waited for;
-//   - any 5xx, timeout or answer slower than --slow (default 3000 ms) doubles the pause (up to 30 s) and is
-//     counted; a good answer halves it back toward --delay. The self-check's repeats use the same pause and backoff;
+//   - any answer that is not a success, a redirect or a gone page (404, 410) (a 5xx, a 429 rate limit, a 403 firewall),
+//     a timeout, or an answer slower than --slow (default 3000 ms) doubles the pause (up to 30 s) and is counted; a good
+//     answer halves it back toward --delay. The pause grows from a 100 ms floor, so --delay 0 still backs off. The
+//     self-check's repeats use the same pause and backoff;
 //   - after --max-failures in a row (default 5) it stops and exits with status 2. Run it again later: it picks up
 //     where it is, since rendered pages are kept.
 //
@@ -35,7 +37,9 @@
 import { pathToFileURL } from 'node:url';
 
 const USAGE = 'usage: npm run shells -- [--base <url>] [--allow-remote] [--host <name>] [--limit <n>] [--delay <ms>] [--slow <ms>] [--timeout <ms>] [--max-failures <n>]';
-const MAX_PAUSE_MS = 30000;
+export const MAX_PAUSE_MS = 30000;
+// The floor a backoff doubles from: 0 doubled is still 0, so with --delay 0 a failing store would be walked at full speed.
+export const BACKOFF_FLOOR_MS = 100;
 const PREFIXES = ['/verslun/', '/vara/', '/voruflokkur/', '/brand/', '/merkimidar/'];
 const KEPT_STATES = ['miss', 'hit', 'stale'];
 
@@ -87,9 +91,13 @@ export function isLocal(host) {
   return /^(127\.0\.0\.1|localhost|\[::1\]|::1)$/.test(host) || /\.(localhost|test)$/.test(host);
 }
 
-/** A render that is bad for the pause: a timeout or 5xx, or slower than --slow. */
+/** A render that is bad for the pause: a timeout, or any answer that is not a success, a redirect or a page that is gone
+ *  (404, 410). That takes in a 5xx, a 429 rate limit and a 403 firewall, which ask the walk to back off, not run on. Or
+ *  slower than slowMs. The nightly walk (src/lib/nightlyRebuild.ts) counts with this same rule. */
 export function isBad(r, slowMs) {
-  return r.status === 0 || r.status >= 500 || r.ms > slowMs;
+  const s = r.status;
+  const expected = (s >= 200 && s < 300) || (s >= 300 && s < 400) || s === 404 || s === 410;
+  return !expected || r.ms > slowMs;
 }
 
 /** The tally bucket of a render: a 2xx answer is one of the store states; anything else is not counted. */
@@ -102,9 +110,10 @@ export function tally(r, slowMs) {
   return 'other';
 }
 
-/** The pause after a render: doubled (up to MAX_PAUSE_MS) when it was bad, otherwise halved back toward the delay. */
+/** The pause after a render: doubled (up to MAX_PAUSE_MS, from BACKOFF_FLOOR_MS at least) when it was bad, otherwise halved
+ *  back toward the delay. Halving rounds down, so a pause of 1 reaches 0 and a base of 0 is reached again. */
 export function nextPause(pause, bad, delayMs) {
-  return bad ? Math.min(MAX_PAUSE_MS, pause * 2) : Math.max(delayMs, Math.round(pause / 2));
+  return bad ? Math.min(MAX_PAUSE_MS, Math.max(pause, BACKOFF_FLOOR_MS) * 2) : Math.max(delayMs, Math.floor(pause / 2));
 }
 
 /** Why the self-check's first answer does not show a working store, or null when it does. */

@@ -16,6 +16,8 @@ export interface ShellOptions {
   maxFailures: number;
   limit: number;
 }
+export const MAX_PAUSE_MS: number;
+export const BACKOFF_FLOOR_MS: number;
 export function parseArgs(argv: string[]): Record<string, string>;
 export function readOptions(argv: string[], env?: Record<string, string | undefined>): ShellOptions;
 export function isLocal(host: string): boolean;

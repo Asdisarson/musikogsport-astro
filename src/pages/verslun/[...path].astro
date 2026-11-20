@@ -62,6 +62,9 @@ if (!product) {
   if (down) markUnavailable(Astro.response);
   else Astro.response.status = 404;
 }
+// The breadcrumbs, category links and related scope come from the catalogue terms: a product drawn without them is
+// neither stored nor held at the CDN (review 23).
+if (product && terms.degraded) markDegraded(Astro.response);
 
 let variationAttrs: { name: string; options: string[] }[] = [];
 let variationsFailed = false;

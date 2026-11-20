@@ -1,5 +1,6 @@
 // Pure rules for the live price and stock answer (/api/live). Written before lib/livePrices.ts.
 import { describe, expect, it, vi } from 'vitest';
+import { stockCap } from './livePrices';
 
 vi.mock('astro:env/server', () => ({ WP_INTERNAL_URL: 'http://wp.test' }));
 
@@ -92,7 +93,8 @@ const base = {
 describe('liveProductOf', () => {
   it('returns id, type, sanitised price html, sale percent and raw stock; no other fields', () => {
     const out = liveProductOf(base);
-    expect(out).toEqual({ id: 7, type: 'simple', priceHtml: expect.any(String), percent: null, stock: 'instock', max: null, soldOne: false });
+    // stockMax was added to the answer: the stock alone, before sold individually (see the cap tests below)
+    expect(out).toEqual({ id: 7, type: 'simple', priceHtml: expect.any(String), percent: null, stock: 'instock', max: null, stockMax: null, soldOne: false });
     expect(out.priceHtml).not.toContain('<script');
     expect(out.priceHtml).toContain('1.000');
   });
@@ -108,7 +110,8 @@ describe('liveProductOf', () => {
 describe('liveVariationOf', () => {
   it('keeps prices and stock of one variation', () => {
     const v = { id: 9, price: '900', regular_price: '1000', sale_price: '900', on_sale: true, stock_status: 'outofstock', attributes: [], menu_order: 0 } as unknown as WooVariation;
-    expect(liveVariationOf(v)).toEqual({ id: 9, price: '900', regular_price: '1000', sale_price: '900', on_sale: true, stock: 'outofstock', max: null, soldOne: false });
+    // stockMax and sharedStock were added to the answer (the stock alone; whether the parent's stock is shared)
+    expect(liveVariationOf(v)).toEqual({ id: 9, price: '900', regular_price: '1000', sale_price: '900', on_sale: true, stock: 'outofstock', max: null, stockMax: null, sharedStock: false, soldOne: false });
   });
   it('carries the purchasable maximum, read from the parent when the variation inherits stock management', () => {
     const v = { id: 9, price: '900', regular_price: '1000', sale_price: '', on_sale: false, stock_status: 'instock', manage_stock: 'parent' } as unknown as WooVariation;
@@ -123,7 +126,7 @@ describe('liveVariationOf', () => {
 
 describe('pdpPriceFill (the product page price, corrected from the live answer)', () => {
   const shown = '<span class="amount">1.000 kr.</span>';
-  const liveOf = (over: Partial<LiveProduct> = {}): LiveProduct => ({ id: 1, type: 'simple', priceHtml: shown, percent: null, stock: 'instock', max: null, soldOne: false, ...over });
+  const liveOf = (over: Partial<LiveProduct> = {}): LiveProduct => ({ id: 1, type: 'simple', priceHtml: shown, percent: null, stock: 'instock', max: null, stockMax: null, soldOne: false, ...over });
   it('keeps the shown price and draws no badge when the live price is the same', () => {
     expect(pdpPriceFill(shown, liveOf())).toEqual({ priceHtml: null, percent: null });
   });
@@ -219,3 +222,31 @@ describe('sold individually does not read as stock', () => {
     expect(liveVariationOf(v, { sold_individually: true } as unknown as WooProduct).soldOne).toBe(true);
   });
 });
+
+// The live answer gives the stock alone (stockMax: what the stock allows, the parent's when a variation shares it) apart
+// from sold individually (soldOne), and says which variations share the parent's stock (sharedStock).
+describe('the stock cap, apart from sold individually', () => {
+  it('stockCap is the managed quantity, never clamped by sold individually', () => {
+    expect(stockCap({ manage_stock: true, stock_quantity: 5, sold_individually: true })).toBe(5);
+    expect(stockCap({ manage_stock: false, stock_quantity: 5 })).toBeNull();
+    expect(stockCap({ manage_stock: true, stock_quantity: 5, backorders: 'yes' })).toBeNull();
+  });
+
+  it('a variation sharing the parent stock carries the parent cap and says it shares it', () => {
+    const parent = { manage_stock: true, stock_quantity: 5, sold_individually: true } as unknown as WooProduct;
+    const v = { id: 11, price: '900', regular_price: '900', sale_price: '', on_sale: false, stock_status: 'instock', manage_stock: 'parent', attributes: [], menu_order: 0 } as unknown as WooVariation;
+    const out = liveVariationOf(v, parent);
+    expect(out.stockMax).toBe(5);
+    expect(out.max).toBe(1); // purchasableMax keeps its one-per-cart cap
+    expect(out.soldOne).toBe(true);
+    expect(out.sharedStock).toBe(true);
+    const own = { ...v, manage_stock: true, stock_quantity: 2 } as unknown as WooVariation;
+    expect(liveVariationOf(own, parent).sharedStock).toBe(false);
+    expect(liveVariationOf(own, parent).stockMax).toBe(2);
+  });
+
+  it('a simple product carries its stock cap too', () => {
+    expect(liveProductOf({ id: 3, type: 'simple', price: '1', price_html: '', stock_status: 'instock', manage_stock: true, stock_quantity: 4, sold_individually: false } as unknown as WooProduct).stockMax).toBe(4);
+  });
+});
+

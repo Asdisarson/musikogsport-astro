@@ -43,7 +43,9 @@ export const GET: APIRoute = async (ctx) => {
     {
       query,
       total: found.total,
-      products: found.items.map((p) => productSummary(p, catalog.categories)),
+      // No stock in this answer: the products come from the minute's grid cache, and stock is never cached. The field
+      // fills sold-out marks from /api/live (SearchOverlay), as the cards do.
+      products: found.items.map((p) => productSummary(p, catalog.categories, { stock: false })),
       terms: suggestTerms(query, named, TERMS).map(({ name, path }) => ({ name, path })),
       url: legacySearchTarget(query),
     },

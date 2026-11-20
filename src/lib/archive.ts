@@ -2,7 +2,7 @@
 // shares live's filter semantics, page size and facet groups.
 import { loadCatalogTerms, loadSizeTerms, type CatalogData } from './catalogTerms';
 import { categoryChain, childrenOf, STRUCTURAL_ROOT_SLUGS } from './categoryTree';
-import { activeFilterList, colourSwatch, COVERAGE_GROUPS, coversEnough, isPlainColour, keepOption, pseudoCategoryIds, sizeBlocks, type ActiveFilter, type SizeBlock } from './facets';
+import { activeFilterList, colourSwatch, COVERAGE_GROUPS, coversEnough, isPlainColour, keepOption, pickCounts, pickNote, pseudoCategoryIds, sizeBlocks, type ActiveFilter, type SizeBlock } from './facets';
 import {
   KYN_PARENT_SLUG,
   MERGED_COLOURS,
@@ -17,7 +17,7 @@ import {
   type TermRef,
 } from './liveFilters';
 import { collectionCounts, COUNT_TAXONOMIES, currencyMinorUnit, matchCount, storeProducts, type CountsResult, type StoreQuery } from './storeCatalog';
-import type { Paged, WooProduct } from './types';
+import type { CachedWooProduct, Paged } from './types';
 
 /** The archive's own constraint: a category archive, tag archive, brand archive, or none (shop/search). */
 export interface ArchiveScope {
@@ -42,6 +42,8 @@ export interface FacetOption extends TermRef {
   group?: string;
   /** Swatch colours (one, or two for a two-colour term), Litur only. */
   swatch?: string[];
+  /** Why this option cannot be picked (the picking caps are reached, facets pickNote): shown unavailable, not a link. */
+  blocked?: string;
 }
 export type SizeOption = FacetOption & { group: string };
 /** How a group renders: checkbox rows, the Vöruflokkar tree, the Stærð button grid, or the toggle rows on top. */
@@ -55,11 +57,13 @@ export interface FacetGroup {
   showCounts: boolean;
   /** Open by default: a group with a selection, the toggles, and Stærð on shoe categories. */
   open: boolean;
+  /** Why no more values of this group can be picked (facets pickNote), when the caps are reached. */
+  note?: string;
   /** Stærð only: the options split into shoe → letter → kids → other blocks. */
   sizeBlocks?: SizeBlock<SizeOption>[];
 }
 export interface Archive {
-  result: Paged<WooProduct>;
+  result: Paged<CachedWooProduct>;
   state: LiveFilterState;
   groups: FacetGroup[];
   activeCount: number;
@@ -81,7 +85,7 @@ export interface Archive {
 /** Stærð opens by default on this category and below it. */
 const SHOE_ROOT_SLUG = 'skor';
 
-const EMPTY_RESULT = (page: number): Paged<WooProduct> => ({ items: [], total: 0, totalPages: 0, page });
+const EMPTY_RESULT = (page: number): Paged<CachedWooProduct> => ({ items: [], total: 0, totalPages: 0, page });
 const NO_COUNTS = new Map<number, number>();
 
 export async function loadArchive(params: URLSearchParams, page: number, scope: ArchiveScope = {}): Promise<Archive> {
@@ -163,17 +167,23 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
   // A companion request when there is one (null if it failed), else the main counts.
   const pick = (companion: CountsResult | null | undefined) => (companion === undefined ? main : companion);
 
-  const option = (t: TermRef, key: FilterKey, source: Map<number, number> | null, depth = 0): FacetOption => ({
-    ...t,
-    count: source?.get(t.id),
-    active: active[key]?.includes(t.slug) ?? false,
-    depth,
-    children: [],
-    open: false,
+  // The picking caps, counted from the URL as the middleware counts them: a pick that would cross one is shown as
+  // unavailable (facets pickNote), so the redirect for an over-picked URL is never one a click leads to.
+  const caps = pickCounts({
+    kyn: state.kyn,
+    brand: state.brand,
+    team: state.team,
+    'product-category': state.productCategory,
+    ithrott: state.ithrott,
+    litur: state.litur,
   });
+  const option = (t: TermRef, key: FilterKey, source: Map<number, number> | null, depth = 0): FacetOption => {
+    const isActive = active[key]?.includes(t.slug) ?? false;
+    return { ...t, count: source?.get(t.id), active: isActive, depth, children: [], open: false, blocked: isActive ? undefined : pickNote(key, caps) };
+  };
   const listGroup = (key: FilterKey, label: string, pool: TermRef[], source: Map<number, number> | null): FacetGroup => {
     const options = pool.map((t) => option(t, key, source)).filter((o) => keepOption(o, source));
-    return { key, label, kind: 'list', showCounts: source !== null, open: options.some((o) => o.active), options };
+    return { key, label, kind: 'list', showCounts: source !== null, open: options.some((o) => o.active), options, note: pickNote(key, caps) };
   };
   /** A computed option (price preset, toggle row): `count` undefined when its request failed. */
   const plainOption = (id: number, slug: string, name: string, count: number | undefined, isActive: boolean, key?: FilterKey): FacetOption =>
@@ -247,6 +257,7 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
     showCounts: pcSource !== null,
     open: treeOptions.some((o) => o.active || o.open), // `open` is set on an option with an active descendant
     options: treeOptions,
+    note: pickNote('product-category', caps),
   };
 
   // Litur: checkbox rows with a swatch; commonest colours first (the term list is alphabetical). Only plain colours

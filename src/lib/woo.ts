@@ -9,7 +9,7 @@
 import { WP_INTERNAL_URL, getSecret } from 'astro:env/server';
 import { createKeyedLoader } from './cache';
 import { log, redactSecrets } from './logger';
-import type { WooProduct, WooVariation } from './types';
+import { withoutStock, type CachedWooProduct, type CachedWooVariation, type WooProduct, type WooVariation } from './types';
 import { isPosInt } from './validate';
 import { orderAmounts } from './orderAmounts';
 import { WOO_REST_TIMEOUT_MS } from './timeouts';
@@ -188,12 +188,13 @@ const variationGen = new Map<number, number>(); // product id -> generation
 const idBySlug = new Map<string, number>(); // slug -> product id, as last loaded
 const generation = <K>(m: Map<K, number>, k: K): number => m.get(k) ?? baseGeneration;
 
-const productBySlug = createKeyedLoader<WooProduct | null>({
+// What a cache holds is stripped of stock before it is kept (types.withoutStock): the stock a page shows is read live.
+const productBySlug = createKeyedLoader<CachedWooProduct | null>({
   load: async (key) => {
     const slug = key.slice(0, key.lastIndexOf('#'));
     const product = (await wooGet<WooProduct[]>('/products', { slug, status: 'publish' })).data[0] ?? null;
     if (product) idBySlug.set(slug, product.id);
-    return product;
+    return product ? withoutStock(product) : null;
   },
   ttlMs: PRODUCT_TTL_MS,
   maxStaleMs: PRODUCT_MAX_STALE_MS,
@@ -201,13 +202,38 @@ const productBySlug = createKeyedLoader<WooProduct | null>({
   maxEntries: 1000,
 });
 
-const variationsByProduct = createKeyedLoader<WooVariation[]>({
+// A variable product's variations, every page of them. WooCommerce answers 100 a page. The pages are taken in id order,
+// which is unique, so a tie in menu_order cannot move a variation across a page edge; the callers sort in menu order
+// (the set and order WooCommerce matches in, lib/variations). More than MAX_VARIATION_PAGES pages is refused, never cut
+// short: a partial list would show a size as unavailable with nothing saying so. The header is read on the first page,
+// so a product over the limit costs one request, not five.
+const VARIATION_PAGE = 100;
+const MAX_VARIATION_PAGES = 5;
+async function allVariations(productId: number, fields?: string, beforePage?: () => void): Promise<WooVariation[]> {
+  const rows: WooVariation[] = [];
+  for (let page = 1; page <= MAX_VARIATION_PAGES; page++) {
+    if (page > 1) beforePage?.();
+    const { data, totalPages } = await wooGet<WooVariation[]>(`/products/${productId}/variations`, {
+      per_page: VARIATION_PAGE,
+      page,
+      status: 'publish',
+      orderby: 'id',
+      order: 'asc',
+      _fields: fields,
+    });
+    if (page === 1 && totalPages > MAX_VARIATION_PAGES) break;
+    rows.push(...data);
+    // the short page is the last; the page count says so too, when WooCommerce sent it (0: header missing)
+    if (data.length < VARIATION_PAGE || (totalPages > 0 && page >= totalPages)) return rows;
+  }
+  throw new Error(`product ${productId} has more than ${MAX_VARIATION_PAGES * VARIATION_PAGE} variations`);
+}
+
+const variationsByProduct = createKeyedLoader<CachedWooVariation[]>({
   load: async (key) => {
     const productId = key.slice(0, key.lastIndexOf('#'));
-    // The set and order WooCommerce matches in (lib/variations): published only, menu_order then id
-    // (find_matching_product_variation). REST has no id tie-break, so sort here as well.
-    const { data } = await wooGet<WooVariation[]>(`/products/${productId}/variations`, { per_page: 100, status: 'publish', orderby: 'menu_order', order: 'asc' });
-    return [...data].sort((a, b) => (a.menu_order ?? 0) - (b.menu_order ?? 0) || a.id - b.id);
+    const rows = await allVariations(Number(productId));
+    return rows.map((v) => withoutStock(v)).sort((a, b) => (a.menu_order ?? 0) - (b.menu_order ?? 0) || a.id - b.id);
   },
   ttlMs: PRODUCT_TTL_MS,
   maxStaleMs: PRODUCT_MAX_STALE_MS,
@@ -215,10 +241,18 @@ const variationsByProduct = createKeyedLoader<WooVariation[]>({
   maxEntries: 1000,
 });
 
-/** Full product object (no _fields) by slug, for the detail page. Shared between callers: read-only. */
-export function getProductBySlug(slug: string): Promise<WooProduct | null> {
+/** Full product object (no _fields, no stock) by slug, for the detail page. Shared between callers: read-only. */
+export function getProductBySlug(slug: string): Promise<CachedWooProduct | null> {
   const s = slug.normalize('NFC');
   return productBySlug(`${s}#${generation(productGen, s)}`);
+}
+
+/** Whether the product loader holds a product (or a cached not-found answer) for this slug right now. Read-only: it does
+ *  not load, so it costs no WooCommerce call. The shell poke uses it to forget a cached product for a path the store does
+ *  not hold: a product read before a save would otherwise be kept on a page for a day. */
+export function productCached(slug: string): boolean {
+  const s = slug.normalize('NFC');
+  return productBySlug.holds(`${s}#${generation(productGen, s)}`);
 }
 
 /** After a bulk change: every product and variation read goes to WooCommerce next (one step, no list). */
@@ -242,8 +276,9 @@ export function forgetProduct(slug: string): void {
   if (id !== undefined) variationGen.set(id, ++generationSeq);
 }
 
-/** A variable product's published variations, in WooCommerce's matching order. Shared between callers: read-only. */
-export function getVariations(productId: number): Promise<WooVariation[]> {
+/** A variable product's published variations, in WooCommerce's matching order, without stock (see withoutStock).
+ *  Shared between callers: read-only. */
+export function getVariations(productId: number): Promise<CachedWooVariation[]> {
   return variationsByProduct(`${productId}#${generation(variationGen, productId)}`);
 }
 
@@ -251,15 +286,10 @@ export function getVariations(productId: number): Promise<WooVariation[]> {
  * A variable product's variations for STOCK, read from WooCommerce on every call and never held (no loader): stock
  * must always be the live figure. Sorted in matching order like getVariations. Only the fields the live answer needs.
  */
-export async function getVariationStock(productId: number): Promise<WooVariation[]> {
-  const { data } = await wooGet<WooVariation[]>(`/products/${productId}/variations`, {
-    per_page: 100,
-    status: 'publish',
-    orderby: 'menu_order',
-    order: 'asc',
-    _fields: `id,menu_order,price,regular_price,sale_price,on_sale,stock_status,${LIVE_STOCK_FIELDS}`,
-  });
-  return [...data].sort((a, b) => (a.menu_order ?? 0) - (b.menu_order ?? 0) || a.id - b.id);
+export async function getVariationStock(productId: number, beforePage?: () => void): Promise<WooVariation[]> {
+  // beforePage runs before each WooCommerce page after the first: the live budget takes a token for each (lib/liveBudget).
+  const rows = await allVariations(productId, `id,menu_order,price,regular_price,sale_price,on_sale,stock_status,${LIVE_STOCK_FIELDS}`, beforePage);
+  return [...rows].sort((a, b) => (a.menu_order ?? 0) - (b.menu_order ?? 0) || a.id - b.id);
 }
 
 /**

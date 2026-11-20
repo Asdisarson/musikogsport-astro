@@ -3,13 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('astro:env/server', () => ({ WP_INTERNAL_URL: 'http://wp.test' }));
 
-import { cardFill, LIVE_RETRY_MS, parseLiveAnswer, pendingIds, shouldRetry, takesAnswer } from './liveCards';
+import { cardFill, LIVE_RETRY_MS, LIVE_TIMEOUT_MS, parseLiveAnswer, pendingIds, shouldRetry, suggestSoldOut, takesAnswer } from './liveCards';
 import type { LiveProduct } from './livePrices';
 
 const live = (over: Partial<LiveProduct> = {}): LiveProduct => ({
   id: 1,
   type: 'simple',
   max: null,
+  stockMax: null,
   priceHtml: '<span class="amount">1.000 kr.</span>',
   percent: null,
   stock: 'instock',
@@ -29,7 +30,7 @@ describe('parseLiveAnswer', () => {
     const m = parseLiveAnswer({
       products: [{ id: 7, type: 'simple', priceHtml: '<span>x</span>', percent: 20, stock: 'onbackorder', max: 2 }],
     });
-    expect(m.get(7)).toEqual({ id: 7, type: 'simple', priceHtml: '<span>x</span>', percent: 20, stock: 'onbackorder', max: 2, soldOne: false });
+    expect(m.get(7)).toEqual({ id: 7, type: 'simple', priceHtml: '<span>x</span>', percent: 20, stock: 'onbackorder', max: 2, stockMax: null, soldOne: false });
   });
   it('skips malformed rows and returns an empty map for anything else', () => {
     expect(parseLiveAnswer(null).size).toBe(0);
@@ -93,10 +94,28 @@ describe('card refresh rules', () => {
     expect(LIVE_RETRY_MS).toBeLessThanOrEqual(5000);
   });
 
+  it('gives up on a hung live call after a few seconds, well before the shopper would wait for it', () => {
+    expect(LIVE_TIMEOUT_MS).toBeGreaterThanOrEqual(3000);
+    expect(LIVE_TIMEOUT_MS).toBeLessThanOrEqual(15000);
+  });
+
   it('applies the first answer, and a newer call’s answer; never an older one after a newer one', () => {
     expect(takesAnswer(undefined, 1)).toBe(true);
     expect(takesAnswer(1, 2)).toBe(true);
     expect(takesAnswer(2, 2)).toBe(true);
     expect(takesAnswer(3, 2)).toBe(false); // a slow older response arrives after the newer one was applied
+  });
+});
+
+describe('suggestSoldOut (search suggestions: the sold-out mark comes from the live answer only)', () => {
+  it('is true for a sold-out product and false for one in stock or on backorder', () => {
+    expect(suggestSoldOut(live({ stock: 'outofstock' }))).toBe(true);
+    expect(suggestSoldOut(live({ stock: 'instock' }))).toBe(false);
+    expect(suggestSoldOut(live({ stock: 'onbackorder' }))).toBe(false);
+  });
+
+  it('is null (no mark, no guess) when the product is missing from the answer or its stock is unknown', () => {
+    expect(suggestSoldOut(undefined)).toBeNull();
+    expect(suggestSoldOut(live({ stock: null }))).toBeNull();
   });
 });

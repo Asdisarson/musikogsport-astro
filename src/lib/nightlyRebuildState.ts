@@ -1,6 +1,10 @@
 // The nightly rebuild's run state for the admin page: what the walk is doing now (workers in use, configured N), how the last run in this process
 // went, the stop flag and the recent failures. In memory, per process (a restart forgets it; the stamp keeps the
 // times). SERVER-ONLY by use; the walk reports into it (src/lib/nightlyRebuildRuntime.ts).
+//
+// One slot is shared by a walk and a clear of the page store (a clear must not run beside a walk that is filling it).
+// The slot is held by one of them at a time: a walk is `running`, a clear is `clearing`, and a clear is not a run (no
+// walk is stopped by a stop request, and no walk is shown for it).
 
 export const FAILURE_RING = 20;
 
@@ -22,7 +26,10 @@ export interface FailureEntry {
 }
 
 export interface RunView extends RunTally {
+  /** A walk is going. False while a clear holds the slot. */
   running: boolean;
+  /** A clear of the page store holds the slot (no walk is going). */
+  clearing: boolean;
   startedAt: number | null;
   total: number | null;
   pauseMs: number | null;
@@ -46,6 +53,7 @@ const ZERO: RunTally = { visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0 
 
 const state = {
   running: false,
+  clearing: false,
   startedAt: null as number | null,
   total: null as number | null,
   tally: { ...ZERO },
@@ -59,9 +67,9 @@ const state = {
   failures: [] as FailureEntry[],
 };
 
-/** Starts a run. False (and no change) when one is already running. */
+/** Starts a run. False (and no change) when a run is going or a clear holds the slot. */
 export function beginRun(startedAt: number): boolean {
-  if (state.running) return false;
+  if (state.running || state.clearing) return false;
   state.running = true;
   state.startedAt = startedAt;
   state.total = null;
@@ -72,6 +80,23 @@ export function beginRun(startedAt: number): boolean {
   state.workers = null;
   state.concurrency = null;
   return true;
+}
+
+/** Takes the slot for a clear of the page store. False (and no change) when a run is going or another clear holds it. */
+export function beginClear(): boolean {
+  if (state.running || state.clearing) return false;
+  state.clearing = true;
+  return true;
+}
+
+/** Gives the slot back after a clear. */
+export function endClear(): void {
+  state.clearing = false;
+}
+
+/** Whether a clear holds the slot now. */
+export function isClearing(): boolean {
+  return state.clearing;
 }
 
 /** The configured workers of the run going now; the walk starts with all of them. */
@@ -137,6 +162,7 @@ export function isRunning(): boolean {
 export function runView(): RunView {
   return {
     running: state.running,
+    clearing: state.clearing,
     startedAt: state.startedAt,
     total: state.total,
     ...state.tally,
@@ -160,6 +186,7 @@ export function recentFailures(): FailureEntry[] {
 /** Tests only. */
 export function resetRunStateForTests(): void {
   state.running = false;
+  state.clearing = false;
   state.startedAt = null;
   state.total = null;
   state.tally = { ...ZERO };

@@ -3,8 +3,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   FAILURE_RING,
+  beginClear,
   beginRun,
+  endClear,
   endRun,
+  isClearing,
   isRunning,
   lastRun,
   recentFailures,
@@ -66,6 +69,30 @@ describe('nightly run state', () => {
     endRun({ endedAt: 500, record: true, tally: { ...zero, visited: 3 }, stoppedEarly: true, stoppedWhy: 'stopped' });
     expect(stopRequested()).toBe(false);
     expect(isRunning()).toBe(false);
+  });
+
+  it('a clear holds the slot without being a run: running is false, clearing is true, and a run, another clear or a stop are refused', () => {
+    expect(beginClear()).toBe(true);
+    expect(isClearing()).toBe(true);
+    expect(isRunning()).toBe(false);
+    expect(runView()).toMatchObject({ running: false, clearing: true, startedAt: null, total: null, workers: null });
+    expect(beginRun(2000)).toBe(false);
+    expect(beginClear()).toBe(false);
+    expect(requestStop()).toBe(false);
+    endClear();
+    expect(isClearing()).toBe(false);
+    expect(runView()).toMatchObject({ running: false, clearing: false });
+    expect(beginRun(4000)).toBe(true);
+  });
+
+  it('a walk holds the slot against a clear, and a clear records no run', () => {
+    beginRun(1000);
+    expect(beginClear()).toBe(false);
+    expect(runView()).toMatchObject({ running: true, clearing: false });
+    endRun({ endedAt: 3000, record: false });
+    expect(beginClear()).toBe(true);
+    endClear();
+    expect(lastRun()).toBeNull();
   });
 
   it('records the finished run with its duration and why it stopped; a run that never began records nothing', () => {
