@@ -194,6 +194,14 @@ check('"real" alone is not Real Madrid', $t('REAL NECKWARMER'), []);
 check('chelsea boots are not Chelsea FC', $t('Viking Rubber Boots - River Chelsea'), []);
 check('Chelsea FC kit', $t('Nike Chelsea Home Jersey 25/26'), ['chelsea']);
 check('short key only as a whole word', $t('Nike FH æfingapeysa'), ['fh']);
+// "Brasilia" is Nike's bag line as well as a national team (found on production, 2026-11-20).
+$tk_br = mos_clean_team_key_map(['brasilia' => 'Brasilía'], mos_clean_team_rules());
+$t_br = static fn (string $name) => mos_clean_team_from_name(mos_clean_tokens($name), $tk_br, $deny);
+check('a Nike Brasilia duffel is not the team', $t_br('Nike Brasilia 9.5 Training Duffel Bag (Small, 41L) taska'), []);
+check('nor a Brasilia backpack', $t_br("Nike Brasilia JDI Kids' Mini Backpack (11L)"), []);
+check('nor one named only by size', $t_br('Nike Brasilia 9.5 MEDIUM - BLÁ'), []);
+check('nor a Brasilia æfingataska', $t_br('Nike Brasilia æfingataska'), []);
+check('a Brasilía jersey is the team', $t_br('Nike Brasilía Home Jersey 26 treyja'), ['brasilia']);
 check('short key inside a word does not match', $t('Nike Fherra peysa'), []);
 check('federation and club → both named', $t('KSÍ Valur treyja'), ['island-iceland', 'valur']);
 check('a team named twice counts once', $t('Liverpool treyja - Liverpool FC'), ['liverpool']);
