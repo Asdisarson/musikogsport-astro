@@ -17,18 +17,24 @@ const cellText = (el: Element) => (el.textContent ?? '').replace(/\s+/g, ' ').tr
 
 const readChart = (table: HTMLTableElement) => chartFromRows([...table.rows].map((tr) => [...tr.cells].map(cellText)));
 
-/** The page's charts: each <h4> with the tables up to the next heading. */
+/** The page's charts: each <h4> with the tables after it, up to the next heading of level 1 to 4. WordPress wraps
+ *  headings and tables in their own elements, so this walks the content once in document order rather than along
+ *  siblings: a table then belongs to the nearest heading before it, however either is wrapped. */
 export function splitSections(content: Element): Section[] {
-  const out: Section[] = [];
-  for (const h of content.querySelectorAll('h4')) {
-    const charts: Chart[] = [];
-    for (let n = h.nextElementSibling; n && !/^H[1-4]$/.test(n.tagName); n = n.nextElementSibling) {
-      const found = n.matches('table') ? [n as HTMLTableElement] : [...n.querySelectorAll('table')];
-      charts.push(...found.map(readChart).filter((c) => c.rows.length > 0));
+  const found: { heading: Element; charts: Chart[] }[] = [];
+  let open: { heading: Element; charts: Chart[] } | null = null;
+  for (const el of content.querySelectorAll('h1, h2, h3, h4, table')) {
+    if (el.matches('table')) {
+      const chart = readChart(el as HTMLTableElement);
+      if (open && chart.rows.length > 0) open.charts.push(chart);
+    } else if (el.matches('h4')) {
+      open = { heading: el, charts: [] };
+      found.push(open);
+    } else {
+      open = null; // a heading of a lower level ends the section, so its tables belong to no chart here
     }
-    if (charts.length) out.push({ heading: cellText(h), charts });
   }
-  return out;
+  return found.filter((s) => s.charts.length > 0).map((s) => ({ heading: cellText(s.heading), charts: s.charts }));
 }
 
 /** A table from cell text: the first row as an ink header, the first cell of each row as its row header. `mark`:

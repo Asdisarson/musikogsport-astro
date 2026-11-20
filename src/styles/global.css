@@ -1147,8 +1147,8 @@
   @media (prefers-reduced-motion: reduce) { .sizeguide[open] { animation: none; } }
   /* /staerdir/ (pages/staerdir.astro): the popup's chart cards down a page, each chart under its heading, at the
      popup's width, with no scrolling box; gathered by audience (Börn, Karlar, Konur), and the popup's pills on top
-     are links that jump to each audience. The WordPress tables they are drawn from stay in the page, shown only when the charts can't be
-     drawn (no JavaScript, or no chart found). */
+     are links that jump to each audience. The WordPress tables they are drawn from stay in the page, shown unless the
+     charts are drawn over them (no JavaScript, no chart found, or the page script never ran). */
   .sizeguide-page { max-width: calc(840px + 2 * var(--gutter)); padding-top: 32px; padding-bottom: 80px; }
   .sizeguide-page .sizeguide__tabs { margin-bottom: 40px; }
   .sizeguide-page a.sizeguide__tab { display: inline-flex; align-items: center; text-decoration: none; }
@@ -1157,8 +1157,11 @@
   .sizeguide__group-title { margin: 0 0 24px; font-family: var(--font-display); font-stretch: var(--display-stretch); font-weight: 600; font-size: 32px; line-height: 1; text-transform: uppercase; text-align: center; }
   .sizeguide-page .sizeguide__panel + .sizeguide__panel { margin-top: 56px; }
   .sizeguide-page .sizeguide__body { overflow: visible; padding: 0; }
-  .sizeguide-page__source { display: none; }
-  .sizeguide-page.is-plain .sizeguide-page__source { display: block; padding-top: 0; }
+  /* the WordPress tables are shown unless the charts are drawn over them (is-drawn), and held back only while the page
+     script is starting (is-pending): a page whose script never loads still reads as the WordPress page */
+  .sizeguide-page .sizeguide-page__source { padding-top: 0; }
+  .sizeguide-page.is-pending .sizeguide-page__source,
+  .sizeguide-page.is-drawn .sizeguide-page__source { display: none; }
   @media (max-width: 767px) {
     .sizeguide-page { padding-top: 24px; padding-bottom: 56px; }
     /* three short pills: centred in one row, where the popup's tabs scroll sideways */

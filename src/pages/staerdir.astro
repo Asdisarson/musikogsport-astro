@@ -30,14 +30,25 @@ else if (!page) Astro.response.status = 404;
         <h1 class="page-title">{page.title}</h1>
       </header>
       <div class="sizeguide-page container" data-sizeguide-page>
+        <script is:inline>
+          // Holds the WordPress tables back while the page script draws the charts, so a raw table never flashes
+          // before its chart. Added by a script, so with JavaScript off the tables simply show. The page script takes
+          // the class off when it is done; the DOMContentLoaded listener takes it off too when that script never ran
+          // (a deploy removed the file a cached page still asks for), so the tables are readable then instead.
+          (function () {
+            var root = document.currentScript && document.currentScript.parentElement;
+            if (!root) return;
+            root.classList.add('is-pending');
+            document.addEventListener('DOMContentLoaded', function () {
+              root.classList.remove('is-pending');
+            });
+          })();
+        </script>
         <nav class="sizeguide__tabs" aria-label="Stærðartöflur" data-sizeguide-tabs hidden />
         <div class="sizeguide__body" data-sizeguide-body />
         <div class="wp-page sizeguide-page__source" data-sizeguide-source>
           <WpContent rows={page.rows} />
         </div>
-        <noscript>
-          <style is:inline>.sizeguide-page__source { display: block; padding-top: 0; }</style>
-        </noscript>
       </div>
     </Base>
   ) : (
@@ -60,11 +71,13 @@ else if (!page) Astro.response.status = 404;
       const sections = splitSections(source);
       if (!sections.length) throw new Error('no charts');
       mountSizeGuide(tabs, body, 'staerdir').render(sections, '', { stacked: true });
+      root.classList.add('is-drawn'); // hides the WordPress tables the charts were drawn from
     } catch {
       tabs.hidden = true;
       body.replaceChildren();
-      root.classList.add('is-plain');
     }
+    // the tables show again when no chart was drawn: the page as written in WordPress
+    root.classList.remove('is-pending');
     // the charts are drawn after the browser looked for the address's #anchor: go there now
     const anchor = location.hash.slice(1);
     if (anchor) document.getElementById(anchor)?.scrollIntoView();
