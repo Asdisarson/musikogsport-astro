@@ -1006,7 +1006,6 @@
   .pdp-atc:disabled:not([aria-busy='true']) { background: var(--surface); color: var(--disabled-text); }
   .pdp-atc[aria-busy='true'] { opacity: 0.6; }
   .pdp-hint { margin: 8px 0 0; font-size: 16px; line-height: 24px; color: var(--text); text-align: center; }
-  .pdp-qty-note { margin: 8px 0 0; font-size: 15px; line-height: 22px; color: var(--text); }
   .pdp-qty button[aria-disabled='true'] { opacity: 0.35; cursor: not-allowed; }
   /* phones: a bottom bar with the name, the choice and "Setja í körfu", sliding up once a variation is picked
      while the form's own button is out of sight, closable with × until another is picked (ProductPurchase); above the store notice when that shows; the back-to-top button moves over it */

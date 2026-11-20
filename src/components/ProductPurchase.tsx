@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useStore } from '@nanostores/react';
 import { addToCart, cart, ensureLoaded, openCart } from '../lib/cartStore';
-import { cappedIds, inCartAmong, inCartQty, purchaseNote, remainingFor } from '../lib/cartQty';
+import { cappedIds, inCartAmong, inCartQty, remainingFor } from '../lib/cartQty';
 import { buyable, clampQty, stockLabel } from '../lib/livePrices';
 import { liveStore, productSoldOne, productStock, productStockMax, retryLive, startLive, withLive } from '../lib/liveStore';
 import { formatISK } from '../lib/format';
@@ -87,9 +87,6 @@ function StockLine({ state, stock, hasChoice }: { state: 'pending' | 'ready' | '
     </div>
   );
 }
-
-/** At or under this many left, the quiet line says how many are on stock. */
-const LOW_STOCK = 5;
 
 const Minus = () => (
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12h14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
@@ -236,7 +233,6 @@ export default function ProductPurchase({
   const limit = remaining === null ? null : Math.max(1, remaining);
   const addQty = limit === null ? qty : Math.min(qty, limit);
   const atMax = limit !== null && qty >= limit;
-  const note = purchaseNote({ cap, inCart, remaining, soldOne, atMax }, LOW_STOCK);
   // The cap moved under the counter (another variation, or the answer came in): hold the value under it.
   useEffect(() => {
     if (limit !== null && qty > limit) setQtyText(String(limit));
@@ -413,7 +409,6 @@ export default function ProductPurchase({
           Setja í körfu
         </button>
       </div>
-      {note && <p className="pdp-qty-note" aria-live="polite">{note}</p>}
       {hint && (
         <p className={`pdp-hint${nudged ? ' is-error' : ''}`} id={hintId} role={nudged ? 'alert' : undefined}>
           {hint}

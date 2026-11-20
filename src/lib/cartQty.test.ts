@@ -1,6 +1,6 @@
 // cartQty.ts: the cart line maximum and what the product page may still add. Pure, no browser.
 import { describe, expect, it } from 'vitest';
-import { cappedIds, clampLineQty, inCartAmong, inCartQty, lineMax, purchaseNote, remainingFor, stillAddable } from './cartQty';
+import { cappedIds, clampLineQty, inCartAmong, inCartQty, lineMax, remainingFor, stillAddable } from './cartQty';
 import type { CartItem } from './types';
 
 const line = (over: Partial<CartItem>): CartItem => ({ key: 'k', id: 5, quantity: 1, variation: [], ...over } as CartItem);
@@ -58,28 +58,6 @@ describe('stillAddable (the live cap less the cart)', () => {
   });
   it('no cap stays no cap', () => {
     expect(stillAddable(null, 5)).toBeNull();
-  });
-});
-
-describe('purchaseNote (the quiet line under the product counter)', () => {
-  const base = { cap: 10, inCart: 0, remaining: 10, soldOne: false, atMax: false };
-  it('no note with no cap, or a cap of 0 and nothing in the cart', () => {
-    expect(purchaseNote({ ...base, cap: null, remaining: null }, 5)).toBeNull();
-    expect(purchaseNote({ ...base, cap: 0, remaining: 0 }, 5)).toBeNull();
-  });
-  it('a low stock cap says how many are left', () => {
-    expect(purchaseNote({ ...base, cap: 3, remaining: 3 }, 5)).toBe('Aðeins 3 til á lager');
-  });
-  it('at the counter maximum: no extra note, only the low-stock line when the cap is low', () => {
-    expect(purchaseNote({ ...base, cap: 10, inCart: 2, remaining: 8, atMax: true }, 5)).toBeNull();
-    expect(purchaseNote({ ...base, cap: 3, remaining: 3, atMax: true }, 5)).toBe('Aðeins 3 til á lager');
-  });
-  it('nothing more addable: no note (the button is off)', () => {
-    expect(purchaseNote({ ...base, cap: 3, inCart: 5, remaining: 0 }, 5)).toBeNull();
-  });
-  it('sold individually: no note, in the cart or not', () => {
-    expect(purchaseNote({ cap: 1, inCart: 0, remaining: 1, soldOne: true, atMax: true }, 5)).toBeNull();
-    expect(purchaseNote({ cap: 1, inCart: 1, remaining: 0, soldOne: true, atMax: false }, 5)).toBeNull();
   });
 });
 

@@ -47,16 +47,3 @@ export function remainingFor(stockCap: number | null, stockInCart: number, soldO
   if (fromOne === null) return fromStock;
   return Math.min(fromStock, fromOne);
 }
-
-/** The quiet line under the product counter. Nothing when the cart already holds all there is (the button is off);
- *  it says "stock" only when the cap is a stock cap, never for sold individually. */
-export function purchaseNote(
-  s: { cap: number | null; inCart: number; remaining: number | null; soldOne: boolean; atMax: boolean },
-  lowStock: number,
-): string | null {
-  if (s.cap === null || s.cap < 1) return null;
-  if (s.remaining === 0) return null;
-  if (s.soldOne) return null;
-  if (s.cap <= lowStock) return `Aðeins ${s.cap} til á lager`;
-  return null;
-}
