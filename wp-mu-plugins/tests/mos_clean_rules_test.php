@@ -172,9 +172,27 @@ check('"pants" next to weather trousers decides nothing', $g("Didriksons Grand W
 check('ski pants named snjóbuxur decide nothing', $g('Tenson Grace Softshell Ski Pants snjóbuxur'), []);
 check('a shoe word in English next to the Icelandic one', $g('ADIDAS HANDBOLTASKÓR CRAZYFLIGHT 6 INDOOR SHOES'), ['handboltaskor-ithrottaskor']);
 check('ennisband', $g('Ennisband Stjarnan'), ['hufur-treflar']);
+// "Top" alone does not say bolur or peysa: staff file half of them each way (measured on the catalog, 2026-11-20).
+check('a bare top is left for a person', $g('Nike Academy Top'), []);
+check('a training top is left for a person', $g('Adidas Tiro 25 Essentials Training Top Kids - Grey'), []);
+check('a short-sleeve top is a bolur', $g('Nike Strike Mens Dri-FIT Short-Sleeve Football Top'), ['bolir-efri-likami']);
+check('a tank top is a bolur', $g('Nike Pro Womens Dri-FIT Cropped Tank Top'), ['bolir-efri-likami']);
+check('a cropped top is a bolur', $g('Nike Pro Womens Cropped Top'), ['bolir-efri-likami']);
+check('a sleeveless top is a bolur', $g('Nike One Womens Sleeveless Top'), ['bolir-efri-likami']);
+check('a long-sleeve top without a zip is a bolur', $g('Nike Mavn Girls Dri-FIT Ribbed Long-Sleeve Top'), ['bolir-efri-likami']);
+check('a zip top is a peysa', $g('Nike Swift Womens UV Protection 1/4-Zip Running Top'), ['peysur-efri-likami']);
+check('a long-sleeve zip top is a peysa', $g('Nike Pro Girls Dri-FIT Long-Sleeve 1/2-Zip Top'), ['peysur-efri-likami']);
+check('a half zip long sleeve is a peysa', $g('Casall Serene Half Zip Long Sleeve W Black'), ['peysur-efri-likami']);
+check('a zip running shirt is a peysa', $g('Nike Swift Dri-FIT UV 1/4-Zip long-sleeve running shirt'), ['peysur-efri-likami']);
+check('HZ is a half zip', $g('Nike Swift Element DF UV HZ Top Græn'), ['peysur-efri-likami']);
+check('a drill top is a peysa', $g('Nike Academy Mens Dri-FIT Soccer Drill Top'), ['peysur-efri-likami']);
+check('a zip does not turn trousers into a peysa', $g('Nike Unlimited Mens Dri-FIT Zip Cuff Versatile Trousers'), ['buxur-leggings']);
+check('a full-zip jacket is still a jacket', $g('Nike One Fitted Womens Dri-FIT Full-Zip Jacket'), ['yfirhafnir']);
+check('a full-zip hoodie is a peysa by its own word', $g('Nike Club Mens Full-Zip Fleece Hoodie'), ['peysur-efri-likami']);
+check('a plain tee is unchanged', $g('Nike Sportswear Tee'), ['bolir-efri-likami']);
 check('a low-top shoe is a shoe, not a top', $g('Nike Jr. Mercurial Vapor 16 Academy "Vini Jr." Big Kids Multi-Ground Low-Top Soccer Cleats'), ['skor']);
 check('a high-top with no other shoe word is a shoe too', $g('Nike Court Vision High Top Hvítir'), ['skor']);
-check('a football top is a top', $g('Nike Strike Mens Dri-FIT Football Drill Top Bleik'), ['bolir-efri-likami']);
+check('a football drill top is a peysa (staff file 22 of 24 so)', $g('Nike Strike Mens Dri-FIT Football Drill Top Bleik'), ['peysur-efri-likami']);
 check('a jersey-and-shorts kit names two garments', $g('Manchester United Home Jersey Shorts Mini Kit'), ['bolir-efri-likami', 'buxur-leggings']);
 check('a sports bra alone is a toppur', $g('Nike Swoosh Medium Support Bra'), ['topp-ur']);
 

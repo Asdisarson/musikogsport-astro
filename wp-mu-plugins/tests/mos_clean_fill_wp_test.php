@@ -25,6 +25,14 @@ $check('every garment rule points at a category the shop has', $missing === [], 
 $missing = array_values(array_filter(mos_clean_garment_type_slugs(), static fn ($s) => !get_term_by('slug', $s, 'product_cat') instanceof WP_Term));
 $check('every product-type category exists', $missing === [], implode(', ', $missing));
 
+// A category op whose fallback category is missing is skipped whole (the Didriksons fold was, on production, for a
+// fallback slug only an older copy of the catalog had).
+$missing = [];
+foreach (mos_clean_category_ops() as $op) {
+    if (isset($op['fallback']) && !get_term_by('slug', $op['fallback'], 'product_cat') instanceof WP_Term) { $missing[] = $op['fallback']; }
+}
+$check('every category op has its fallback category', $missing === [], implode(', ', $missing));
+
 $team_keys = mos_clean_team_keys();
 $check('a federation means the national team', ($team_keys['hsi'] ?? null) === 'island-iceland' && ($team_keys['ksi'] ?? null) === 'island-iceland');
 $check('a club is known by its name', ($team_keys['liverpool'] ?? null) === 'liverpool' && ($team_keys['manchesterunited'] ?? null) === 'manchester-united');

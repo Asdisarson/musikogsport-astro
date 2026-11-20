@@ -74,7 +74,7 @@ export const HIDDEN_SHOP_CATEGORY_SLUGS: ReadonlySet<string> = new Set([CARD_SAL
 /** Categories that are really a brand or a club, which the Vörumerki and Félag/Lið groups already cover, plus the
  *  HIDDEN_SHOP_CATEGORY_SLUGS buckets. The data rule (2026-10-26 tree): a category is a pseudo-category when
  *   - its slug is in HIDDEN_SHOP_CATEGORY_SLUGS (NETTILBOD), or
- *   - its name equals a product_brand term's name ("Didriksons", top level and again under Fatnaður as `vetur`), or
+ *   - its name equals a product_brand term's name ("Didriksons", top level and, until staff renamed it, again under Fatnaður as `vetur`), or
  *   - it is the clubs root `felag-lid` or anywhere under it, or
  *   - outside the `ithrott` (sports) subtree, its name equals a pa_felag-lid term's name ("Stjarnan", "FH") or ends
  *     with one as a whole word ("Fimleikafélagið Björk" → the club "Björk"). pa_felag-lid has stray terms, so a term

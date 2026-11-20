@@ -152,7 +152,7 @@ run and clear are refused and the page says so, and the page reloads while a run
     Run it again after uploading a copy whose normaliser changed (2026-11: "22/23" is the pair 22/23, no longer
     the typo "22 2/3"), so existing products are re-read.
   - **No WP-CLI on the host (Plesk):** `php bin/mos-cli.php mos-size reindex` (Scheduled Tasks → "Run a PHP script"
-    → Run Now; `--dry-run` writes nothing). `bin/mos-cli.php` runs every `mos-*` command this way (`mos-clean`, `mos-nav`, `mos-names`, `mos-size`), with the commands'
+    → Run Now; `--dry-run` writes nothing). `bin/mos-cli.php` runs these `mos-*` commands this way: `mos-clean`, `mos-nav`, `mos-names`, `mos-size` (not `mos-instagram`), with the commands'
     own code, and logs to `<home>/mos-cli-logs/`. From a root shell run it as the site's system user with the
     site's PHP (`sudo -u <site user> /opt/plesk/php/<version>/bin/php -c <the site's php.ini> -d memory_limit=1G
     bin/mos-cli.php <command> --wp=<WordPress folder>`). Plesk WP Toolkit's own `wp-cli` does not load WooCommerce,
@@ -188,7 +188,10 @@ run and clear are refused and the page says so, and the page reloads while a run
       "gervigrasskór" → Fótboltaskór, …), only for a product filed under no product-type category yet
       (`mos_clean_garment_type_slugs()`: theme categories like Liðafatnaður or Hlaup do not count, so team kit filed
       only there gets its garment; a product staff filed under Peysur keeps that). English describing words (tight,
-      top, long-sleeve, pants, jersey) count only when the name has no proper garment word. The sport then follows
+      long-sleeve, pants, jersey) count only when the name has no proper garment word. "Top" on its own files
+      nothing: staff file a top as a bolur and as a peysa about equally (the old "top is a bolur" agreed with them
+      on 67% of the production catalog). A tank, cropped, sleeveless or short-/long-sleeve top is a bolur, a drill
+      top is a peysa, and a zip ("1/4-Zip", "Half Zip", "HZ") makes a top or shirt a peysa. The sport then follows
       from the garment in the same pass (football shoes → Fótbolti). A jacket and a vest are outerwear
       (Yfirhafnir; the owner's decisions, 2026-11-20), except a "hlaupavesti" (a drink pack as often as a garment)
       and an "æfingavesti" (a bib): a name with one gets no garment at all. A galli is filed two ways by staff, so
@@ -260,7 +263,7 @@ run and clear are refused and the page says so, and the page reloads while a run
   - Local run 2026-11-20: 1,376 of 3,782 names changed (1,310 capitals, 50 spaces, 15 repeats, 1 Dri-FIT) and the
     6,239 variation titles under them; two drafts without a slug got one from their old name; no SKU and no
     existing slug changed. Production run 2026-11-20: 1,804 of 4,423 names and the variation titles under them
-    (10,281 titles in all, 12 minutes), 4,623 products marked; checked against the dump taken before it: no SKU,
+    (10,281 titles in all, 12 minutes), 4,623 products marked (the 4,423 plus the 200 in the bin); checked against the dump taken before it: no SKU,
     no status and no existing slug changed (two drafts without a slug got one).
   - The journal folder gets a deny-all `.htaccess`, which nginx ignores where it serves `/wp-content/uploads/`
     itself (production): block `/wp-content/uploads/mos-names/` in the server config, or move the journal out of
