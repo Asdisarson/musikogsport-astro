@@ -218,7 +218,11 @@ function mos_clean_team_rules(): array {
         ],
         'skip' => ['messi', 'euro24', 'musiksport', 'keflavik-2',
             'fotbolti', 'korfubolti', 'korfuboltabolur', 'fimleikabolur-blar', 'fimleikbolur-bleikur', 'argentina-treyja'],
-        'deny' => ['chelsea' => ['/^boots?$/', '/stigvel$/']],
+        'deny' => [
+            'chelsea' => ['/^boots?$/', '/stigvel$/'],
+            // Nike's "Brasilia" bags: a bag word, the line's version number or a size, never the national team.
+            'brasilia' => ['/task(a|an)$/', '/tosk(u|ur)$/', '/^bag$/', '/^backpack$/', '/bakpok/', '/^duff(el|le|l)$/', '/^jdi$/', '/^9$/', '/^(small|medium|large|mini)$/'],
+        ],
     ];
 }
 
