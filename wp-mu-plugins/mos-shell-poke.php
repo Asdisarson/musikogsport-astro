@@ -142,13 +142,56 @@ function mos_shell_poke_visibility_change(string $old, string $new): ?string {
     return null;
 }
 
-/** Queue a poke for the end of this request. */
+/** When the queued poke is sent: on 'shutdown', after the catalog fill (mos-catalog-clean.php, one lower) has written what
+ *  the storefront will read, and before the size index (PHP_INT_MAX). */
+const MOS_SHELL_POKE_FLUSH_PRIORITY = PHP_INT_MAX - 2;
+
+/** The most late flushes one request may run (a poke queued after the shutdown flush). Each one sends what was queued
+ *  since the last, so a request that keeps queuing is cut off here rather than looping. */
+const MOS_SHELL_POKE_LATE_MAX = 5;
+
+/** Whether a late flush must be registered for a poke queued after the shutdown flush already ran: it ran, none is
+ *  waiting, and fewer than MOS_SHELL_POKE_LATE_MAX have run. Pure. */
+function mos_shell_poke_late_due(bool $flushed, bool $pending, int $runs): bool {
+    return $flushed && !$pending && $runs < MOS_SHELL_POKE_LATE_MAX;
+}
+
+/** Whether a flush registered now would never run: 'shutdown' is already at or past the flush's priority (null: not in
+ *  shutdown) and no flush is waiting there. WordPress does not go back to a priority it has passed. Pure. */
+function mos_shell_poke_flush_missed(?int $shutdown_priority, bool $registered): bool {
+    return $shutdown_priority !== null && $shutdown_priority >= MOS_SHELL_POKE_FLUSH_PRIORITY && !$registered;
+}
+
+/** The priority 'shutdown' is running at right now, or null outside it. */
+function mos_shell_poke_shutdown_priority(): ?int {
+    if (!function_exists('doing_action') || !doing_action('shutdown')) { return null; }
+    $hook = $GLOBALS['wp_filter']['shutdown'] ?? null;
+    $priority = $hook instanceof WP_Hook ? $hook->current_priority() : false;
+    return is_int($priority) ? $priority : null;
+}
+
+/** Queue a poke for the end of this request. A poke queued after the shutdown flush has run (or after its priority has
+ *  passed) is sent by a late flush: WordPress does not run a shutdown priority it has already passed, so that case goes
+ *  on PHP's own shutdown list instead. One late flush sends everything queued before it runs, so a bulk save is still
+ *  one POST, not one per product. */
 function mos_shell_poke_queue(array $stale, array $drop, bool $listings): void {
-    if (empty($GLOBALS['mos_shell_poke'])) {
-        $GLOBALS['mos_shell_poke'] = ['stale' => [], 'drop' => [], 'listings' => false];
-        if (!has_action('shutdown', 'mos_shell_poke_flush')) { add_action('shutdown', 'mos_shell_poke_flush', PHP_INT_MAX - 2); }
+    $registered = has_action('shutdown', 'mos_shell_poke_flush') !== false;
+    $late = !empty($GLOBALS['mos_shell_poke_flushed']) || mos_shell_poke_flush_missed(mos_shell_poke_shutdown_priority(), $registered);
+    if (!$late) {
+        if (!$registered) { add_action('shutdown', 'mos_shell_poke_flush', MOS_SHELL_POKE_FLUSH_PRIORITY); }
+    } elseif (empty($GLOBALS['mos_shell_poke_late_pending'])) {
+        $runs = (int) ($GLOBALS['mos_shell_poke_late_runs'] ?? 0);
+        if (mos_shell_poke_late_due(true, false, $runs)) {
+            $GLOBALS['mos_shell_poke_late_pending'] = true;
+            $GLOBALS['mos_shell_poke_late_runs'] = $runs + 1;
+            register_shutdown_function('mos_shell_poke_flush_late');
+        } elseif (empty($GLOBALS['mos_shell_poke_late_logged'])) {
+            // Said once per request, however many pokes follow: nothing sends them.
+            $GLOBALS['mos_shell_poke_late_logged'] = true;
+            error_log('[mos-shell-poke] pokes queued after ' . MOS_SHELL_POKE_LATE_MAX . ' late flushes are not sent: those pages stay as they were for now');
+        }
     }
-    $GLOBALS['mos_shell_poke'] = mos_shell_poke_merge($GLOBALS['mos_shell_poke'], $stale, $drop, $listings);
+    $GLOBALS['mos_shell_poke'] = mos_shell_poke_merge($GLOBALS['mos_shell_poke'] ?? [], $stale, $drop, $listings);
 }
 
 /** The paths of a 429 answer that the storefront did not apply: a poke cut short by its budget applies what it can and
@@ -220,6 +263,7 @@ function mos_shell_poke_resend_queue(array $waiting, array $more, int $cap): arr
  *  429 for a partly applied poke too, so that is not a failure. The resend is one cron event over a small queue, never
  *  a wait in this request: a sleeping PHP worker per refused poke could use up the pool during a bulk edit. */
 function mos_shell_poke_flush(): void {
+    $GLOBALS['mos_shell_poke_flushed'] = true;   // a poke queued from now on needs a late flush (mos_shell_poke_queue)
     $q = $GLOBALS['mos_shell_poke'] ?? null;
     $GLOBALS['mos_shell_poke'] = null;
     if (!$q) { return; }
@@ -246,6 +290,12 @@ function mos_shell_poke_flush(): void {
         }
     }
     if ($resend) { mos_shell_poke_resend_later($resend, $after); }
+}
+
+/** The late flush (PHP's shutdown list, see mos_shell_poke_queue): sends what was queued after the shutdown flush. */
+function mos_shell_poke_flush_late(): void {
+    $GLOBALS['mos_shell_poke_late_pending'] = false;
+    mos_shell_poke_flush();
 }
 
 /** Keeps the refused bodies for the one resend and makes sure its cron event is queued, after the longest Retry-After
@@ -338,6 +388,19 @@ add_action('woocommerce_update_product', static fn ($id) => mos_shell_poke_saved
 add_action('wp_trash_post', static fn ($id) => mos_shell_poke_gone((int) $id));
 add_action('before_delete_post', static fn ($id) => mos_shell_poke_gone((int) $id));
 add_action('mos_shell_poke_resend', 'mos_shell_poke_resend');
+
+/** Products that the catalog plugin filled (mos-catalog-clean.php, do_action 'mos_clean_filled'). A brand-only fill writes
+ *  its terms with wp_set_object_terms() and no WooCommerce save, so nothing else would announce it. A product a save
+ *  already queued is the same path, which the queue keeps once. */
+function mos_shell_poke_filled(array $ids): void {
+    $paths = [];
+    foreach ($ids as $id) {
+        $path = mos_shell_poke_path_of((int) $id);
+        if ($path !== null) { $paths[] = $path; }
+    }
+    if ($paths) { mos_shell_poke_queue($paths, [], true); }
+}
+add_action('mos_clean_filled', 'mos_shell_poke_filled', 10, 1);
 /** A product that becomes visible without a WooCommerce save: a scheduled one going live (WP-Cron's wp_publish_post writes
  *  the status itself and never runs the product save hooks), or a draft or pending one published. Its page and the
  *  listings are stale. The path is taken from the post as it now is (its new status), not from the capture that a later

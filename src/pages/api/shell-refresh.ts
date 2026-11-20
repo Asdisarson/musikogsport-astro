@@ -6,6 +6,7 @@ import { parseShellPoke, pokeKeyMatches, readCappedBody } from '../../lib/shellP
 import { dropPage, invalidateListings, invalidatePaths, invalidateProducts, knowsPath } from '../../lib/shellRuntime';
 import { forgetAllProducts, forgetProduct, productCached } from '../../lib/woo';
 import { forgetAllGrids } from '../../lib/storeCatalog';
+import { refreshCatalogTerms } from '../../lib/catalogTerms';
 import { visitorKey } from '../../lib/visitor';
 
 export const prerender = false;
@@ -30,6 +31,30 @@ const pathsByAddress = createLimiter(300, 60_000);
 const anonRequests = createLimiter(300, 60_000);
 const BROAD_EVERY_MS = 5 * 60_000;
 let lastListings = -Infinity;
+// The term lists (categories, brands, teams, sizes) are reloaded after an applied poke, at most once per 30 seconds per
+// process: a bulk run of 20 pokes costs one sweep now and one when the 30 seconds end. Its own window, not the listings
+// one above.
+const TERMS_EVERY_MS = 30_000;
+let lastTermsReload = -Infinity;
+let termsReload: ReturnType<typeof setTimeout> | null = null;
+
+/** A saved product can bring a team, brand, size or colour the filter has no option for yet, and the term lists are
+ *  what offer it: they are reloaded, after this request's answer, and no sooner than 30 seconds after the last reload.
+ *  A poke that arrives while one is waiting is covered by it (the reload reads WordPress after that save too), so the
+ *  last save of a burst is never left out. When the options did change, the listings are marked once more: a page
+ *  rendered between the poke and the end of the reload was built from the previous lists. */
+function reloadTermsSoon(): void {
+  if (termsReload) return;
+  termsReload = setTimeout(() => {
+    termsReload = null;
+    lastTermsReload = Date.now();
+    refreshCatalogTerms()
+      .then((changed) => (changed ? invalidateListings() : false))
+      .catch((err: unknown) => log.warn('[shell] term lists not reloaded', { err }));
+    // Never longer than the window itself: a system clock set back must not put the next reload hours away.
+  }, Math.min(TERMS_EVERY_MS, Math.max(0, lastTermsReload + TERMS_EVERY_MS - Date.now())));
+  termsReload.unref?.(); // never what keeps the process alive
+}
 // Set while an unkeyed listings mark is being applied, so two requests cannot both pass the window check.
 let listingsBusy = false;
 const refused = { count: 0, lastLog: -Infinity };
@@ -166,6 +191,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     // A poke that applies nothing (no path, no forget, no listings) is refused whole, and then it does not use up the window.
     if (untaken.length > 0 && stale.length + drop.length + forget.length === 0 && !listingsOk) return budgetRefused(untaken);
   }
+  // Here, after the refusals above, so a poke that is turned away reloads nothing; and only for a poke that says something
+  // changed (a path, the listings, the products), so an empty body costs WordPress no sweep. The listings mark counts as
+  // asked for, not as granted: its five-minute window is not what a new filter option waits for.
+  if (forget.length > 0 || poke.listings || productsOk) reloadTermsSoon();
   // The cached product and grids go before any mark or drop is set: a render that reads the cache from here on sees the
   // change WordPress has already saved. Unkeyed, this comes after the store lookup above, and forgets the cached product
   // of a path the store holds or whose product is cached (a path neither holds costs nothing); it still comes before

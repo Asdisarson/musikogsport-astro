@@ -147,5 +147,20 @@ check('resend queue: a body that alone is over the cap is left out', mos_shell_p
 check('resend queue: entries that are not bodies are dropped', mos_shell_poke_resend_queue(['aa', 3, '', null], ['bb'], 100), ['aa', 'bb']);
 check('resend queue: the same body is kept once', mos_shell_poke_resend_queue(['aa'], ['aa', 'bb'], 100), ['aa', 'bb']);
 
+// A poke queued after the shutdown flush already ran (a fill or a save at the very end of the request) is not lost:
+// one late flush is registered for it, once, and the number of late flushes is capped so no loop is possible.
+check('nothing flushed yet: no late flush (the shutdown flush will send it)', mos_shell_poke_late_due(false, false, 0), false);
+check('flushed, nothing pending: a late flush is due', mos_shell_poke_late_due(true, false, 0), true);
+check('flushed and a late flush is already pending: no second one', mos_shell_poke_late_due(true, true, 1), false);
+check('the late flushes are capped (no loop)', mos_shell_poke_late_due(true, false, MOS_SHELL_POKE_LATE_MAX), false);
+check('one below the cap still gets one', mos_shell_poke_late_due(true, false, MOS_SHELL_POKE_LATE_MAX - 1), true);
+// A poke queued while 'shutdown' is already running past the flush's priority (from a callback that runs after it, in a
+// request where nothing was queued before) would register a flush WordPress never runs: that is "missed", and late too.
+check('not in shutdown: the flush hook will run', mos_shell_poke_flush_missed(null, false), false);
+check('shutdown, before the flush priority: the hook will run', mos_shell_poke_flush_missed(MOS_SHELL_POKE_FLUSH_PRIORITY - 1, false), false);
+check('shutdown, past the flush priority, no flush registered: missed', mos_shell_poke_flush_missed(PHP_INT_MAX, false), true);
+check('shutdown, at the flush priority, no flush registered: missed', mos_shell_poke_flush_missed(MOS_SHELL_POKE_FLUSH_PRIORITY, false), true);
+check('shutdown, at the flush priority, flush registered and still to run: not missed', mos_shell_poke_flush_missed(MOS_SHELL_POKE_FLUSH_PRIORITY, true), false);
+
 printf("%d passed, %d failed\n", $pass, $fail);
 exit($fail === 0 ? 0 : 1);

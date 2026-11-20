@@ -7,7 +7,7 @@ export interface Loaded<T> {
   degraded: boolean;
 }
 
-export type CachedLoader<T> = (() => Promise<Loaded<T>>) & { refresh: () => Promise<boolean> };
+export type CachedLoader<T> = (() => Promise<Loaded<T>>) & { refresh: () => Promise<boolean>; peek: () => T | null };
 
 /** One cached value with a TTL (stale-while-revalidate). A stale value is served at once while a single
  *  background refresh runs; concurrent cold callers share one load. A failed load, cold or warm, is
@@ -15,7 +15,9 @@ export type CachedLoader<T> = (() => Promise<Loaded<T>>) & { refresh: () => Prom
  *  ever loaded the result is `degraded`.
  *  `.refresh()` loads now whatever the value's age (the caller knows the source changed) and resolves to whether
  *  that load succeeded; a failed one keeps the last good value like any other. A load already running is waited
- *  out first, since it may have read before the change. */
+ *  out first, since it may have read before the change.
+ *  `.peek()` is the value held right now, however old (null: none yet), for a caller that must not wait on WordPress:
+ *  it starts no load. */
 export function createCachedLoader<T>(opts: {
   load: () => Promise<T>;
   ttlMs: number;
@@ -66,6 +68,7 @@ export function createCachedLoader<T>(opts: {
       await refresh();
       return failedAt === null;
     },
+    peek: () => cached?.value ?? null,
   });
 }
 

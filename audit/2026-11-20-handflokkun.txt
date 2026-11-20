@@ -1,0 +1,101 @@
+Handflokkun 20.11.2026 (staðbundið): 98 drög úr Óflokkað sett í vöruflokk sem þegar er til. Allar eru áfram drög.
+Dálkar: VISS/VAFI, vörunúmer í kerfi, vöruflokkur, heiti, staða.
+
+VISS	241469	Hlaupa & æfingarskór	Adidas 22 C.RDY II W	draft
+VISS	258933	Hlaupa & æfingarskór	Adidas Adizero SL W	draft
+VISS	258961	Hlaupa & æfingarskór	Adidas Solar Glide 6 M	draft
+VISS	258965	Hlaupa & æfingarskór	Adidas Solar Glide 6 M – Grár	draft
+VAFI	259265	Hlaupa & æfingarskór	Adidas Terrex Agravic Boa K Jr	draft
+VISS	241484	Hlaupa & æfingarskór	Adidas Two Terrex Ultra Primeblue blár	draft
+VISS	241493	Hlaupa & æfingarskór	Adidas Two Ultra Primeblue fjólubláir	draft
+VISS	264868	Hlaupa & æfingarskór	Hoka M Speedgoat 7	draft
+VISS	264861	Hlaupa & æfingarskór	Hoka W Speedgoat 7	draft
+VISS	257734	Hlaupa & æfingarskór	Nike M Air Max Alpha Trainer 6	draft
+VAFI	254473	Hlaupa & æfingarskór	Nike Promina Mens	draft
+VISS	222903	Hlaupa & æfingarskór	Nike Revolution 7	draft
+VISS	257597	Hlaupa & æfingarskór	Nike Structure 26	draft
+VISS	264847	Strigaskór	Nike P-6000	draft
+VAFI	255520	Inniskór	Teva Terra Leður Brúnn	draft
+VAFI	227371	Sokkar & nærfatnaður	Adidas Performance Climacool Thin and Light Low	draft
+VAFI	227368	Sokkar & nærfatnaður	Adidas Performance Climacool Thin and Light Low	draft
+VAFI	225908	Peysur	Casall Refine Training Jacket Dark Pine	draft
+VAFI	240918	Peysur	Casall Soft Touch Zip Jacket Svartur	draft
+VAFI	264306	Peysur	Nike One Fitted Womens Dri-FIT Full-Zip Jacket	draft
+VAFI	264322	Peysur	Nike One Fitted Womens Dri-FIT Full-Zip Jacket Grey	draft
+VAFI	257750	Peysur	Didriksons Exa Kids FZ 3 Wilded Leaf 120-170	draft
+VAFI	257815	Peysur	Didriksons Monte Kids Heather Pink	draft
+VISS	262172	Yfirhafnir	Didriksons Varja WNS JKT 2 Ash Brown 36-48	draft
+VISS	262164	Yfirhafnir	Didriksons Varja WNS JKT 2 Black 36-48	draft
+VISS	211146	Yfirhafnir	Dynamic Windbreaker Jacket – Black	draft
+VISS	258847	Yfirhafnir	Nike Sportswear Windrunner Big Kids Hooded Repel Jacket	draft
+VISS	256106	Yfirhafnir	Nike Swift Womens Repel Packable Running Jacket	draft
+VAFI	258193	Yfirhafnir	Nike Tempo Womens Repel Warm Running Vest	draft
+VAFI	258547	Yfirhafnir	Nike Tempo Womens Repel Warm Running Vest	draft
+VAFI	234234	Yfirhafnir	Nike WMNS Retro Jacket Svartur	draft
+VISS	248124	Yfirhafnir	Tenson TXlite DownVest KVK Blue Grey	draft
+VISS	248127	Yfirhafnir	Tenson Xlite Down Jacket KVK Blue Grey	draft
+VAFI	261680	Buxur & leggings	Adidas Vindbuxur Barna	draft
+VAFI	229179	Bolir	Erling Haaland Academy Big Kids Dri-FIT	draft
+VISS	223034	Buxur & leggings	M NK TCH FLC JGGR	draft
+VISS	258871	Peysur	Nike Dri-FIT Swift Element UV Womens 1/4-Zip	draft
+VISS	248134	Peysur	Nike Element Crew KVK Grey	draft
+VISS	263694	Buxur & leggings	Nike Phoenix Fleece Womens Track Pant Svartar	draft
+VAFI	258919	Bolir	Nike Primary NanoKnit Dri-FIT UV Mens	draft
+VISS	258810	Buxur & leggings	Nike Primary NanoKnit Mens Dri-FIT UV Protection Performance Jogging Bottoms	draft
+VISS	258394	Buxur & leggings	Nike Primary NanoKnit Mens Dri-FIT UV Protection Performance Jogging Bottoms	draft
+VISS	258388	Buxur & leggings	Nike Primary NanoKnit Mens Dri-FIT UV Protection Performance Jogging Bottoms	draft
+VISS	258143	Bolir	Nike Pro Mens Dri-FIT Tight Long-Sleeve Fitness Top	draft
+VISS	257556	Peysur	Nike Sportswear Phoenix Fleece Womens 1/4-Zip	draft
+VAFI	261597	Peysur	Nike Swift Element Kvenna Blá	draft
+VAFI	238677	Peysur	Nike WMNS Element Græn	draft
+VISS	254584	Bolir	Nike Womens Long Sleeved Rib	draft
+VISS	234201	Bolir	Nike Zenvy Longsleeved Purple	draft
+VISS	264300	Buxur & leggings	Nike Golf Club Womens Dri-FIT Flouncy Golf Skirt	draft
+VISS	245697	Regn- og vetrarfatnaður	Didriksons Rusk Kids Set Bleikt	draft
+VISS	245701	Regn- og vetrarfatnaður	Didriksons Rusk Kids Set Bleikt/Svart	draft
+VAFI	240384	Peysur	JY3470	draft
+VAFI	225860	Peysur	Nike Baby Footed Coverall	draft
+VAFI	261212	Peysur	Nike Club Fleece Set Baby 2-Piece Set	draft
+VISS	227938	Sundfatnaður	ALV LLINE BK 1PC JF Purple	draft
+VISS	228132	Sundfatnaður	PT PLMT PWRBCK JF Blue	draft
+VISS	238291	Sundfatnaður	Arena Armkútar Bleikir	draft
+VISS	235358	Sundfatnaður	Arena Blöðkur Stuttar	draft
+VISS	238268	Sundfatnaður	Arena Earplug Pro	draft
+VISS	255834	Sundfatnaður	Arena The One / ClearGreyWhite	draft
+VISS	245660	Sundfatnaður	Arena The One Junior Rauð	draft
+VISS	255835	Sundfatnaður	Arena The One Mirror / Silver-Black	draft
+VISS	238275	Sundfatnaður	Speedo Aquatic Mitts	draft
+VISS	238285	Sundfatnaður	Speedo Bubble Active Cap	draft
+VISS	238274	Sundfatnaður	Speedo Competition Noseclip	draft
+VISS	238281	Sundfatnaður	Speedo Long Hair Cap	draft
+VISS	238295	Sundfatnaður	Speedo Luchadore Kids Cap	draft
+VISS	259004	Sundfatnaður	Speedo Tech Paddles	draft
+VISS	238272	Sundfatnaður	TYR 12PK Youth Earplugs	draft
+VAFI	226751	Húfur & treflar	as-eband-jr-blatt	draft
+VISS	248965	Húfur & treflar	Kivat basic án dúska – purple	draft
+VISS	225807	Húfur & treflar	Kivat Rib brún án dúska	draft
+VISS	226118	Húfur & treflar	Nike headbandÞykkt Svart	draft
+VAFI	253979	Æfingabúnaður	Dartsett Martijn Kleerm Shell Orange 21g	draft
+VAFI	253980	Æfingabúnaður	Dartsett Maximiser 21gr	draft
+VAFI	253978	Æfingabúnaður	Dartsett Roulette Chromed Brass 22g	draft
+VAFI	253981	Æfingabúnaður	Dartsett Tarantula brass 24g	draft
+VAFI	253982	Æfingabúnaður	Mini píluspjald Unicorn	draft
+VAFI	253983	Æfingabúnaður	Píluspjald UPL Eclipse pro2	draft
+VAFI	238908	Æfingabúnaður	Rucanor Borðtennisboltar Graphic	draft
+VAFI	238909	Æfingabúnaður	Rucanor Borðtennisboltar Hvítir	draft
+VISS	226054	Brúsar	Stanley Dökkbleikur	draft
+VISS	226053	Brúsar	Stanley Hvítur	draft
+VISS	226051	Brúsar	Stanley Ljósbleikur	draft
+VISS	226052	Brúsar	Stanley Svartur	draft
+VISS	234465	Boltar, legghlífar & markmannshanskar	6	draft
+VAFI	226055	Æfingabúnaður	Compress Hlífar Svartar	draft
+VISS	254682	Fimleikar	Fimleikaslá	draft
+VAFI	226048	Boltar, legghlífar & markmannshanskar	GloveGlue	draft
+VAFI	226049	Boltar, legghlífar & markmannshanskar	GloveWash	draft
+VAFI	226045	Æfingabúnaður	Hand Warmers	draft
+VISS	255790	Æfingabúnaður	Harpix Klístur 500 ML	draft
+VAFI	264161	Æfingabúnaður	Hjólalás Pro Keðja	draft
+VISS	236852	Sokkar & nærfatnaður	Nike Strike Sleeve Hvítar – 34-42	draft
+VAFI	248966	Æfingabúnaður	Rucanor Punghlíf	draft
+VISS	237089	Æfingabúnaður	Sólgleraugu svört	draft
+VAFI	236323	Sokkar & nærfatnaður	TapeDesign fullorðins	draft

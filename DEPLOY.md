@@ -545,7 +545,7 @@ carriers put many phones behind one address (CGNAT).
 | `GET /api/order` | 20 **misses** / 15 min (a found order gives its slot back, so the thank-you poll is never limited) |
 | `/api/live` and `/api/live/product/<id>/` | 120 requests per minute per visitor (429 with Retry-After). Process-wide: 600 upstream calls per minute across both routes (one call can make up to five WooCommerce requests, for a variable product's variations; 503 with Retry-After 60 and no-store when spent; cards stay neutral, the product page shows its retry state; one warning per minute in the log). |
 | `GET /img/<width>/<format>/…` (AVIF or WebP conversion of a media photo) | 60 **cache misses** / min per visitor, a kept file costs nothing. A miss is never waited for: it gets a 302 to the original on the media host (`no-store`) at once, and the conversion runs in the background, at most 2 at once per process with 40 waiting. Past the visitor's 60, or with the queue full, the 302 is still sent and no conversion starts. |
-| `POST /api/shell-refresh` (WordPress's "a product was saved" poke) | With `MOS_SHELL_POKE_KEY` set: 600 / min for the whole process, any other caller is refused (403), and a bulk "every product" mark is honoured. Without it (set the key in production): 300 requests a minute per address, counted before the body is read; then 300 **path slots** a minute per address, taken before any store lookup, so junk paths cost only their own address's share. Only a path the store knows (a stored page, or a render waiting for it) also spends the shared pool of 600 a minute for the whole process, forgets its cached product and is marked or dropped; any other path costs nothing shared. A poke cut short by a budget applies the paths it could take and answers 429 with `Retry-After: 60` and `{message, untaken}`, the list of paths it did not apply, so the sender can resend exactly those. A poke that applies nothing is refused whole. An empty poke costs one slot. The bulk mark is refused (WordPress then sends bulk changes in batches of 50, at most 20 per change). A listings mark is honoured once in five minutes, and that window starts only once the mark is applied. Refusals are counted and logged once a minute (`shell poke refused`), never with their paths. A body over 16 KB is refused before it is read. |
+| `POST /api/shell-refresh` (WordPress's "a product was saved" poke) | With `MOS_SHELL_POKE_KEY` set: 600 / min for the whole process, any other caller is refused (403), and a bulk "every product" mark is honoured. Without it (set the key in production): 300 requests a minute per address, counted before the body is read; then 300 **path slots** a minute per address, taken before any store lookup, so junk paths cost only their own address's share. Only a path the store knows (a stored page, or a render waiting for it) also spends the shared pool of 600 a minute for the whole process, forgets its cached product and is marked or dropped; any other path costs nothing shared. A poke cut short by a budget applies the paths it could take and answers 429 with `Retry-After: 60` and `{message, untaken}`, the list of paths it did not apply, so the sender can resend exactly those. A poke that applies nothing is refused whole. An empty poke costs one slot. The bulk mark is refused (WordPress then sends bulk changes in batches of 50, at most 20 per change). A listings mark is honoured once in five minutes, and that window starts only once the mark is applied. Refusals are counted and logged once a minute (`shell poke refused`), never with their paths. A body over 16 KB is refused before it is read. An applied poke also reloads the filter's term lists (categories, brands, teams, sizes): at once, then at most once per 30 seconds per process, so a new team or brand is an option without waiting out the lists' 10 minutes; when the options changed, the listings are marked stale once more. |
 | Filtered listings | Not per visitor: cold Store API count requests (`collection-data`) are capped at 240 a minute per process. Past that, listings render without option counts (or with stale ones) instead of asking WordPress; the product grid is unaffected. |
 | Stock-filtered listings (`?lager=1`) | Not per visitor: a new read of the stock-filtered grid is capped at 120 a minute per process. Past that the listing answers 503 with `Retry-After: 30` and `no-store`; joining a read already in flight costs nothing. |
 | `GET /api/search/suggest` | 120 / min per visitor (429 with Retry-After) |
@@ -641,13 +641,20 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    it before cutover is safe; the others act at once but only add routes, fields and the wp-admin "Stillingar" page.
    `mos-shell-poke.php` and `mos-shell-admin.php` changed in the latest round (a scheduled product going live pokes, and
    the Síðugeymsla page reports a clear that left files behind): copy them again where a copy is already installed.
+   `mos-catalog-clean.php` and `mos-shell-poke.php` changed again on 2026-11-20 (team, garment and brand from the
+   product name; the fill now runs before the poke): copy both, together, and deploy the storefront first (it reloads
+   the filter's term lists on a poke and sends old `?team=hsi` links on).
 3. **Size index backfill**: `wp mos-size reindex` (seconds; rerunnable). Until it runs, size filters match nothing.
    Check: it prints per-group counts, and
    `curl -s 'https://<wp-host>/wp-json/wc/store/v1/products/collection-data?mos_size_counts=1' | jq '.mos_size_counts | length'`
    is above 0.
-3b. **Catalog clean-up** (writes product data; the filters' brand, gender, sport and colour coverage depends on it):
-   `wp db export pre-mos-clean.sql`, then `wp mos-clean preview` (writes nothing: read the term changes, the skipped
-   variation products and the coverage), then `wp mos-clean apply` (a few minutes; one run is enough). Keep the
+3b. **Catalog clean-up** (writes product data; the filters' brand, gender, sport, colour, team and garment coverage
+   depends on it): `wp db export <a path outside the web root>/pre-mos-clean.sql` (the dump holds orders and
+   customers), then `wp mos-clean preview --samples=all` (writes nothing: read the term changes, the skipped
+   variation products, every team, garment and brand it would set, the conflicts, the suspects and the coverage;
+   the numbers will differ from the local run of 2026-11-20), then `wp mos-clean apply` (a few minutes; one run is
+   enough). Check first that `MOS_SHELL_POKE_KEY` is defined on both sides: without it a run that changes more than
+   1000 pages cannot tell the storefront about all of them. Keep the
    journal it names (`wp-content/uploads/mos-clean/journal-<time>-<random>.json`): `wp mos-clean restore <journal>`
    undoes that run (not later save-time fills; the SQL export covers those). The folder gets an `.htaccess` deny;
    on nginx, block `/wp-content/uploads/mos-clean/` in the server config (or move the journal off the server). From then on new and edited products are filled
@@ -657,11 +664,29 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    Boltar and Félag/lið merge into Æfingavörur › Boltar and Liðafatnaður, Sumar moves under Æfingavörur, empty
    categories go. The storefront 301s every removed category URL (`MOVED_CATEGORIES` in `src/lib/paths.ts`), so
    deploy the storefront first or together.
-   Check: a second `wp mos-clean preview` sets 0 brand/gender/sport/colour and lists no category changes, and
-   `python3 wp-mu-plugins/tests/store_api_colour_test.py https://<wp-host>` passes.
+   The apply of 2026-11-20 also merges the team "HSÍ" into "Ísland" (`mos_clean_term_ops`): HSÍ leaves the Félag/Lið
+   filter, and the storefront sends `?team=hsi` on to `?team=island-iceland` once the term is gone (`MOVED_TEAMS`
+   in `src/lib/paths.ts`). Run 3c after it, or the menu keeps a link to a team that no longer exists.
+   `apply` also takes the default category (Óflokkað) off every product filed under a product-type category.
+   Check: a second `wp mos-clean preview` sets 0 on all six fields (brand, gender, sport, colour, team, garment) and
+   lists no term or category changes except the lines "skipped: … used for variations" (those stay, by design;
+   conflicts and suspects are still listed, they are for a person), and
+   `python3 wp-mu-plugins/tests/store_api_colour_test.py https://<wp-host>` and
+   `python3 wp-mu-plugins/tests/store_api_team_test.py https://<wp-host>` pass.
+3b-2. **Product names** (optional; writes `post_title` only, never a SKU or an existing link; the owner asks for it
+   in so many words). Upload `mos-product-names.php`, export the database outside the web root, then
+   `wp mos-names preview > names.tsv` and have the owner read it (old and new name side by side). Then
+   `wp mos-names apply` (keep the journal it names; `wp mos-names restore <journal>` puts the names back), and
+   `curl -X POST https://<storefront>/api/content-refresh` so the pages are re-rendered. From then on a new product's
+   name is tidied once, on its first save. To switch that on without renaming anything: `wp mos-names mark`.
+   On nginx, block `/wp-content/uploads/mos-names/` in the server config (the journal holds the old names, drafts
+   included). Check: a second `wp mos-names preview` says 0 names would change.
 3c. **Main menu** (after 3b, which it counts): `wp mos-nav preview` (prints the menu with product counts), then
    `wp mos-nav apply`: writes the menu "Aðalvalmynd 2026" and puts it in the primary location; the old menu stays.
-   Rollback: Útlit → Valmyndir → Stjórna staðsetningum → Aðalvalmynd. Rerun `apply` when the catalog changes a lot
+   Rollback: Útlit → Valmyndir → Stjórna staðsetningum → Aðalvalmynd. Only ONE earlier build is kept ("Aðalvalmynd
+   2026 (afrit)"): the next `apply` deletes it, so do not apply a second time until the first is accepted. The
+   storefront is not told by `apply`: `curl -X POST https://<storefront>/api/content-refresh` afterwards (it re-reads
+   the menus and marks the pages stale). Rerun `apply` when the catalog changes a lot
    (it rebuilds the menu, dropping hand edits made to it). Check: every menu link opens a page with products.
 3d. **Instagram row** (the owner; any time, also after cutover; free). Until it is done the home page ends with a
    "Fylgdu okkur á Instagram" banner instead of the latest posts.

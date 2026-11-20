@@ -17,6 +17,7 @@
 // The extra clause is the `mos_and_cat` Store API extension in wp-mu-plugins/mos-headless-api.php:
 // one request can't otherwise express "category X AND (konur OR born)".
 import type { AttributeFilter } from './types';
+import { MOVED_TEAMS } from './paths';
 
 export interface TermRef {
   id: number;
@@ -206,6 +207,36 @@ export function parseLiveFilters(params: URLSearchParams): LiveFilterState {
     orderby: Object.hasOwn(ORDERINGS, orderby) ? (orderby as OrderKey) : DEFAULT_ORDER,
     search: search ? search : null,
   };
+}
+
+/** The `team=` query a URL moves to when it names a merged team (MOVED_TEAMS) that is gone while its new slug is a
+ *  known team: each moved slug is replaced in place, a slug already listed is not repeated, the other parameters
+ *  stay as they were. Null when nothing moves, including on a degraded term list (`known` null: every slug would
+ *  look unknown). Pure. */
+export function movedTeamSearch(params: URLSearchParams, known: ReadonlySet<string> | null): string | null {
+  if (known === null || !params.has('team')) return null;
+  const listed = csv(params.get('team'));
+  const next: string[] = [];
+  for (const slug of listed) {
+    const successor = MOVED_TEAMS.get(slug);
+    const to = !known.has(slug) && successor && known.has(successor) ? successor : slug;
+    if (!next.includes(to)) next.push(to);
+  }
+  if (next.length === listed.length && next.every((s, i) => s === listed[i])) return null;
+  const out = new URLSearchParams(params);
+  out.set('team', next.join(','));
+  return out.toString();
+}
+
+/** Where a page request naming a merged team is sent (movedTeamSearch): the same path with the canonical `team=`, so
+ *  the chips, their remove links and every link built from the URL read one slug. Null when the request stays: not a
+ *  GET or HEAD, an API or internal route, no `team=`, nothing to move, or no term list to judge by (`known` null).
+ *  The path goes back out in the Location header, so one a browser would read as another host ("//host/", "/\host/")
+ *  is never redirected, as in slashRedirect and unfilteredTarget. Pure. */
+export function movedTeamTarget(method: string, path: string, params: URLSearchParams, known: ReadonlySet<string> | null): string | null {
+  if ((method !== 'GET' && method !== 'HEAD') || path.startsWith('/api/') || path.startsWith('/_') || /^\/[/\\]/.test(path)) return null;
+  const search = movedTeamSearch(params, known);
+  return search === null ? null : `${path}?${search}`;
 }
 
 /** Resolve slugs against terms, keeping request order; returns matched ids + slugs. */

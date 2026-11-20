@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { archiveHref, categoryPath, isCurrentMenuHref, legacyCheckoutTarget, pageLinks, productPath, slashRedirect, splitPagination, homeSearch, legacySearchTarget, wooDefaultPageTarget, movedCategoryTarget } from './paths';
+import { archiveHref, categoryPath, isCurrentMenuHref, legacyCheckoutTarget, pageLinks, productPath, slashRedirect, splitPagination, homeSearch, legacySearchTarget, wooDefaultPageTarget, movedCategoryTarget, MOVED_TEAMS } from './paths';
 
 describe('movedCategoryTarget', () => {
   it('sends a folded sports category to the sport filter, keeping the visitor’s filters', () => {
@@ -218,6 +218,22 @@ describe('legacySearchTarget', () => {
     expect(legacySearchTarget(' nike skór ')).toBe('/?s=nike+sk%C3%B3r&post_type=product');
     expect(legacySearchTarget('')).toBe('/verslun/');
     expect(legacySearchTarget(null)).toBe('/verslun/');
+  });
+});
+
+
+describe('MOVED_TEAMS', () => {
+  // The table only makes sense next to the merge it follows: WordPress deletes the old team, the storefront sends its
+  // old links on. Read from the plugin's own rule table, so a row added to one and forgotten in the other fails here.
+  it('lists only teams that mos_clean_term_ops merges, each into the same team', async () => {
+    const { readFileSync } = await import('node:fs');
+    const plugin = readFileSync(new URL('../../wp-mu-plugins/mos-catalog-clean.php', import.meta.url), 'utf8');
+    const merges = new Map(
+      [...plugin.matchAll(/\['op' => 'merge', 'tax' => 'pa_felag-lid', 'from' => '([^']+)', 'to' => '([^']+)'\]/g)].map((m) => [m[1], m[2]]),
+    );
+    expect(merges.size).toBeGreaterThan(0);
+    expect(MOVED_TEAMS.size).toBeGreaterThan(0);
+    for (const [from, to] of MOVED_TEAMS) expect(merges.get(from), `mos_clean_term_ops has no merge of ${from}`).toBe(to);
   });
 });
 

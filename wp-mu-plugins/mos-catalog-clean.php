@@ -9,9 +9,14 @@
  *    gender (the Karlar/Konur/Börn categories under "Kyn") from pa_kyn/pa_aldur or the name; sport (pa_ithrott)
  *    from the categories or the name; colour (pa_litur) from the name. A value is set only when exactly one rule
  *    matches (colour: the first colour named); everything else is reported, nothing is guessed twice.
- *    Inferred attributes are product-level (not visible on the product page, not used for variations).
- *  - WP-CLI: `wp mos-clean preview` (default, writes nothing), `wp mos-clean apply` (writes, with a journal in
- *    uploads/mos-clean/ that `wp mos-clean restore <file>` replays in reverse).
+ *    Also from the name: the team (pa_felag-lid: "HSÍ …" is Ísland, "… Liverpool …" is Liverpool), a brand named
+ *    anywhere in it, and, for a product filed under no product-type category yet, the garment ("…treyja" → Bolir).
+ *    Gender and garment are categories; sport, colour and team are product-level attributes (added hidden from the
+ *    product page when this plugin creates them, never used for variations).
+ *  - WP-CLI: `wp mos-clean preview` (default, writes nothing; lists every team, garment and brand it would set, the
+ *    conflicts, and the "suspects": products filed under another team or brand than their name says, which are
+ *    never changed), `wp mos-clean apply` (writes, with a journal in uploads/mos-clean/ that
+ *    `wp mos-clean restore <file>` replays in reverse).
  *  - New and edited products: the same gap-filling runs at the end of the request, filling empty fields only.
  *  Attribute changes go through WC_Product::save() so the attribute lookup table the Store API filters on stays
  *  in step.
@@ -29,6 +34,10 @@ const MOS_CLEAN_GENDER_CATS = ['karlar', 'konur', 'born'];   // product_cat slug
 const MOS_CLEAN_TRACKED = ['product_cat', 'product_brand', 'pa_felag-lid', 'pa_ithrott', 'pa_litur'];
 const MOS_CLEAN_DIR = 'mos-clean';                                 // under wp-content/uploads
 const MOS_CLEAN_FILLED_META = '_mos_clean_filled';                 // fields this plugin filled (never refilled)
+const MOS_CLEAN_FIELDS = ['brand', 'gender', 'sport', 'colour', 'team', 'garment'];   // what the gap-filling fills
+// The fields kept as one term of a global attribute (the others: brand is product_brand, gender and garment are categories).
+const MOS_CLEAN_ATTR_FIELDS = ['sport' => 'pa_ithrott', 'colour' => 'pa_litur', 'team' => 'pa_felag-lid'];
+const MOS_CLEAN_SUSPECT_TEAMS = 3;                                 // this many teams with none in the name: a suspect
 
 /* ------------------------------------------------------------------------
  * 1. Rule tables (data, not code: extend these, not the functions below).
@@ -47,6 +56,9 @@ function mos_clean_term_ops(): array {
         ['op' => 'merge', 'tax' => 'pa_felag-lid', 'from' => 'blakfelag-hafnarfjardar', 'to' => 'blakfelag-hafnarfjardar-2'],
         ['op' => 'merge', 'tax' => 'pa_felag-lid', 'from' => 'argentina-treyja', 'to' => 'argentina'],
         ['op' => 'merge', 'tax' => 'pa_felag-lid', 'from' => 'euro', 'to' => 'euro24'],
+        // The federation is the national team: "HSÍ" products are Ísland (handball: Ísland + the sport Handbolti).
+        // Old ?team=hsi links are sent on by the storefront: MOVED_TEAMS in src/lib/paths.ts (keep the two in step).
+        ['op' => 'merge', 'tax' => 'pa_felag-lid', 'from' => 'hsi', 'to' => 'island-iceland'],
         ['op' => 'rename', 'tax' => 'pa_felag-lid', 'slug' => 'island-iceland', 'name' => 'Ísland'],
         ['op' => 'rename', 'tax' => 'pa_felag-lid', 'slug' => 'musiksport', 'name' => 'Músík & Sport'],
         ['op' => 'rename', 'tax' => 'pa_felag-lid', 'slug' => 'leiknir-reykjavik', 'name' => 'Leiknir Reykjavík'],
@@ -180,6 +192,105 @@ function mos_clean_colour_words(): array {
 /** Name tokens that mean "several colours": no colour is inferred. */
 const MOS_CLEAN_MULTI_COLOUR = ['litir', 'litum', 'multi', 'multicolor', 'multicolour', 'assorted'];
 
+/** Brand keys that are also ordinary words: read as a brand only at the start of a name ("HEAD skíðagleraugu"),
+ *  never in the middle of one ("Solar Head Junior"). */
+const MOS_CLEAN_BRAND_START_ONLY = ['head', 'select'];
+
+/**
+ * Teams (pa_felag-lid) read from a product name. Every team term is matched by its own name and slug; on top of that:
+ *  - aliases: a name key (mos_clean_key of one to three words) → the team's slug. An alias wins over a term's own
+ *    name, and one whose team the shop does not have is ignored. The federations are the national team.
+ *  - skip: terms never read from a name (people, tournaments, the shop itself, sport and garment words filed as
+ *    teams, and duplicate terms kept only because a product uses them for variations).
+ *  - deny: team slug → token regexes; a name with such a word does not mean the team ("Chelsea" boots).
+ *
+ * @return array{aliases:array<string,string>,skip:list<string>,deny:array<string,list<string>>}
+ */
+function mos_clean_team_rules(): array {
+    return [
+        'aliases' => [
+            'hsi' => 'island-iceland', 'ksi' => 'island-iceland', 'kki' => 'island-iceland', 'iceland' => 'island-iceland',
+            'spain' => 'spann', 'germany' => 'thyskaland', 'france' => 'frakkland', 'belgium' => 'belgia',
+            'brasil' => 'brazil', 'italia' => 'italy',
+            'manutd' => 'manchester-united', 'mufc' => 'manchester-united', 'mancity' => 'manchester-city',
+            'psg' => 'paris-saint-germain', 'lfc' => 'liverpool',
+            'keflavik' => 'keflavik',   // "Keflavík" and the duplicate "Keflavik" (keflavik-2) share this key
+        ],
+        'skip' => ['messi', 'euro24', 'musiksport', 'keflavik-2',
+            'fotbolti', 'korfubolti', 'korfuboltabolur', 'fimleikabolur-blar', 'fimleikbolur-bleikur', 'argentina-treyja'],
+        'deny' => ['chelsea' => ['/^boots?$/', '/stigvel$/']],
+    ];
+}
+
+/**
+ * Garments read from a product name: the product-type category (product_cat slug) a word means. Ordered: the first
+ * rule a word matches decides that word, so the specific compounds come before the general endings ("sundbolur" is
+ * swimwear before it is a "bolur"). Icelandic compounds end in their head word, hence the `…$` endings.
+ *  - A third element `true` marks describing words: English words that are as often a cut, a fabric or one half of a
+ *    set as the garment itself (tight, top, long-sleeve, pants, jersey …). They count only in a name with no proper
+ *    garment word ("Long-Sleeve Fleece Peysa" is a peysa, "Swim Shorts" are swimwear, "Pro Warm Tight" are tights).
+ *  - A null target is a thing this table does not file (rain and snow trousers, which are outerwear or trousers by
+ *    hand): the word decides nothing, and the describing words of that name do not count either ("Pants …
+ *    regnbuxur").
+ *  - A shoe named without its kind ("Shoes", "barnaskór", "High-Top … Boots") goes under Skór itself, as a
+ *    describing word, so a name that does say the kind ("handboltaskór … Indoor Shoes") is filed by that.
+ * Each word is filed where staff already file the products that have it (measured on the catalog, 2026-11-20); a word
+ * they file two ways (set, cap) has no rule, and jacket, vest and galli decide nothing even beside a describing word
+ * ("Shirt Jacket" is not a shirt).
+ * "Long sleeve" / "short sleeve" and "low top" / "high top" are read as one word (mos_clean_garment_from_name): a bare
+ * "sleeve" is an arm sleeve, and a high-top is a shoe.
+ *
+ * @return list<array{0:?string,1:list<string>,2?:bool}>
+ */
+function mos_clean_garment_rules(): array {
+    return [
+        ['toskur-aefingarvorur', ['/sundpok/']],   // before the swim words: a swim bag is filed with the bags
+        ['sundfatnadur-fatnadur-2', ['/sund(bol|bux|skyl|stuttbux|gleraug|hett)/', '/^bikini/', '/^swimsuit$/', '/^swim$/', '/^swm$/', '/^rash$/']],
+        ['fimleikar', ['/^fimleika?(bol|bux|stuttbux)/']],
+        [null, ['/^(regn|snjo|polla|vind|skida)bux/']],
+        [null, ['/^jackets?$/', '/^vests?$/', '/^galli$/']],   // filed two ways by staff: a describing word beside one decides nothing
+        ['fotboltaskor-ithrottaskor', ['/^fotboltask/', '/^takkask/', '/^gervigrassk/']],
+        ['handboltaskor-ithrottaskor', ['/^handboltask/']],
+        ['korfuboltaskor', ['/^korfuboltask/']],
+        ['hlaupa-aefingarskor-ithrottaskor', ['/^hlaupask/']],
+        ['inniskor', ['/^innisk/']],
+        ['strigaskor-skor-2', ['/^strigask/']],
+        ['stigvel-kuldaskor', ['/stigvel$/', '/^kuldask/']],
+        ['inniskor', ['/^clogs?$/']],
+        ['skor', ['/sko(r)?$/', '/^shoes?$/', '/^boots?$/', '/^cleats?$/', '/^sneakers?$/', '/^(low|mid|high)top$/'], true],
+        ['toskur-aefingarvorur', ['/task(a|an)$/', '/tosk(u|ur)$/', '/bakpok/', '/^bag$/', '/^backpack$/', '/^duff(el|le)$/']],
+        ['brusar', ['/brus(i|a|ar)$/', '/^bottle$/']],
+        ['boltar-aefingarvorur', ['/^(fot|hand|korfu)?bolt(i|ar)$/', '/^ball$/', '/^markmannshansk/']],
+        ['sokkar-naerfatnadur', ['/sokk(ar|a|ur)$/', '/^socks?$/', '/^naerbux/']],
+        ['buxur-leggings', ['/bux(ur|a|um)$/']],
+        ['buxur-leggings', ['/^pants$/', '/^shorts$/', '/^leggings?$/', '/^tights?$/', '/^trousers$/', '/^sweatpants?$/'], true],
+        ['bolir-efri-likami', ['/treyj(a|u|ur)$/', '/bol(ur|ir)$/']],
+        ['bolir-efri-likami', ['/^jersey$/', '/^jsy$/', '/^tee$/', '/^top$/', '/^(long|short)sleeve$/', '/^shirt$/', '/^tank$/', '/^polo$/'], true],
+        ['peysur-efri-likami', ['/peys(a|u|ur)$/', '/^hoodie$/', '/^sweatshirt$/']],
+        ['topp-ur', ['/topp(ur|ar)$/']],
+        ['topp-ur', ['/^bra$/'], true],
+        ['hufur-treflar', ['/huf(a|u|ur)$/', '/^trefil/', '/^trefl/', '/^beanie$/', '/^buff$/', '/^ennisb(and|ond)/', '/^harb(and|ond)/', '/^headband$/']],
+        ['hanskar-vettlingar', ['/^(?!markm).*hansk(i|ar|a)$/', '/vettling(ar|a)$/']],
+        ['yfirhafnir', ['/jakk(i|a|ar)$/', '/ulp(a|u|ur)$/', '/^parka$/']],
+    ];
+}
+
+/**
+ * Categories that say what a product IS. A product in one of them has been filed by garment already and gets none
+ * from its name. Theme categories (Liðafatnaður, Hlaup, Skíði/snjóbretti, Sumar), the parents and Kyn are not here.
+ *
+ * @return list<string> product_cat slugs
+ */
+function mos_clean_garment_type_slugs(): array {
+    return [
+        'bolir-efri-likami', 'peysur-efri-likami', 'topp-ur', 'hanskar-vettlingar', 'hufur-treflar',
+        'buxur-leggings', 'sokkar-naerfatnadur', 'yfirhafnir', 'sundfatnadur-fatnadur-2', 'vetur',
+        'inniskor', 'fotboltaskor-ithrottaskor', 'handboltaskor-ithrottaskor', 'hlaupa-aefingarskor-ithrottaskor',
+        'korfuboltaskor', 'stigvel-kuldaskor', 'strigaskor-skor-2',
+        'aefingabunadur', 'boltar-aefingarvorur', 'brusar', 'toskur-aefingarvorur', 'fotboltamyndir-og-fl', 'fimleikar',
+    ];
+}
+
 /* ------------------------------------------------------------------------
  * 2. Pure helpers (no WordPress calls; tests/mos_clean_rules_test.php).
  * --------------------------------------------------------------------- */
@@ -248,25 +359,212 @@ function mos_clean_gender_from_attrs(array $kyn, array $aldur): array {
  * @param array<string,string> $brand_keys key → brand slug
  */
 function mos_clean_brand_from_name(array $tokens, array $brand_keys): ?string {
+    $found = mos_clean_brands_at_start($tokens, $brand_keys);
+    return count($found) === 1 ? $found[0] : null;
+}
+
+/**
+ * Every brand the first one to three words of a name spell ("Adidas Originals …" spells two when both are brands).
+ *
+ * @param list<string> $tokens
+ * @param array<string,string> $brand_keys key → brand slug
+ * @return list<string> brand slugs
+ */
+function mos_clean_brands_at_start(array $tokens, array $brand_keys): array {
     $found = [];
     for ($n = 1; $n <= min(3, count($tokens)); $n++) {
         $key = implode('', array_slice($tokens, 0, $n));
         if (isset($brand_keys[$key])) { $found[$brand_keys[$key]] = true; }
     }
-    return count($found) === 1 ? (string) array_key_first($found) : null;
+    return array_map('strval', array_keys($found));
+}
+
+/**
+ * The targets named anywhere in a name: every run of one to three words whose key is in $keys, the longest run
+ * first, each word used once ("Manchester United" is one team, and its words name no other). In name order, each
+ * target once.
+ *
+ * @param list<string> $tokens
+ * @param array<string,string> $keys key → target
+ * @return list<string>
+ */
+function mos_clean_keys_in_name(array $tokens, array $keys): array {
+    $found = [];
+    $count = count($tokens);
+    for ($i = 0; $i < $count; $i++) {
+        for ($n = min(3, $count - $i); $n >= 1; $n--) {
+            $key = implode('', array_slice($tokens, $i, $n));
+            if (!isset($keys[$key])) { continue; }
+            $found[$keys[$key]] = true;
+            $i += $n - 1;
+            break;
+        }
+    }
+    return array_map('strval', array_keys($found));
+}
+
+/**
+ * The brands a name mentions anywhere ("HSÍ ADIDAS HANDBOLTATREYJA" → adidas), for names that do not start with one.
+ * Brands that are also ordinary words (MOS_CLEAN_BRAND_START_ONLY) are left out.
+ *
+ * @param list<string> $tokens
+ * @param array<string,string> $brand_keys key → brand slug
+ * @return list<string> brand slugs
+ */
+function mos_clean_brands_in_name(array $tokens, array $brand_keys): array {
+    return mos_clean_keys_in_name($tokens, array_diff_key($brand_keys, array_flip(MOS_CLEAN_BRAND_START_ONLY)));
+}
+
+/**
+ * The brands a name names: those at its start, and only when it starts with none, those anywhere in it. One is the
+ * brand; several are left for a person (an ambiguous start is not settled by reading on).
+ *
+ * @param list<string> $tokens
+ * @param array<string,string> $brand_keys key → brand slug
+ * @return list<string> brand slugs
+ */
+function mos_clean_brands_named(array $tokens, array $brand_keys): array {
+    return mos_clean_brands_at_start($tokens, $brand_keys) ?: mos_clean_brands_in_name($tokens, $brand_keys);
+}
+
+/**
+ * The name keys of the shop's teams: each term's name and slug, then the rules on top (mos_clean_team_rules()).
+ * A key two terms share matches neither unless an alias settles it.
+ *
+ * @param array<string,string> $terms pa_felag-lid slug → name
+ * @param array{aliases:array<string,string>,skip:list<string>,deny:array<string,list<string>>} $rules
+ * @return array<string,string> key → team slug
+ */
+function mos_clean_team_key_map(array $terms, array $rules): array {
+    $skip = array_flip($rules['skip']);
+    $keys = [];
+    $ambiguous = [];
+    foreach ($terms as $slug => $name) {
+        $slug = (string) $slug;
+        if (isset($skip[$slug])) { continue; }
+        foreach ([mos_clean_key((string) $name), mos_clean_key($slug)] as $key) {
+            if (isset($keys[$key]) && $keys[$key] !== $slug) { $ambiguous[$key] = true; }
+            $keys[$key] = $slug;
+        }
+    }
+    $keys = array_diff_key($keys, $ambiguous, ['' => true]);
+    foreach ($rules['aliases'] as $key => $slug) {
+        if (isset($terms[$slug]) && !isset($skip[$slug])) { $keys[(string) $key] = $slug; }
+    }
+    return $keys;
+}
+
+/**
+ * The teams a name mentions, in name order, each once; a team is left out when the name has one of its deny words.
+ *
+ * @param list<string> $tokens
+ * @param array<string,string> $team_keys key → team slug (mos_clean_team_key_map)
+ * @param array<string,list<string>> $deny team slug → token regexes
+ * @return list<string> team slugs
+ */
+function mos_clean_team_from_name(array $tokens, array $team_keys, array $deny = []): array {
+    $teams = [];
+    foreach (mos_clean_keys_in_name($tokens, $team_keys) as $slug) {
+        $denied = false;
+        foreach ($deny[$slug] ?? [] as $re) {
+            if (preg_grep($re, $tokens)) { $denied = true; break; }
+        }
+        if (!$denied) { $teams[] = $slug; }
+    }
+    return $teams;
+}
+
+/**
+ * The garments a name mentions: per word the first matching rule of mos_clean_garment_rules(), in name order, each
+ * category once. Describing words count only when the name has neither a proper garment word nor a thing the table
+ * does not file.
+ *
+ * @param list<string> $tokens
+ * @return list<string> product_cat slugs
+ */
+function mos_clean_garment_from_name(array $tokens): array {
+    // "long sleeve" / "long-sleeve" → "longsleeve" (a top; a "sleeve" on its own is not), "low top" → "lowtop" (a shoe).
+    $pairs = ['sleeve' => ['long', 'short'], 'top' => ['low', 'mid', 'high']];
+    $words = [];
+    foreach ($tokens as $i => $token) {
+        if (isset($pairs[$token]) && in_array($tokens[$i - 1] ?? '', $pairs[$token], true)) {
+            $words[array_key_last($words)] .= $token;
+        } else {
+            $words[] = $token;
+        }
+    }
+    $rules = mos_clean_garment_rules();
+    $found = ['proper' => [], 'describing' => []];
+    $unfiled = false;
+    foreach ($words as $word) {
+        foreach ($rules as $rule) {
+            foreach ($rule[1] as $re) {
+                if (!preg_match($re, $word)) { continue; }
+                if ($rule[0] === null) { $unfiled = true; }
+                else { $found[($rule[2] ?? false) ? 'describing' : 'proper'][$rule[0]] = true; }
+                continue 3;   // this word is decided: the next word
+            }
+        }
+    }
+    if ($found['proper']) { return array_map('strval', array_keys($found['proper'])); }
+    return $unfiled ? [] : array_map('strval', array_keys($found['describing']));
+}
+
+/**
+ * Where what is filed disagrees with the name, for a person to look at (nothing is changed): the name says exactly
+ * one team or brand and the product is filed under others, or the product carries several teams
+ * (MOS_CLEAN_SUSPECT_TEAMS or more) and the name mentions none of them. Club kit that simply does not name its club
+ * is normal and not reported.
+ *
+ * @param list<string> $tokens
+ * @param list<string> $teams the product's pa_felag-lid slugs
+ * @param list<string> $brands the product's product_brand slugs
+ * @param array<string,string> $brand_keys key → brand slug
+ * @param array<string,string> $team_keys key → team slug (mos_clean_team_key_map)
+ * @param array<string,list<string>> $deny team slug → token regexes (mos_clean_team_rules)
+ * @return array<string,array{name:list<string>,filed:list<string>}> field (team, brand) → what the name says, what is filed
+ */
+function mos_clean_suspect(array $tokens, array $teams, array $brands, array $brand_keys, array $team_keys, array $deny = []): array {
+    $out = [];
+    if ($teams) {
+        $named = mos_clean_team_from_name($tokens, $team_keys, $deny);
+        // Filed under a term that means the named team (the federation "HSÍ" for Ísland) is not a disagreement.
+        $meant = array_map(static fn ($slug) => $team_keys[mos_clean_key($slug)] ?? $slug, $teams);
+        $wrong = count($named) === 1 && !in_array($named[0], $meant, true);
+        // "None in the name" also means none of the teams the rules never read (a "Messi" ball filed under Messi).
+        $own = array_combine(array_map('mos_clean_key', $teams), $teams);
+        $unrelated = !$named && count($teams) >= MOS_CLEAN_SUSPECT_TEAMS && !mos_clean_keys_in_name($tokens, $own);
+        if ($wrong || $unrelated) { $out['team'] = ['name' => $named, 'filed' => array_values($teams)]; }
+    }
+    if ($brands) {
+        $named = mos_clean_brands_named($tokens, $brand_keys);
+        if (count($named) === 1 && !in_array($named[0], $brands, true)) { $out['brand'] = ['name' => $named, 'filed' => array_values($brands)]; }
+    }
+    return $out;
 }
 
 /**
  * What to fill in for one product. Facts in, decisions out; a field is only decided when the product has none.
  *
+ * Brand, team and garment are read from the name only when the name says exactly one; two is a conflict, left empty
+ * and reported. The garment is decided only for a product in no product-type category (mos_clean_garment_type_slugs()).
+ *
  * @param array{name:string,cats:list<string>,has_brand:bool,vorumerki:list<string>,kyn:list<string>,
- *   aldur:list<string>,has_sport:bool,has_colour:bool} $f
+ *   aldur:list<string>,has_sport:bool,has_colour:bool,has_team?:bool} $f
  * @param array<string,string> $brand_keys normalised key → product_brand slug
- * @return array{brand:?string,brand_new:?string,gender:list<string>,sport:?string,colour:?string,conflicts:array<string,list<string>>}
+ * @param array<string,string> $team_keys normalised key → pa_felag-lid slug (mos_clean_team_key_map); none: no team is decided
+ * @return array{brand:?string,brand_new:?string,gender:list<string>,sport:?string,colour:?string,team:?string,
+ *   garment:?string,conflicts:array<string,list<string>>}
  */
-function mos_clean_decide(array $f, array $brand_keys): array {
+function mos_clean_decide(array $f, array $brand_keys, array $team_keys = []): array {
     $tokens = mos_clean_tokens($f['name']);
-    $out = ['brand' => null, 'brand_new' => null, 'gender' => [], 'sport' => null, 'colour' => null, 'conflicts' => []];
+    $out = ['brand' => null, 'brand_new' => null, 'gender' => [], 'sport' => null, 'colour' => null, 'team' => null,
+        'garment' => null, 'conflicts' => []];
+    // Exactly one candidate decides a field; several are a conflict.
+    $one = static function (string $field, array $candidates) use (&$out): void {
+        if (count($candidates) === 1) { $out[$field] = $candidates[0]; }
+        elseif ($candidates) { $out['conflicts'][$field] = $candidates; }
+    };
 
     if (!$f['has_brand']) {
         $from_attr = [];
@@ -283,7 +581,7 @@ function mos_clean_decide(array $f, array $brand_keys): array {
         } elseif ($from_attr || $unknown) {
             $out['conflicts']['brand'] = array_merge(array_keys($from_attr), array_values($unknown));
         } else {
-            $out['brand'] = mos_clean_brand_from_name($tokens, $brand_keys);
+            $one('brand', mos_clean_brands_named($tokens, $brand_keys));
         }
     }
 
@@ -297,9 +595,20 @@ function mos_clean_decide(array $f, array $brand_keys): array {
         $out['gender'] = $gender;
     }
 
+    if (!($f['has_team'] ?? false) && $team_keys) {
+        $one('team', mos_clean_team_from_name($tokens, $team_keys, mos_clean_team_rules()['deny']));
+    }
+
+    if (!array_intersect($f['cats'], mos_clean_garment_type_slugs())) {
+        $one('garment', mos_clean_garment_from_name($tokens));
+        if (in_array($out['garment'], $f['cats'], true)) { $out['garment'] = null; }   // already there (Skór itself)
+    }
+
     if (!$f['has_sport']) {
         $map = mos_clean_sport_cats();
-        $from_cats = array_values(array_unique(array_values(array_intersect_key($map, array_flip($f['cats'])))));
+        // The garment decided above counts as a category already: football shoes mean football now, not on the next run.
+        $cats = $out['garment'] !== null ? [...$f['cats'], $out['garment']] : $f['cats'];
+        $from_cats = array_values(array_unique(array_values(array_intersect_key($map, array_flip($cats)))));
         if (count($from_cats) === 1) {
             $out['sport'] = $from_cats[0];
         } elseif ($from_cats) {
@@ -316,6 +625,22 @@ function mos_clean_decide(array $f, array $brand_keys): array {
         $out['colour'] = $colours[0] ?? null;   // "Black/Grey" → the first colour named
     }
     return $out;
+}
+
+/**
+ * A product's categories without the shop's default one ("Óflokkað"), once the product is filed under a product-type
+ * category: the default only ever meant "not filed yet". Unchanged when the product is in no product-type category
+ * besides it, or the shop has no default category.
+ *
+ * @param int[] $cat_ids the product's category ids
+ * @param int[] $type_ids the ids of the product-type categories (mos_clean_garment_type_slugs)
+ * @return int[]
+ */
+function mos_clean_without_default(array $cat_ids, int $default_id, array $type_ids): array {
+    $cat_ids = array_values(array_map('intval', $cat_ids));
+    if ($default_id <= 0 || !in_array($default_id, $cat_ids, true)) { return $cat_ids; }
+    if (!array_diff(array_intersect($cat_ids, array_map('intval', $type_ids)), [$default_id])) { return $cat_ids; }
+    return array_values(array_diff($cat_ids, [$default_id]));
 }
 
 /** "TABEDESIGN" → "Tabedesign"; mixed-case names are kept as typed. */
@@ -362,7 +687,29 @@ function mos_clean_brand_keys(): array {
     return array_diff_key($keys, $ambiguous, ['' => true]);
 }
 
-/** @return array{name:string,cats:list<string>,has_brand:bool,vorumerki:list<string>,kyn:list<string>,aldur:list<string>,has_sport:bool,has_colour:bool} */
+/** normalised key → pa_felag-lid slug, from every team's name and slug and the team rules. @return array<string,string> */
+function mos_clean_team_keys(): array {
+    $terms = get_terms(['taxonomy' => 'pa_felag-lid', 'hide_empty' => false]);
+    $names = [];
+    foreach (is_array($terms) ? $terms : [] as $t) { $names[(string) $t->slug] = (string) $t->name; }
+    return mos_clean_team_key_map($names, mos_clean_team_rules());
+}
+
+/** The ids of the categories that file a product by what it is: the product-type categories the shop has
+ *  (mos_clean_garment_type_slugs) and Skór itself. @return int[] */
+function mos_clean_garment_type_ids(): array {
+    static $ids = null;
+    if ($ids === null) {
+        $ids = [];
+        foreach ([...mos_clean_garment_type_slugs(), 'skor'] as $slug) {
+            $t = get_term_by('slug', $slug, 'product_cat');
+            if ($t instanceof WP_Term) { $ids[] = (int) $t->term_id; }
+        }
+    }
+    return $ids;
+}
+
+/** @return array{name:string,cats:list<string>,has_brand:bool,vorumerki:list<string>,kyn:list<string>,aldur:list<string>,has_sport:bool,has_colour:bool,has_team:bool} */
 function mos_clean_facts(WC_Product $p): array {
     $id = $p->get_id();
     $vorumerki = get_the_terms($id, 'pa_vorumerki');
@@ -379,6 +726,7 @@ function mos_clean_facts(WC_Product $p): array {
         'aldur' => mos_clean_slugs($id, 'pa_aldur'),
         'has_sport' => mos_clean_slugs($id, 'pa_ithrott') !== [],
         'has_colour' => $has_colour,
+        'has_team' => mos_clean_slugs($id, 'pa_felag-lid') !== [],
     ];
 }
 
@@ -838,17 +1186,18 @@ function mos_clean_delete_empty_category(string $slug, ?MOS_Clean_Journal $journ
 /**
  * Fill one product's empty fields. Returns what was (or, dry, would be) set; never overwrites a value.
  *
+ * @param array<string,string> $team_keys mos_clean_team_keys(); none: no team is filled
  * @return array{set:array<string,string>,conflicts:array<string,list<string>>}
  */
-function mos_clean_fill_product(WC_Product $p, array $brand_keys, ?MOS_Clean_Journal $journal, bool $dry): array {
+function mos_clean_fill_product(WC_Product $p, array $brand_keys, ?MOS_Clean_Journal $journal, bool $dry, array $team_keys = []): array {
     $id = $p->get_id();
-    $d = mos_clean_decide(mos_clean_facts($p), $brand_keys);
+    $d = mos_clean_decide(mos_clean_facts($p), $brand_keys, $team_keys);
     // A field this plugin filled once is never filled again: if the owner cleared it since, that was on purpose.
     $filled = mos_clean_filled($id);
-    if (in_array('brand', $filled, true)) { $d['brand'] = $d['brand_new'] = null; }
-    if (in_array('gender', $filled, true)) { $d['gender'] = []; }
-    if (in_array('sport', $filled, true)) { $d['sport'] = null; }
-    if (in_array('colour', $filled, true)) { $d['colour'] = null; }
+    foreach (array_intersect(MOS_CLEAN_FIELDS, $filled) as $field) {
+        $d[$field] = $field === 'gender' ? [] : null;
+        if ($field === 'brand') { $d['brand_new'] = null; }
+    }
 
     // Resolve every target term the same way in a preview and in apply (a preview counts only what apply would set;
     // a term this plugin may create counts as there).
@@ -875,20 +1224,35 @@ function mos_clean_fill_product(WC_Product $p, array $brand_keys, ?MOS_Clean_Jou
         if ($cat_id !== null) { $cat_ids[] = $cat_id; }
     }
     if ($cat_ids) { $set['gender'] = implode('+', $d['gender']); }
-    $attrs = [];
-    foreach (['sport' => 'pa_ithrott', 'colour' => 'pa_litur'] as $field => $tax) {
+    if ($d['garment'] !== null) {
+        $cat_id = $term('product_cat', $d['garment']);
+        if ($cat_id !== null) {
+            $cat_ids[] = $cat_id;
+            $set['garment'] = $d['garment'];
+        }
+    }
+    $attrs = [];   // field → term id
+    foreach (MOS_CLEAN_ATTR_FIELDS as $field => $tax) {
         if ($d[$field] === null || mos_clean_attribute_ids($p, $tax)) { continue; }
+        // An attribute used for variations is never written (mos_clean_set_attribute), so it is not promised either.
+        $attr = $p->get_attributes()[$tax] ?? null;
+        if ($attr instanceof WC_Product_Attribute && $attr->get_variation()) { continue; }
         $term_id = $term($tax, $d[$field]);
         if ($term_id === null) { continue; }
-        $attrs[$tax] = $term_id;
+        $attrs[$field] = $term_id;
         $set[$field] = $d[$field];
     }
     if ($dry || !$set) { return ['set' => $set, 'conflicts' => $d['conflicts']]; }
 
     $journal?->snapshot($id);
-    if ($cat_ids) { $p->set_category_ids(array_values(array_unique(array_merge($p->get_category_ids(), $cat_ids)))); }
-    foreach ($attrs as $tax => $term_id) {
-        if (!mos_clean_set_attribute($p, $tax, [$term_id])) { unset($set[$tax === 'pa_ithrott' ? 'sport' : 'colour']); }
+    if ($cat_ids) {
+        $all = array_values(array_unique(array_merge($p->get_category_ids(), $cat_ids)));
+        // Filed by garment now: the default category ("Óflokkað") has said its piece.
+        if (isset($set['garment'])) { $all = mos_clean_without_default($all, (int) get_option('default_product_cat', 0), mos_clean_garment_type_ids()); }
+        $p->set_category_ids($all);
+    }
+    foreach ($attrs as $field => $term_id) {
+        if (!mos_clean_set_attribute($p, MOS_CLEAN_ATTR_FIELDS[$field], [$term_id])) { unset($set[$field]); }
     }
     if ($cat_ids || $attrs) { $p->save(); }
     // product_brand is not part of WC_Product's data, so it is set after the save (which would not keep it).
@@ -903,22 +1267,55 @@ function mos_clean_fill_product(WC_Product $p, array $brand_keys, ?MOS_Clean_Jou
     return ['set' => $set, 'conflicts' => $d['conflicts']];
 }
 
-/** The fields (brand, gender, sport, colour) this plugin has filled on a product. @return list<string> */
+/**
+ * Take the default category ("Óflokkað") off every product that is filed by what it is and still carries it (the
+ * owner's call, 2026-11-20: a filed product is not unfiled). A preview ($journal null) only lists.
+ *
+ * @return array{changed:int[],lines:list<string>}
+ */
+function mos_clean_drop_default_category(?MOS_Clean_Journal $journal): array {
+    $default = (int) get_option('default_product_cat', 0);
+    $out = ['changed' => [], 'lines' => []];
+    if ($default <= 0) { return $out; }
+    foreach (mos_clean_products_with('product_cat', $default) as $id) {
+        $p = wc_get_product($id);
+        if (!$p instanceof WC_Product) { continue; }
+        $now = array_map('intval', $p->get_category_ids());
+        $next = mos_clean_without_default($now, $default, mos_clean_garment_type_ids());
+        if (count($next) === count($now)) { continue; }
+        $out['lines'][] = sprintf('%d "%s"', $id, $p->get_name());
+        if ($journal === null) { $out['changed'][] = $id; continue; }
+        try {
+            $journal->snapshot($id);
+            $p->set_category_ids($next);
+            $p->save();
+            $out['changed'][] = $id;
+        } catch (\Throwable $e) {
+            mos_clean_warn("product $id: could not take it out of the default category: " . $e->getMessage());
+        }
+    }
+    return $out;
+}
+
+/** The fields (of MOS_CLEAN_FIELDS) this plugin has filled on a product. @return list<string> */
 function mos_clean_filled(int $id): array {
     $v = get_post_meta($id, MOS_CLEAN_FILLED_META, true);
     return is_array($v) ? array_values(array_filter($v, 'is_string')) : [];
 }
 
-/** Whether a product still lacks a brand, gender category, sport or colour that this plugin hasn't filled before:
- *  the save hook's first check, a few cached term lookups. A product nothing can be inferred for keeps answering
- *  true, which is why the hook only runs for catalog editors (see mos_clean_queue). */
+/** Whether a product still lacks a brand, gender category, sport, colour, team or product-type category that this
+ *  plugin hasn't filled before: the save hook's first check, a few cached term lookups. A product nothing can be
+ *  inferred for keeps answering true, which is why the hook only runs for catalog editors (see mos_clean_queue). */
 function mos_clean_needs_fill(int $id): bool {
     $filled = mos_clean_filled($id);
+    $cats = mos_clean_slugs($id, 'product_cat');
     $missing = [
         'brand' => mos_clean_slugs($id, 'product_brand') === [],
-        'gender' => !array_intersect(mos_clean_slugs($id, 'product_cat'), MOS_CLEAN_GENDER_CATS),
+        'gender' => !array_intersect($cats, MOS_CLEAN_GENDER_CATS),
         'sport' => mos_clean_slugs($id, 'pa_ithrott') === [],
         'colour' => mos_clean_slugs($id, 'pa_litur') === [],
+        'team' => mos_clean_slugs($id, 'pa_felag-lid') === [],
+        'garment' => !array_intersect($cats, mos_clean_garment_type_slugs()),
     ];
     foreach ($missing as $field => $is_missing) {
         if ($is_missing && !in_array($field, $filled, true)) { return true; }
@@ -930,14 +1327,23 @@ function mos_clean_needs_fill(int $id): bool {
  * 4. New and edited products: fill empty fields at the end of the request (queue, then flush once).
  * --------------------------------------------------------------------- */
 
+/** When the fill runs at the end of the request. The order is fill < storefront poke < size index: the fill writes the
+ *  categories and attributes the storefront shows, the poke (mos-shell-poke.php, PHP_INT_MAX - 2) tells the storefront
+ *  the page changed so it must go out after them, and the size index (mos-size-index.php, PHP_INT_MAX) reads the terms
+ *  the fill wrote. A lower priority runs first on 'shutdown'. */
+const MOS_CLEAN_FLUSH_PRIORITY = PHP_INT_MAX - 3;
+
 /** Queue a product saved by a catalog editor (wp-admin, REST, WP-CLI imports). Saves from a checkout's stock
- *  change or any other visitor's request are left alone: they are not catalog edits. */
+ *  change or any other visitor's request are left alone: they are not catalog edits. A REST product write is queued
+ *  the same way (woocommerce_new_product / _update_product), so it is filled at shutdown too, after its response has
+ *  gone (see mos_clean_flush); the fill is not run before the response, as the size index is, so a bulk REST write
+ *  does not wait on the fill of every product. */
 function mos_clean_queue(int $id): void {
     if ($id <= 0 || !empty($GLOBALS['mos_clean_running'])) { return; }
     if (!(defined('WP_CLI') && WP_CLI) && !current_user_can('edit_products')) { return; }
     if (empty($GLOBALS['mos_clean_dirty'])) {
         $GLOBALS['mos_clean_dirty'] = [];
-        if (!has_action('shutdown', 'mos_clean_flush')) { add_action('shutdown', 'mos_clean_flush', PHP_INT_MAX - 1); }
+        if (!has_action('shutdown', 'mos_clean_flush')) { add_action('shutdown', 'mos_clean_flush', MOS_CLEAN_FLUSH_PRIORITY); }
     }
     $GLOBALS['mos_clean_dirty'][$id] = true;
 }
@@ -946,9 +1352,13 @@ function mos_clean_flush(): void {
     $ids = array_keys($GLOBALS['mos_clean_dirty'] ?? []);
     $GLOBALS['mos_clean_dirty'] = [];
     if (!$ids) { return; }
+    // The editor's answer goes out before the fill, as it did when the storefront poke ran first: the fill runs after the
+    // response, and the poke that follows it is still sent after the fill's writes.
+    if (function_exists('fastcgi_finish_request')) { fastcgi_finish_request(); }
     $GLOBALS['mos_clean_running'] = true;   // our own save() must not queue the product again
     try {
         $keys = null;   // loaded once, and only when a product needs filling
+        $team_keys = null;
         $changed = [];
         foreach ($ids as $id) {
             try {
@@ -956,12 +1366,16 @@ function mos_clean_flush(): void {
                 $p = wc_get_product((int) $id);
                 if (!$p instanceof WC_Product) { continue; }
                 $keys ??= mos_clean_brand_keys();
-                if (mos_clean_fill_product($p, $keys, null, false)['set']) { $changed[] = (int) $id; }
+                $team_keys ??= mos_clean_team_keys();
+                if (mos_clean_fill_product($p, $keys, null, false, $team_keys)['set']) { $changed[] = (int) $id; }
             } catch (\Throwable $e) {
                 error_log("mos-catalog-clean: fill failed for $id: " . $e->getMessage());
             }
         }
-        if ($changed) { mos_clean_invalidate_caches($changed); }
+        if ($changed) {
+            mos_clean_invalidate_caches($changed);
+            do_action('mos_clean_filled', $changed);   // the storefront poke hears of them (a brand-only fill saves nothing)
+        }
     } finally {
         $GLOBALS['mos_clean_running'] = false;
     }
@@ -976,7 +1390,7 @@ add_action('woocommerce_update_product', static fn ($id) => mos_clean_queue((int
 
 if (defined('WP_CLI') && WP_CLI) {
     /**
-     * Clean up the catalog's filter data and fill empty brand / gender / sport / colour fields.
+     * Clean up the catalog's filter data and fill empty brand / gender / sport / colour / team / garment fields.
      */
     class MOS_Clean_CLI {
         /**
@@ -985,7 +1399,7 @@ if (defined('WP_CLI') && WP_CLI) {
          * ## OPTIONS
          *
          * [--samples=<n>]
-         * : Conflicts to list per field.
+         * : Conflicts to list per field, or `all`. (What would be set and the suspects are always listed in full.)
          * ---
          * default: 15
          * ---
@@ -1006,7 +1420,7 @@ if (defined('WP_CLI') && WP_CLI) {
          * ---
          *
          * [--samples=<n>]
-         * : Conflicts to list per field.
+         * : Conflicts to list per field, or `all`. (What would be set and the suspects are always listed in full.)
          * ---
          * default: 15
          * ---
@@ -1108,7 +1522,9 @@ if (defined('WP_CLI') && WP_CLI) {
 
         private function run(bool $dry, array $assoc): void {
             global $wpdb;
-            $samples = max(0, (int) ($assoc['samples'] ?? 15));
+            $samples = strtolower((string) ($assoc['samples'] ?? '15'));
+            if ($samples !== 'all' && !ctype_digit($samples)) { WP_CLI::error("--samples takes a number or `all`, not \"$samples\"."); }
+            $samples = $samples === 'all' ? PHP_INT_MAX : (int) $samples;
             $batch = max(1, (int) ($assoc['batch'] ?? 200));
             $journal = $dry ? null : $this->open_journal();
             $start = microtime(true);
@@ -1132,11 +1548,21 @@ if (defined('WP_CLI') && WP_CLI) {
 
                 WP_CLI::log('— Filling empty fields' . ($dry ? ' (preview: before the hygiene above, so sport counts can differ slightly)' : ''));
                 $keys = $journal ? $this->create_brands($ids, $journal) : mos_clean_brand_keys();
-                $fill = $this->fill($ids, $keys, $journal, $batch);
+                // After the hygiene above: a merged or moved team term is gone by now (in a preview it is still
+                // there, which changes nothing: an alias decides before a term's own name does).
+                $fill = $this->fill($ids, $keys, mos_clean_team_keys(), $journal, $batch);
+                $undefault = mos_clean_drop_default_category($journal);
+                WP_CLI::log(sprintf('  filed products taken out of the default category: %d', count($undefault['lines'])));
+                foreach ($undefault['lines'] as $line) { WP_CLI::log("    $line"); }
+                $fill['changed'] = array_merge($fill['changed'], $journal ? $undefault['changed'] : []);
                 // After the fill, so its colour targets are in use (or, in a preview, known) before the unused ones go.
                 WP_CLI::log('  delete pa_litur terms nothing uses: ' . mos_clean_delete_unused_colours($journal, $ops['emptied'], array_keys($fill['colours'])));
                 $journal?->save();
-                if ($journal) { mos_clean_invalidate_caches(array_values(array_unique(array_merge($ops['changed'], $fill['changed'])))); }
+                if ($journal) {
+                    $changed = array_values(array_unique(array_merge($ops['changed'], $fill['changed'])));
+                    mos_clean_invalidate_caches($changed);
+                    do_action('mos_clean_filled', $changed);   // one announcement for the run; the queue keeps each path once
+                }
             } finally {
                 $GLOBALS['mos_clean_running'] = false;
             }
@@ -1184,31 +1610,47 @@ if (defined('WP_CLI') && WP_CLI) {
         }
 
         /**
-         * Fill every product's empty fields, in batches.
+         * Fill every product's empty fields, in batches, and note the suspects on the way (nothing is done to those).
          *
          * @param int[] $ids
-         * @return array{set:array<string,int>,new_brands:array<string,int>,colours:array<string,true>,conflicts:array<string,list<string>>,changed:int[]}
+         * @return array{set:array<string,int>,new_brands:array<string,int>,colours:array<string,true>,conflicts:array<string,list<string>>,
+         *   changed:int[],listed:array<string,list<string>>,suspects:array<string,list<string>>,urls:list<string>}
          */
-        private function fill(array $ids, array $keys, ?MOS_Clean_Journal $journal, int $batch): array {
-            $out = ['set' => ['brand' => 0, 'gender' => 0, 'sport' => 0, 'colour' => 0], 'new_brands' => [], 'colours' => [], 'conflicts' => ['brand' => [], 'gender' => [], 'sport' => []], 'changed' => []];
+        private function fill(array $ids, array $keys, array $team_keys, ?MOS_Clean_Journal $journal, int $batch): array {
+            $out = ['set' => array_fill_keys(MOS_CLEAN_FIELDS, 0), 'new_brands' => [], 'colours' => [],
+                'conflicts' => array_fill_keys(array_values(array_diff(MOS_CLEAN_FIELDS, ['colour'])), []), 'changed' => [],
+                'listed' => ['team' => [], 'garment' => [], 'brand' => []], 'suspects' => ['team' => [], 'brand' => []], 'urls' => []];
+            $deny = mos_clean_team_rules()['deny'];
             foreach (array_chunk($ids, $batch) as $chunk) {
                 foreach ($chunk as $id) {
                     $p = wc_get_product($id);
                     if (!$p instanceof WC_Product) { continue; }
                     try {
-                        $r = mos_clean_fill_product($p, $keys, $journal, $journal === null);
+                        $r = mos_clean_fill_product($p, $keys, $journal, $journal === null, $team_keys);
                     } catch (\Throwable $e) {
                         WP_CLI::warning("product $id: " . $e->getMessage());
                         continue;
                     }
+                    $name = $p->get_name();
                     foreach ($r['set'] as $field => $value) {
                         $out['set'][$field]++;
                         if ($field === 'colour') { $out['colours'][(string) $value] = true; }
                         if ($field === 'brand' && str_ends_with($value, ' (new)')) { $out['new_brands'][$value] = ($out['new_brands'][$value] ?? 0) + 1; }
+                        if (isset($out['listed'][$field])) { $out['listed'][$field][] = sprintf('%d "%s" → %s', $id, $name, $value); }
                     }
                     if ($r['set']) { $out['changed'][] = $id; }
+                    // WordPress builds a product's address from its Yoast primary category; without one, a new
+                    // category can change the address.
+                    if (isset($r['set']['garment']) && $p->get_status() === 'publish' && !(int) get_post_meta($id, '_yoast_wpseo_primary_product_cat', true)) {
+                        $out['urls'][] = sprintf('%d "%s"', $id, $name);
+                    }
                     foreach ($r['conflicts'] as $field => $candidates) {
-                        $out['conflicts'][$field][] = sprintf('%d "%s": %s', $id, $p->get_name(), implode(' | ', $candidates));
+                        $out['conflicts'][$field][] = sprintf('%d "%s": %s', $id, $name, implode(' | ', $candidates));
+                    }
+                    $suspect = mos_clean_suspect(mos_clean_tokens($name), mos_clean_slugs($id, 'pa_felag-lid'), mos_clean_slugs($id, 'product_brand'), $keys, $team_keys, $deny);
+                    foreach ($suspect as $field => $s) {
+                        $filed = implode(', ', array_slice($s['filed'], 0, 5)) . (count($s['filed']) > 5 ? sprintf(' (+%d more)', count($s['filed']) - 5) : '');
+                        $out['suspects'][$field][] = sprintf('%d "%s": %s; filed as %s', $id, $name, $s['name'] ? 'the name says ' . implode(', ', $s['name']) : 'the name mentions none of them', $filed);
                     }
                 }
                 $journal?->save();
@@ -1217,7 +1659,7 @@ if (defined('WP_CLI') && WP_CLI) {
             return $out;
         }
 
-        /** Print what was set, the conflicts and the coverage. */
+        /** Print what was set (teams, garments and brands product by product), the conflicts, the suspects and the coverage. */
         private function report(array $fill, int $samples, array $before, ?array $after, int $published): void {
             foreach ($fill['set'] as $field => $n) { WP_CLI::log(sprintf('  %-7s %5d products', $field, $n)); }
             if ($fill['new_brands']) {
@@ -1225,9 +1667,22 @@ if (defined('WP_CLI') && WP_CLI) {
                 ksort($new_brands);
                 WP_CLI::log('  new brand terms: ' . implode(', ', array_map(static fn ($k, $v) => str_replace(' (new)', '', $k) . " ($v)", array_keys($new_brands), $new_brands)));
             }
+            foreach ($fill['listed'] as $field => $lines) {
+                if (!$lines) { continue; }
+                WP_CLI::log(sprintf('  %s set, product by product: %d', $field, count($lines)));
+                foreach ($lines as $line) { WP_CLI::log("    $line"); }
+            }
             foreach ($fill['conflicts'] as $field => $lines) {
                 WP_CLI::log(sprintf('  %s conflicts (left empty): %d', $field, count($lines)));
                 foreach (array_slice($lines, 0, $samples) as $line) { WP_CLI::log("    $line"); }
+            }
+            foreach ($fill['suspects'] as $field => $lines) {
+                WP_CLI::log(sprintf('  %s suspects (filed differently from the name; not changed): %d', $field, count($lines)));
+                foreach ($lines as $line) { WP_CLI::log("    $line"); }
+            }
+            if ($fill['urls']) {
+                WP_CLI::log(sprintf('  products with no primary category whose address may change with the new category: %d', count($fill['urls'])));
+                foreach ($fill['urls'] as $line) { WP_CLI::log("    $line"); }
             }
             WP_CLI::log(sprintf('Coverage of %d published products%s:', $published, $after === null ? ' (now)' : ' before → after'));
             foreach ($before as $field => $n) {
@@ -1237,14 +1692,14 @@ if (defined('WP_CLI') && WP_CLI) {
         }
 
         /**
-         * Published products having at least one brand / gender category / sport / colour.
+         * Published products having at least one brand / gender category / sport / colour / team / product-type category.
          *
          * @param int[] $ids
-         * @return array{brand:int,gender:int,sport:int,colour:int}
+         * @return array<string,int> field (MOS_CLEAN_FIELDS) → products
          */
         private function coverage(array $ids): array {
             global $wpdb;
-            if (!$ids) { return ['brand' => 0, 'gender' => 0, 'sport' => 0, 'colour' => 0]; }
+            if (!$ids) { return array_fill_keys(MOS_CLEAN_FIELDS, 0); }
             $in = implode(',', array_map('intval', $ids));
             $count = static function (string $tax, ?array $slugs = null) use ($wpdb, $in): int {
                 $slug_sql = $slugs ? ' AND t.slug IN (' . implode(',', array_map(static fn ($s) => $wpdb->prepare('%s', $s), $slugs)) . ')' : '';
@@ -1259,6 +1714,8 @@ if (defined('WP_CLI') && WP_CLI) {
                 'gender' => $count('product_cat', MOS_CLEAN_GENDER_CATS),
                 'sport' => $count('pa_ithrott'),
                 'colour' => $count('pa_litur'),
+                'team' => $count('pa_felag-lid'),
+                'garment' => $count('product_cat', mos_clean_garment_type_slugs()),
             ];
         }
     }
