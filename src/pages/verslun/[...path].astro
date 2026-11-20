@@ -9,7 +9,7 @@ import SizeGuide from '../../components/SizeGuide.astro';
 import ProductPurchase from '../../components/ProductPurchase.tsx';
 import RelatedProducts from '../../components/RelatedProducts.astro';
 import Icon from '../../components/Icon.astro';
-import { productSubtitle, subtitleLink } from '../../lib/productCard';
+import { productSubtitle, subtitleParts } from '../../lib/productCard';
 import { getProductBySlug, getVariations } from '../../lib/woo';
 import { productImage, mediaSrcset, mediaUrl } from '../../lib/img';
 import { TILE_ASPECT, type PhotoFit } from '../../lib/photoBg';
@@ -166,8 +166,9 @@ const subtitleCategory = product
   ? cardCategories((product.categories ?? []).map((c) => ({ id: c.id, name: decodeEntities(c.name) })), terms.categories, 1)[0]
   : undefined;
 const subtitle = product ? productSubtitle({ category: subtitleCategory?.name, brands: product.brands, name }) : '';
-// The category in it opens its listing.
-const subtitleCat = subtitleLink(subtitle, subtitleCategory);
+// The category and the brand in it open their listings (the brand only when it is the product's brand term).
+const subtitleBrand = product?.brands?.[0] ? { name: decodeEntities(product.brands[0].name).trim(), path: `/brand/${product.brands[0].slug}/` } : undefined;
+const subtitleBits = subtitleParts(subtitle, subtitleCategory, subtitleBrand);
 
 // Structured data for the product detail page.
 const canonicalUrl = new URL(canonicalPath || Astro.url.pathname, Astro.site ?? 'https://musikogsport.is/').href;
@@ -207,7 +208,7 @@ const shareUrl = `https://www.facebook.com/sharer.php?u=${encodeURIComponent(can
         <PdpRail>
           <div class="pdp-head">
             <h1 class="pdp-title">{name}</h1>
-            {subtitle && <p class="pdp-subtitle">{subtitleCat ? <Fragment><a href={subtitleCat.href}>{subtitleCat.name}</a>{subtitleCat.rest}</Fragment> : subtitle}</p>}
+            {subtitle && <p class="pdp-subtitle">{subtitleBits.map((bit) => (bit.href ? <a href={bit.href}>{bit.text}</a> : bit.text))}</p>}
             {/* The baked price and "-N%" are corrected by the script below from the live answer (lib/livePrices pdpPriceFill). */}
             <div class="pdp-price" data-pdp-price={product.id}>
               <PriceTag product={product} />

@@ -75,6 +75,28 @@ export function subtitleLink(subtitle: string, category?: { name: string; path: 
   return { name, href: category.path, rest: subtitle.slice(name.length) };
 }
 
+/** A product subtitle as pieces to print: the category at its start and the brand at its end as links to their
+ *  listings, the rest (the " · " between them, or a part with no page of its own) as text. The brand is linked only
+ *  when the product has a brand term (`brand.path`); one read from the product's name has no page to open. */
+export function subtitleParts(
+  subtitle: string,
+  category?: { name: string; path: string },
+  brand?: { name: string; path: string },
+): { text: string; href?: string }[] {
+  const cat = subtitleLink(subtitle, category);
+  const parts: { text: string; href?: string }[] = cat ? [{ text: cat.name, href: cat.href }] : [];
+  const rest = cat ? cat.rest : subtitle;
+  const brandName = brand?.name.trim() ?? '';
+  if (brandName && brand?.path && rest.endsWith(brandName)) {
+    const between = rest.slice(0, rest.length - brandName.length);
+    if (between) parts.push({ text: between });
+    parts.push({ text: brandName, href: brand.path });
+  } else if (rest) {
+    parts.push({ text: rest });
+  }
+  return parts;
+}
+
 /** "2 litir", "21 litur": Icelandic takes the singular after numbers ending in 1, except 11. */
 export function colourLabel(n: number): string {
   return countWord(n, 'litur', 'litir');

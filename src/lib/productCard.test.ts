@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardLabel, colourCount, colourLabel, isColourAttribute, NEW_PRODUCT_DAYS, productSubtitle, subtitleLink } from './productCard';
+import { cardLabel, colourCount, colourLabel, isColourAttribute, NEW_PRODUCT_DAYS, productSubtitle, subtitleLink, subtitleParts } from './productCard';
 import type { WooAttribute } from './types';
 
 describe('cardLabel', () => {
@@ -120,5 +120,38 @@ describe('subtitleLink', () => {
     expect(subtitleLink('Nike', undefined)).toBeNull();
     expect(subtitleLink('', peysur)).toBeNull();
     expect(subtitleLink('Peysur · Nike', { name: 'Peysur', path: '' })).toBeNull();
+  });
+});
+
+describe('subtitleParts', () => {
+  const peysur = { name: 'Peysur', path: '/voruflokkur/fatnadur/efri-likami/peysur-efri-likami/' };
+  const nike = { name: 'Nike', path: '/brand/nike/' };
+
+  it('links both the category and the brand, with the separator as text between them', () => {
+    expect(subtitleParts('Peysur · Nike', peysur, nike)).toEqual([{ text: 'Peysur', href: peysur.path }, { text: ' · ' }, { text: 'Nike', href: nike.path }]);
+  });
+
+  it('links a brand that stands alone', () => {
+    expect(subtitleParts('Nike', undefined, nike)).toEqual([{ text: 'Nike', href: nike.path }]);
+    expect(subtitleParts('Nike', peysur, nike)).toEqual([{ text: 'Nike', href: nike.path }]);
+  });
+
+  it('leaves the brand as text when the product has no brand page (the brand was read from its name)', () => {
+    expect(subtitleParts('Peysur · Nike', peysur)).toEqual([{ text: 'Peysur', href: peysur.path }, { text: ' · Nike' }]);
+    expect(subtitleParts('Peysur · Nike', peysur, { name: 'Nike', path: '' })).toEqual([{ text: 'Peysur', href: peysur.path }, { text: ' · Nike' }]);
+  });
+
+  it('links the brand even when the category has no page', () => {
+    expect(subtitleParts('Peysur · Nike', { name: 'Peysur', path: '' }, nike)).toEqual([{ text: 'Peysur · ' }, { text: 'Nike', href: nike.path }]);
+  });
+
+  it('links a brand only where the subtitle ends with it', () => {
+    expect(subtitleParts('Peysur · Hoka', peysur, nike)).toEqual([{ text: 'Peysur', href: peysur.path }, { text: ' · Hoka' }]);
+    expect(subtitleParts('Peysur', peysur, { name: 'Peysur', path: '/brand/peysur/' })).toEqual([{ text: 'Peysur', href: peysur.path }]);
+  });
+
+  it('is the subtitle as text when nothing can be linked, and nothing for an empty one', () => {
+    expect(subtitleParts('Peysur · Nike')).toEqual([{ text: 'Peysur · Nike' }]);
+    expect(subtitleParts('', peysur, nike)).toEqual([]);
   });
 });
