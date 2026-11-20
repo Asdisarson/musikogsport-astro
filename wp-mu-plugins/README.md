@@ -185,8 +185,12 @@ run and clear are refused and the page says so, and the page reloads while a run
       (`mos_clean_garment_type_slugs()`: theme categories like Liðafatnaður or Hlaup do not count, so team kit filed
       only there gets its garment; a product staff filed under Peysur keeps that). English describing words (tight,
       top, long-sleeve, pants, jersey) count only when the name has no proper garment word. The sport then follows
-      from the garment in the same pass (football shoes → Fótbolti). The default category ("Óflokkað") is left on
-      the product: the fill adds, it never removes.
+      from the garment in the same pass (football shoes → Fótbolti). A jacket, vest or galli is filed two ways by
+      staff, so a describing word beside one decides nothing ("Shirt Jacket" stays unfiled). A product filed under
+      a product-type category (or Skór) no longer belongs in the default category ("Óflokkað"): the fill takes it
+      off when it sets the garment, and `apply` takes it off every product already filed that way
+      (`mos_clean_drop_default_category`; the preview counts them). Nothing else is ever removed, and only
+      categories that already exist are used.
   - New and edited products: the same gap-filling runs at the end of the request (fills empty fields only; a value
     set by hand is never replaced). Each product remembers which fields the plugin filled (`_mos_clean_filled`), and
     those are never filled again: clearing a wrong inferred value in wp-admin sticks. These save-time fills are not
@@ -220,6 +224,37 @@ run and clear are refused and the page says so, and the page reloads while a run
     `tests/mos_clean_fill_wp_test.php` (previews only), `tests/mos_clean_poke_wp_test.php` (the end-of-request
     order; nothing is sent) and `tests/mos_clean_write_wp_test.php` (the write path, a merge and `restore`, on
     products and teams it creates and deletes itself).
+- **mos-product-names.php** — tidies product names a little: words typed in capitals become ordinary case
+  ("NIKE PRO WARM TIGHT MENS" → "Nike Pro Warm Tight Mens"), extra spaces go, and a brand or audience word said a
+  second time goes. It WRITES `post_title` and nothing else:
+  - **Never the SKU, never an existing link.** A product that has a slug keeps it. One that has none yet (a draft)
+    is given its slug from the name as it was typed only when the tidied name would give another (a repeated word
+    went); otherwise it gets its slug at publication like any draft, and that slug is the same either way.
+  - **Sizes follow.** A variation's own title starts with its product's name; a renamed product's variations get
+    the new start, as WooCommerce does when a product is renamed in wp-admin (`restore` puts them back too).
+  - **What stays as typed:** everything with a digit (2025, 25/26, EURO24, F50: years never change), abbreviations
+    without a vowel (FC, GTX, KVK), the lists `MOS_NAMES_KEEP` (UEFA, HSÍ, BOA, …) and `MOS_NAMES_CAPS_BRANDS` (SKLZ,
+    HOKA), maker's colour groups (`FTWWHT/SOLRED/LUCBLU`: one unknown part keeps the whole group), words already in
+    ordinary case, and a name of one word (a bare article code). Spelling is never corrected.
+  - **How it knows a word from a code:** an all-caps word is cased when the shop already writes it in ordinary case
+    in some product name (the vocabulary, read from all titles and cached 12 hours), when it has an Icelandic
+    letter, is in `MOS_NAMES_WORDS`, or is five letters or more and reads like a word. A short word it cannot place
+    stays in capitals (PIKO, LILO): add it to `MOS_NAMES_WORDS` or `MOS_NAMES_KEEP` to settle it.
+  - **New products:** tidied once, the first time a catalog editor saves them with a name; the product is then
+    marked (`_mos_name_tidied`) and a name staff type later stands, capitals included. This is off until
+    `wp mos-names apply` or `wp mos-names mark` has marked the existing catalog (option `mos_names_live`).
+  - **WP-CLI:** `wp mos-names preview` (writes nothing; id, status, old, new), `wp mos-names apply` (writes, with a
+    journal in `uploads/mos-names/`), `wp mos-names restore <journal>` (puts the old names back; a name changed since
+    is left alone and reported), `wp mos-names mark` (changes no name, switches the new-product tidying on).
+    The storefront is not told by a bulk `apply`: `curl -X POST https://<storefront>/api/content-refresh` afterwards.
+  - Local run 2026-11-20: 1,376 of 3,782 names changed (1,310 capitals, 50 spaces, 15 repeats, 1 Dri-FIT) and the
+    6,239 variation titles under them; two drafts without a slug got one from their old name; no SKU and no
+    existing slug changed. Production: not run.
+  - The journal folder gets a deny-all `.htaccess`; on nginx block `/wp-content/uploads/mos-names/` in the server
+    config, as for `mos-clean`.
+  - Tests: `php tests/mos_names_test.php` (the rules) and `wp eval-file tests/mos_names_wp_test.php` (a new
+    product's name, link and SKU, and a later rename; makes and deletes throwaway products).
+
 - **mos-nav.php** — builds the main menu from the catalog: `wp mos-nav preview` prints it with product counts,
   `wp mos-nav apply` writes it as "Aðalvalmynd 2026" in the primary location (the previous menu is kept for
   rollback). Konur/Karlar/Börn get the same columns (Fatnaður, Skór, Íþróttir, Félagslið, Vörumerki, Úrval); links

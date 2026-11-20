@@ -667,11 +667,20 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    The apply of 2026-11-20 also merges the team "HSÍ" into "Ísland" (`mos_clean_term_ops`): HSÍ leaves the Félag/Lið
    filter, and the storefront sends `?team=hsi` on to `?team=island-iceland` once the term is gone (`MOVED_TEAMS`
    in `src/lib/paths.ts`). Run 3c after it, or the menu keeps a link to a team that no longer exists.
+   `apply` also takes the default category (Óflokkað) off every product filed under a product-type category.
    Check: a second `wp mos-clean preview` sets 0 on all six fields (brand, gender, sport, colour, team, garment) and
    lists no term or category changes except the lines "skipped: … used for variations" (those stay, by design;
    conflicts and suspects are still listed, they are for a person), and
    `python3 wp-mu-plugins/tests/store_api_colour_test.py https://<wp-host>` and
    `python3 wp-mu-plugins/tests/store_api_team_test.py https://<wp-host>` pass.
+3b-2. **Product names** (optional; writes `post_title` only, never a SKU or an existing link; the owner asks for it
+   in so many words). Upload `mos-product-names.php`, export the database outside the web root, then
+   `wp mos-names preview > names.tsv` and have the owner read it (old and new name side by side). Then
+   `wp mos-names apply` (keep the journal it names; `wp mos-names restore <journal>` puts the names back), and
+   `curl -X POST https://<storefront>/api/content-refresh` so the pages are re-rendered. From then on a new product's
+   name is tidied once, on its first save. To switch that on without renaming anything: `wp mos-names mark`.
+   On nginx, block `/wp-content/uploads/mos-names/` in the server config (the journal holds the old names, drafts
+   included). Check: a second `wp mos-names preview` says 0 names would change.
 3c. **Main menu** (after 3b, which it counts): `wp mos-nav preview` (prints the menu with product counts), then
    `wp mos-nav apply`: writes the menu "Aðalvalmynd 2026" and puts it in the primary location; the old menu stays.
    Rollback: Útlit → Valmyndir → Stjórna staðsetningum → Aðalvalmynd. Only ONE earlier build is kept ("Aðalvalmynd
