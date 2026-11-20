@@ -69,6 +69,10 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
   set the same value as `MOS_SHELL_POKE_KEY` on the storefront (sent as `X-Mos-Shell-Key`); without it the storefront
   accepts only product and category paths of one strict shape, and bounds the route by a budget of path actions
   (DEPLOY.md, Rate limits; set the key in production). A refused or failed poke is logged to the PHP error log.
+  The poke is flushed on `shutdown` at `MOS_SHELL_POKE_FLUSH_PRIORITY` (PHP_INT_MAX - 2): after the catalog fill, so
+  it names the product as filled, and before the size index. A poke queued after that flush has run (or after its
+  priority has passed) is sent by one late flush on PHP's own shutdown list (at most 5 per request). Products the
+  catalog plugin filled without a WooCommerce save are queued from its `mos_clean_filled` action.
   Who counts as an editor: a user who may edit products, WP-CLI, and a scheduled save (WP-Cron, or the Action Scheduler
   actions that start and end a WooCommerce sale) unless it changed only stock. Stock changes from orders send nothing. A product that goes live or leaves the shop by its status alone (a scheduled
 product going live, a draft or pending one published, a published one moved to another status) pokes too, whatever its
@@ -169,23 +173,53 @@ run and clear are refused and the page says so, and the page reloads while a run
     only when exactly one rule matches; conflicts are listed and left empty. Inferred attributes are hidden on the
     product page and never used for variations. Writes go through `WC_Product::save()` so the attribute lookup
     table the Store API filters on stays in step.
+  - Also from the name (2026-11-20), by the same "only when empty, only when the name says exactly one" rule:
+    - the team (`pa_felag-lid`): every team term is known by its own name and slug, anywhere in the name; on top of
+      that `mos_clean_team_rules()` has aliases (the federations HSÍ / KSÍ / KKÍ are Ísland; English country names;
+      "Man Utd"), teams never read from a name (Messi, Euro24, …) and deny words (a "Chelsea" boot is not the club).
+      A new team created in wp-admin is known from then on; the fill never creates a team.
+    - a brand named anywhere in the name ("HSÍ ADIDAS HANDBOLTATREYJA"), when the name does not start with one;
+      brands that are ordinary words (Head, Select) only count at the start.
+    - the garment, as a product-type category (`mos_clean_garment_rules()`: "…treyja" → Bolir, "…peysa" → Peysur,
+      "gervigrasskór" → Fótboltaskór, …), only for a product filed under no product-type category yet
+      (`mos_clean_garment_type_slugs()`: theme categories like Liðafatnaður or Hlaup do not count, so team kit filed
+      only there gets its garment; a product staff filed under Peysur keeps that). English describing words (tight,
+      top, long-sleeve, pants, jersey) count only when the name has no proper garment word. The sport then follows
+      from the garment in the same pass (football shoes → Fótbolti). The default category ("Óflokkað") is left on
+      the product: the fill adds, it never removes.
   - New and edited products: the same gap-filling runs at the end of the request (fills empty fields only; a value
     set by hand is never replaced). Each product remembers which fields the plugin filled (`_mos_clean_filled`), and
     those are never filled again: clearing a wrong inferred value in wp-admin sticks. These save-time fills are not
     in any journal. The hook runs only for catalog editors (wp-admin, REST, WP-CLI), never for a checkout's stock
     save or any other visitor request.
+  - The preview also lists, product by product, every team, garment and brand it would set (`--samples=all` lists
+    every conflict too), the "suspects" (a product filed under another team or brand than its name says, or carrying
+    three or more teams none of which the name mentions: reported for a person, never changed), and published
+    products with no primary category whose address may change with the new category.
   - WP-CLI: `wp mos-clean preview` (writes nothing; lists every change, conflicts and coverage), `wp mos-clean apply`
     (one run is enough; writes `uploads/mos-clean/journal-<time>-<random>.json`, folder denied to the web by `.htaccess`), `wp mos-clean restore <journal>` (undoes that
     run: puts back the products' categories, brands and attributes, re-creates deleted terms, reverts renames, removes
     created terms; restore several journals newest first; fills made later by the save hook are not undone). Local run 2026-10-29, published products: brand 86.4 → 93.1%,
-    gender 62.6 → 93.2%, sport 8.7 → 37.0%, colour 1.5 → 39.4%.
+    gender 62.6 → 93.2%, sport 8.7 → 37.0%, colour 1.5 → 39.4%. Local run 2026-11-20 (team, garment, brand anywhere;
+    3782 products of every status): garment 424 products (70 published), team 76, brand 12, sport 13; published
+    coverage team 14.0 → 15.9%, product-type category 96.2 → 98.4%; then the HSÍ → Ísland merge (8 products).
   - Category tidy-up (`mos_clean_category_ops()`, same preview/apply/restore): merges, category → attribute term
     (clubs → `pa_felag-lid`, the Íþrótt tree → `pa_ithrott`), category → brand, reparent, rename, delete empty (never
     the default category). A product the op would leave with no category besides Kyn/sale gets the op's fallback.
     The journal records deleted categories' parents and reparents, so restore rebuilds the tree. Storefront 301s for
-    removed URLs: `MOVED_CATEGORIES` in `src/lib/paths.ts` (keep in step).
-  - Tests: `php tests/mos_clean_rules_test.php` (the pure rules) and `python3 tests/store_api_colour_test.py`
-    (after an apply: colour counts match the filtered listings).
+    removed URLs: `MOVED_CATEGORIES` in `src/lib/paths.ts` (keep in step). A merged team whose `?team=` links are
+    worth keeping (HSÍ → Ísland) is listed in `MOVED_TEAMS` there too; a storefront test reads this file's merge rows
+    and fails when the two are out of step.
+  - End of the request: the fill runs on `shutdown` at `MOS_CLEAN_FLUSH_PRIORITY` (PHP_INT_MAX - 3), before the
+    storefront poke (- 2) and the size index (PHP_INT_MAX), and announces the products it filled with
+    `do_action('mos_clean_filled', $ids)` (a brand-only fill saves nothing through WooCommerce, so nothing else
+    would tell the storefront).
+  - Tests: `php tests/mos_clean_rules_test.php` (the pure rules), `python3 tests/store_api_colour_test.py` and
+    `python3 tests/store_api_team_test.py <wp url>` (after an apply: the filter's counts match the filtered
+    listings, and the groups combine), and against the local site with `wp eval-file`:
+    `tests/mos_clean_fill_wp_test.php` (previews only), `tests/mos_clean_poke_wp_test.php` (the end-of-request
+    order; nothing is sent) and `tests/mos_clean_write_wp_test.php` (the write path, a merge and `restore`, on
+    products and teams it creates and deletes itself).
 - **mos-nav.php** — builds the main menu from the catalog: `wp mos-nav preview` prints it with product counts,
   `wp mos-nav apply` writes it as "Aðalvalmynd 2026" in the primary location (the previous menu is kept for
   rollback). Konur/Karlar/Börn get the same columns (Fatnaður, Skór, Íþróttir, Félagslið, Vörumerki, Úrval); links
