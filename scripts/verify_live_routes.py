@@ -54,12 +54,12 @@ def count_text(html):
 
 s, loc, html = fetch('/verslun/')
 p1 = products_on(html)
-check('shop page 1 renders 27 products', s == 200 and len(p1) == 27, f'{s} n={len(p1)} "{count_text(html)}"')
+check('shop page 1 renders 24 products', s == 200 and len(p1) == 24, f'{s} n={len(p1)} "{count_text(html)}"')
 check('product links use live /verslun/<cat>/<slug>/ shape', all(h.startswith('/verslun/') and h.endswith('/') and h.count('/') >= 4 for h in p1), p1[0] if p1 else '')
 
 s, loc, html2 = fetch('/verslun/page/2/')
 p2 = products_on(html2)
-check('shop page 2 renders a distinct grid', s == 200 and len(p2) == 27 and not set(p1) & set(p2), f'{s} overlap={len(set(p1) & set(p2))}')
+check('shop page 2 renders a distinct grid', s == 200 and len(p2) == 24 and not set(p1) & set(p2), f'{s} overlap={len(set(p1) & set(p2))}')
 s, loc, _ = fetch('/verslun/page/1/')
 check('/verslun/page/1/ 301s to /verslun/', s == 301 and loc == '/verslun/', f'{s} {loc}')
 

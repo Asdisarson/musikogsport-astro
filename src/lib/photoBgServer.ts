@@ -72,7 +72,7 @@ export async function samplePhotoEdges(url: string): Promise<PhotoEdges | null> 
   return readEdges(px);
 }
 
-// 8 at once: a wall page asks for up to 27 photos, and settlePhotos waits for them (each a few KB to ~100 KB)
+// 8 at once: a wall page asks for up to 24 photos, and settlePhotos waits for them (each a few KB to ~100 KB)
 const cache = createPhotoBgCache<PhotoEdges>({ sample: samplePhotoEdges, concurrency: 8 });
 
 /** The photo's padded-tile colour (its whole edge one flat colour) if already known (null: default tile), undefined

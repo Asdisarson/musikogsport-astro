@@ -223,7 +223,7 @@ def main():
             sys.exit('the storefront did not start')
         counter.take()
 
-        store = json.loads(fetch(f'{args.wordpress}/wp-json/wc/store/v1/products?per_page=27')['body'])
+        store = json.loads(fetch(f'{args.wordpress}/wp-json/wc/store/v1/products?per_page=24')['body'])
         variable = next(p for p in store if p['type'] == 'variable')
         pdp = urllib.parse.urlparse(variable['permalink']).path
         listing = fetch(base + '/verslun/')
@@ -261,7 +261,7 @@ def main():
 
         live = []
         ids = ','.join(str(p['id']) for p in store)
-        for name, path in [('Verð og lager, 27 vörur', f'/api/live/?ids={ids}'), ('Verð og lager, vörusíða', f"/api/live/product/{variable['id']}/")]:
+        for name, path in [('Verð og lager, 24 vörur', f'/api/live/?ids={ids}'), ('Verð og lager, vörusíða', f"/api/live/product/{variable['id']}/")]:
             first = fetch(base + path)
             if first['status'] != 200:
                 continue
@@ -278,7 +278,7 @@ def main():
         hero = image_urls(hero_tag.group(0), 1536)[:1] if hero_tag else []
         hero_bytes, hero_n = image_bytes(base, hero)
         grid = re.search(r'data-archive-grid.*', wall, re.S)
-        cards = image_urls(grid.group(0) if grid else wall, 450)[:27]
+        cards = image_urls(grid.group(0) if grid else wall, 450)[:24]
         card_bytes, card_n = image_bytes(base, cards)
         images = {'hero_bytes': hero_bytes, 'hero_images': hero_n, 'card_bytes': card_bytes, 'card_images': card_n}
 
