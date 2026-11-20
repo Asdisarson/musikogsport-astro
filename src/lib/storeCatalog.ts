@@ -24,8 +24,9 @@ const BASE = `${WP_INTERNAL_URL}/wp-json/wc/store/v1`;
  *  until one has. Price filters are sent in this unit (liveFilters.presetBounds). */
 let minorUnit = 0;
 export const currencyMinorUnit = (): number => minorUnit;
-/** Live's catalog grid: woocommerce_catalog_columns (3) × woocommerce_catalog_rows (9). */
-export const CATALOG_PER_PAGE = 27;
+/** Products on one listing page: 24 (owner, 2026-11-20), which fills the grid's rows at 2, 3 and 4 columns alike.
+ *  It was 27, live's woocommerce_catalog_columns (3) × woocommerce_catalog_rows (9). */
+export const CATALOG_PER_PAGE = 24;
 
 export interface StoreQuery {
   page?: number;

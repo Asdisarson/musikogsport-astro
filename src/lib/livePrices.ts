@@ -5,7 +5,7 @@ import { salePercent } from './price';
 import type { StockStatus, WooProduct, WooVariation } from './types';
 import { isPosInt } from './validate';
 
-/** Most ids one /api/live/ call takes: a listing page shows 27 cards, so this leaves room for a few pages. */
+/** Most ids one /api/live/ call takes: a listing page shows 24 cards, so this leaves room for a few pages. */
 export const LIVE_MAX_IDS = 60;
 
 export type LiveStock = StockStatus | null;
