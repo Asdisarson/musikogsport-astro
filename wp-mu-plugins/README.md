@@ -189,9 +189,10 @@ run and clear are refused and the page says so, and the page reloads while a run
       (`mos_clean_garment_type_slugs()`: theme categories like Liðafatnaður or Hlaup do not count, so team kit filed
       only there gets its garment; a product staff filed under Peysur keeps that). English describing words (tight,
       top, long-sleeve, pants, jersey) count only when the name has no proper garment word. The sport then follows
-      from the garment in the same pass (football shoes → Fótbolti). A jacket is outerwear (Yfirhafnir; the
-      owner's decision, 2026-11-20). A vest or galli is filed two ways by staff, so a describing word beside one
-      decides nothing ("Tank Vest" stays unfiled). A product filed under
+      from the garment in the same pass (football shoes → Fótbolti). A jacket and a vest are outerwear
+      (Yfirhafnir; the owner's decisions, 2026-11-20), except a "hlaupavesti" (a drink pack as often as a garment)
+      and an "æfingavesti" (a bib): a name with one gets no garment at all. A galli is filed two ways by staff, so
+      a describing word beside one decides nothing. A product filed under
       a product-type category (or Skór) no longer belongs in the default category ("Óflokkað"): the fill takes it
       off when it sets the garment, and `apply` takes it off every product already filed that way
       (`mos_clean_drop_default_category`; the preview counts them). Nothing else is ever removed, and only

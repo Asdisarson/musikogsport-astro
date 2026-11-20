@@ -19,7 +19,7 @@ $check = static function (string $name, bool $ok, string $detail = '') use (&$fa
 // A rule that names a category the shop lacks would silently set nothing: every target must exist.
 $missing = [];
 foreach (mos_clean_garment_rules() as [$slug]) {
-    if ($slug !== null && !get_term_by('slug', $slug, 'product_cat') instanceof WP_Term) { $missing[] = $slug; }
+    if (is_string($slug) && !get_term_by('slug', $slug, 'product_cat') instanceof WP_Term) { $missing[] = $slug; }
 }
 $check('every garment rule points at a category the shop has', $missing === [], implode(', ', $missing));
 $missing = array_values(array_filter(mos_clean_garment_type_slugs(), static fn ($s) => !get_term_by('slug', $s, 'product_cat') instanceof WP_Term));

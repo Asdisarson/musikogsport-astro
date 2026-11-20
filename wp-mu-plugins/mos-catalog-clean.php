@@ -239,12 +239,14 @@ function mos_clean_team_rules(): array {
  *  - A shoe named without its kind ("Shoes", "barnaskór", "High-Top … Boots") goes under Skór itself, as a
  *    describing word, so a name that does say the kind ("handboltaskór … Indoor Shoes") is filed by that.
  * Each word is filed where staff already file the products that have it (measured on the catalog, 2026-11-20); a word
- * they file two ways (set, cap) has no rule, and vest and galli decide nothing even beside a describing word
- * ("Tank Vest" is not a tank). A jacket was such a word until the owner decided it is outerwear (2026-11-20).
+ * they file two ways (set, cap) has no rule, and galli decides nothing even beside a describing word. Jacket and
+ * vest were such words until the owner decided they are outerwear (2026-11-20).
+ *  - A `false` target vetoes the whole name: a "hlaupavesti" is a drink pack as often as a garment and an
+ *    "æfingavesti" is a bib, so a name with one gets no garment whatever else it says.
  * "Long sleeve" / "short sleeve" and "low top" / "high top" are read as one word (mos_clean_garment_from_name): a bare
  * "sleeve" is an arm sleeve, and a high-top is a shoe.
  *
- * @return list<array{0:?string,1:list<string>,2?:bool}>
+ * @return list<array{0:string|false|null,1:list<string>,2?:bool}>
  */
 function mos_clean_garment_rules(): array {
     return [
@@ -252,7 +254,8 @@ function mos_clean_garment_rules(): array {
         ['sundfatnadur-fatnadur-2', ['/sund(bol|bux|skyl|stuttbux|gleraug|hett)/', '/^bikini/', '/^swimsuit$/', '/^swim$/', '/^swm$/', '/^rash$/']],
         ['fimleikar', ['/^fimleika?(bol|bux|stuttbux)/']],
         [null, ['/^(regn|snjo|polla|vind|skida)bux/']],
-        [null, ['/^vests?$/', '/^galli$/']],   // filed two ways by staff: a describing word beside one decides nothing
+        [false, ['/^hlaupavest/', '/^(aefinga|keppnis|endurskins)vest/']],   // a drink pack or a bib as often as a garment: such a name is not filed here at all
+        [null, ['/^galli$/']],   // filed two ways by staff: a describing word beside one decides nothing
         ['fotboltaskor-ithrottaskor', ['/^fotboltask/', '/^takkask/', '/^gervigrassk/']],
         ['handboltaskor-ithrottaskor', ['/^handboltask/']],
         ['korfuboltaskor', ['/^korfuboltask/']],
@@ -275,7 +278,7 @@ function mos_clean_garment_rules(): array {
         ['topp-ur', ['/^bra$/'], true],
         ['hufur-treflar', ['/huf(a|u|ur)$/', '/^trefil/', '/^trefl/', '/^beanie$/', '/^buff$/', '/^ennisb(and|ond)/', '/^harb(and|ond)/', '/^headband$/']],
         ['hanskar-vettlingar', ['/^(?!markm).*hansk(i|ar|a)$/', '/vettling(ar|a)$/']],
-        ['yfirhafnir', ['/jakk(i|a|ar)$/', '/ulp(a|u|ur)$/', '/^parka$/', '/^jackets?$/', '/^jkt$/']],   // a jacket is outerwear: the owner's decision, 2026-11-20
+        ['yfirhafnir', ['/jakk(i|a|ar)$/', '/ulp(a|u|ur)$/', '/^parka$/', '/^jackets?$/', '/^jkt$/', '/vesti$/', '/^vests?$/', '/^downvest$/']],   // a jacket and a vest are outerwear: the owner's decisions, 2026-11-20
     ];
 }
 
@@ -504,6 +507,7 @@ function mos_clean_garment_from_name(array $tokens): array {
         foreach ($rules as $rule) {
             foreach ($rule[1] as $re) {
                 if (!preg_match($re, $word)) { continue; }
+                if ($rule[0] === false) { return []; }
                 if ($rule[0] === null) { $unfiled = true; }
                 else { $found[($rule[2] ?? false) ? 'describing' : 'proper'][$rule[0]] = true; }
                 continue 3;   // this word is decided: the next word
