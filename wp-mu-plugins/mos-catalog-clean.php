@@ -111,10 +111,9 @@ function mos_clean_category_ops(): array {
         ['op' => 'to_attr', 'from' => 'fimleikafelagid-bjork', 'tax' => 'pa_felag-lid', 'to' => 'bjork', 'fallback' => $clubs],
         ['op' => 'merge', 'from' => 'boltar-2', 'to' => 'boltar-aefingarvorur'],
         ['op' => 'merge', 'from' => 'felag-lid', 'to' => $clubs],
-        ['op' => 'to_brand', 'from' => 'didriksons', 'to' => 'didriksons', 'fallback' => 'vetur'],
+        ['op' => 'to_brand', 'from' => 'didriksons', 'to' => 'didriksons', 'fallback' => 'sumar-did'],   // Regn-útivistarfatnaður
         ['op' => 'sports', 'root' => 'ithrott'],
         ['op' => 'reparent', 'slug' => 'sumar', 'parent' => 'aefingarvorur'],
-        ['op' => 'rename', 'tax' => 'product_cat', 'slug' => 'vetur', 'name' => 'Regn- og vetrarfatnaður'],
         ['op' => 'delete_empty', 'slugs' => ['unisex', 'uncategorized', 'oflokkad']],
     ];
 }
@@ -244,7 +243,11 @@ function mos_clean_team_rules(): array {
  *  - A `false` target vetoes the whole name: a "hlaupavesti" is a drink pack as often as a garment and an
  *    "æfingavesti" is a bib, so a name with one gets no garment whatever else it says.
  * "Long sleeve" / "short sleeve" and "low top" / "high top" are read as one word (mos_clean_garment_from_name): a bare
- * "sleeve" is an arm sleeve, and a high-top is a shoe.
+ * "sleeve" is an arm sleeve, and a high-top is a shoe. So are "tank top", "crop(ped) top", "sleeveless top" (a
+ * bolur) and "drill top" (a peysa).
+ * "Top" on its own has no rule here: staff file a top as a bolur and as a peysa about equally (measured on the
+ * production catalog, 2026-11-20: the old "top is a bolur" agreed with them on 67%). It still stands for an upper
+ * garment, and a zip makes an upper garment a peysa (mos_clean_garment_from_name).
  *
  * @return list<array{0:string|false|null,1:list<string>,2?:bool}>
  */
@@ -272,7 +275,8 @@ function mos_clean_garment_rules(): array {
         ['buxur-leggings', ['/bux(ur|a|um)$/']],
         ['buxur-leggings', ['/^pants$/', '/^shorts$/', '/^leggings?$/', '/^tights?$/', '/^trousers$/', '/^sweatpants?$/'], true],
         ['bolir-efri-likami', ['/treyj(a|u|ur)$/', '/bol(ur|ir)$/']],
-        ['bolir-efri-likami', ['/^jersey$/', '/^jsy$/', '/^tee$/', '/^top$/', '/^(long|short)sleeve$/', '/^shirt$/', '/^tank$/', '/^polo$/'], true],
+        ['bolir-efri-likami', ['/^jersey$/', '/^jsy$/', '/^tee$/', '/^(long|short)sleeve$/', '/^shirt$/', '/^tank$/', '/^polo$/', '/^(crop|cropped|sleeveless|tank)top$/'], true],
+        ['peysur-efri-likami', ['/^drilltop$/'], true],
         ['peysur-efri-likami', ['/peys(a|u|ur)$/', '/^hoodie$/', '/^sweatshirt$/']],
         ['topp-ur', ['/topp(ur|ar)$/']],
         ['topp-ur', ['/^bra$/'], true],
@@ -291,7 +295,8 @@ function mos_clean_garment_rules(): array {
 function mos_clean_garment_type_slugs(): array {
     return [
         'bolir-efri-likami', 'peysur-efri-likami', 'topp-ur', 'hanskar-vettlingar', 'hufur-treflar',
-        'buxur-leggings', 'sokkar-naerfatnadur', 'yfirhafnir', 'sundfatnadur-fatnadur-2', 'vetur',
+        'buxur-leggings', 'sokkar-naerfatnadur', 'yfirhafnir', 'sundfatnadur-fatnadur-2',
+        'sumar-did',   // Regn-útivistarfatnaður: the category this list knew as `vetur` until staff gave it this slug
         'inniskor', 'fotboltaskor-ithrottaskor', 'handboltaskor-ithrottaskor', 'hlaupa-aefingarskor-ithrottaskor',
         'korfuboltaskor', 'stigvel-kuldaskor', 'strigaskor-skor-2',
         'aefingabunadur', 'boltar-aefingarvorur', 'brusar', 'toskur-aefingarvorur', 'fotboltamyndir-og-fl', 'fimleikar',
@@ -490,8 +495,9 @@ function mos_clean_team_from_name(array $tokens, array $team_keys, array $deny =
  * @return list<string> product_cat slugs
  */
 function mos_clean_garment_from_name(array $tokens): array {
-    // "long sleeve" / "long-sleeve" → "longsleeve" (a top; a "sleeve" on its own is not), "low top" → "lowtop" (a shoe).
-    $pairs = ['sleeve' => ['long', 'short'], 'top' => ['low', 'mid', 'high']];
+    // "long sleeve" / "long-sleeve" → "longsleeve" (a top; a "sleeve" on its own is not), "low top" → "lowtop" (a shoe),
+    // "tank top" → "tanktop" (a bolur), "drill top" → "drilltop" (a peysa).
+    $pairs = ['sleeve' => ['long', 'short'], 'top' => ['low', 'mid', 'high', 'crop', 'cropped', 'sleeveless', 'tank', 'drill']];
     $words = [];
     foreach ($tokens as $i => $token) {
         if (isset($pairs[$token]) && in_array($tokens[$i - 1] ?? '', $pairs[$token], true)) {
@@ -503,7 +509,11 @@ function mos_clean_garment_from_name(array $tokens): array {
     $rules = mos_clean_garment_rules();
     $found = ['proper' => [], 'describing' => []];
     $unfiled = false;
+    $top = false;   // a bare "top": an upper garment, bolur or peysa unknown
+    $zip = false;   // "1/4-Zip", "Half Zip", "HZ": an upper garment with one is a peysa
     foreach ($words as $word) {
+        if ($word === 'top') { $top = true; continue; }
+        if (in_array($word, ['zip', 'hz', 'qz'], true)) { $zip = true; continue; }
         foreach ($rules as $rule) {
             foreach ($rule[1] as $re) {
                 if (!preg_match($re, $word)) { continue; }
@@ -515,7 +525,17 @@ function mos_clean_garment_from_name(array $tokens): array {
         }
     }
     if ($found['proper']) { return array_map('strval', array_keys($found['proper'])); }
-    return $unfiled ? [] : array_map('strval', array_keys($found['describing']));
+    if ($unfiled) { return []; }
+    $described = array_map('strval', array_keys($found['describing']));
+    $upper = 'bolir-efri-likami';
+    if ($described === [] || $described === [$upper]) {
+        // An upper garment and nothing else: a zip makes it a peysa; a bare top without one is left for a person.
+        if ($zip && ($top || $described !== [])) { return ['peysur-efri-likami']; }
+        return $described;
+    }
+    // "Tight Top": the top is a second garment beside what the other word described, so the name is undecided.
+    if ($top && !in_array($upper, $described, true)) { $described[] = $upper; }
+    return $described;
 }
 
 /**

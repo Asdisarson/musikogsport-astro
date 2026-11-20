@@ -684,6 +684,12 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    name is tidied once, on its first save. To switch that on without renaming anything: `wp mos-names mark`.
    On nginx, block `/wp-content/uploads/mos-names/` in the server config or move the journal out of the web root
    after the run (it holds the old names, drafts included; see 3b). Check: a second `wp mos-names preview` says 0 names would change.
+   **Not yet done on production: the Didriksons fold.** Until 2026-11-20 the op named a fallback category by a slug
+   production no longer has (`vetur`; staff re-slugged it `sumar-did`, "Regn-útivistarfatnaður"), so every run
+   skipped it with "target missing" and the top-level Didriksons category is still there. With the fix the NEXT
+   `wp mos-clean apply` there folds it: 193 products lose that category (they keep the brand), 54 published ones
+   whose primary category it is get a new address (the storefront 301s `/voruflokkur/didriksons/` already). Read
+   that line in the preview and have the owner agree before applying.
    **Done on production 2026-11-20** (3b, 3c and 3b-2, in that order, after a database dump): 3b 468 products, 3c
    249 menu items (the menu of 16 Nov kept as "Aðalvalmynd 2026 (afrit)"), 3b-2 1,804 names in 12 minutes. On that
    host the commands run through `wp-mu-plugins/bin/mos-cli.php` as the site's system user (README, "No WP-CLI on

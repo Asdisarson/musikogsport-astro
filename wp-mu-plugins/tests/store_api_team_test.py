@@ -59,6 +59,16 @@ def all_terms(attribute_id):
         page += 1
 
 
+skipped = 0
+
+
+def skip(message):
+    """A check that could not run on this catalog. It is counted: a run with skips is not a clean pass."""
+    global skipped
+    skipped += 1
+    print("SKIP " + message)
+
+
 def check(ok, message):
     global fail
     if not ok:
@@ -89,7 +99,7 @@ for t in teams:
 # 2. Combined filters: the reference product is found by all its own groups together.
 ref, _ = get(f"/products?per_page=1&slug={REF_SLUG}")
 if not ref:
-    print(f"SKIP reference product {REF_SLUG} is not in this catalog: combined-filter check not run")
+    skip(f"reference product {REF_SLUG} is not in this catalog: combined-filter check not run")
 else:
     p = ref[0]
     team_ids = [term["id"] for a in p["attributes"] if a.get("taxonomy") == TEAM for term in a["terms"]]
@@ -98,7 +108,7 @@ else:
     kyn_ids = [c["id"] for c in p["categories"] if c["slug"] in KYN_SLUGS]
     print(f"reference {p['name']}: team {team_ids}, sport {sport_ids}, brand {brand_ids}, kyn {kyn_ids}")
     if not (team_ids and sport_ids and brand_ids and kyn_ids):
-        print("SKIP the reference product lacks a team, sport, brand or Kyn category: combined-filter check not run")
+        skip("the reference product lacks a team, sport, brand or Kyn category: combined-filter check not run")
     else:
         combined = [
             term_query(TEAM, team_ids),
@@ -115,7 +125,7 @@ else:
                        "brand=" + ",".join(map(str, brand_ids)), "mos_and_cat=" + ",".join(map(str, kyn_ids))]
             check(p["id"] not in listing_ids("&".join(swapped)), "a team it does not carry excludes it")
         else:
-            print("SKIP no second team with products: exclusion check not run")
+            skip("no second team with products: exclusion check not run")
 
 # 3. Two teams in one group are an OR.
 if len(teams) >= 2:
@@ -127,7 +137,7 @@ if len(teams) >= 2:
     both = set(listing_ids(term_query(TEAM, [a, b])))
     check(both == either, f"teams {a} or {b}: {ta} | {tb} -> {len(both)} products, the two teams' own products together are {len(either)}")
 else:
-    print("SKIP fewer than two teams with products: OR check not run")
+    skip("fewer than two teams with products: OR check not run")
 
-print("PASS" if fail == 0 else f"{fail} failed")
+print(f"{fail} failed" if fail else ("PASS" if skipped == 0 else f"PASS, but {skipped} check(s) did not run: see the SKIP lines"))
 sys.exit(0 if fail == 0 else 1)
