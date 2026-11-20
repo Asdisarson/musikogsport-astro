@@ -3,7 +3,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { CROP_WIDTHS, LIGHT_WIDTHS, PHONE_CROP } from './img';
+import { CROP_WIDTHS, LIGHT_WIDTHS, PHONE_CROP, originalUrl } from './img';
 import { log } from './logger';
 
 export type LightFormat = 'avif' | 'webp';
@@ -94,7 +94,9 @@ export function createGate(concurrency: number, maxWaiting: number) {
     run<T>(key: string, task: () => Promise<T>): Promise<T> {
       const shared = inflight.get(key) as Promise<T> | undefined;
       if (shared) return shared;
-      if (active >= concurrency && waiting.length >= maxWaiting) return Promise.reject(new Error('queue full'));
+      // A 429 (not a 503): a full queue is the server asking the caller to slow down, not an outage, and the route logs
+      // only 5xx.
+      if (active >= concurrency && waiting.length >= maxWaiting) return Promise.reject(new LightError(429, 'queue full'));
       const p = (async () => {
         if (active < concurrency) active++;
         else await new Promise<void>((resolve) => waiting.push(resolve)); // the finishing run hands over its slot
@@ -181,6 +183,32 @@ export async function makeLight(req: LightRequest, deps: MakeDeps): Promise<{ da
   } finally {
     clearTimeout(timer);
   }
+}
+
+export interface MissDeps {
+  /** Whether this visitor may start a conversion now (the per-visitor miss limit). */
+  allowConvert: boolean;
+  /** Starts the conversion (makeLight). Its promise may reject, and it may throw at once. */
+  convert: () => Promise<unknown>;
+  /** Logs a server-side failure (a status of 500 or more). */
+  warn: (status: number, err: unknown) => void;
+}
+
+/** The answer to a picture that is not kept yet: a 302 to the original on the media host, at once, with no-store, so
+ *  the visitor never waits for a conversion. Within the miss limit the conversion goes on in the background, and its
+ *  failure is caught here so it is never an unhandled rejection. A refused or missing original and a full queue are
+ *  quiet; the next visit gets the kept file or the same redirect. A server-side failure is logged. */
+export function answerMiss(req: LightRequest, deps: MissDeps): Response {
+  const target = originalUrl(req.rel);
+  if (target === null) return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
+  if (deps.allowConvert) {
+    // the Promise constructor turns a throw at once into a rejection, so one catch covers both
+    void new Promise<unknown>((resolve) => resolve(deps.convert())).catch((err: unknown) => {
+      const status = err instanceof LightError ? err.status : 503;
+      if (status >= 500) deps.warn(status, err);
+    });
+  }
+  return new Response(null, { status: 302, headers: { Location: target, 'Cache-Control': 'no-store' } });
 }
 
 export { CONCURRENCY, MAX_WAITING };

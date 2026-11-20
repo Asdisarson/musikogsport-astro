@@ -1,7 +1,7 @@
 // Server side of photoBg: fetches a product photo from the media host, decodes it with sharp and reads its edges
 // (readEdges). One process-wide cache; components call photoBg() / photoFitFor() while rendering, which never wait
 // on the network (see createPhotoBgCache). Server-only: sharp is a native module.
-import { waitWithin, cardFill, cardFillAttrs, createPhotoBgCache, photoBgAttrs, photoFit, photoFitAttrs, readEdges, tileAspect, type CardFill, type PhotoEdges, type PhotoFit } from './photoBg';
+import { waitWithin, cardFill, cardFillAttrs, createPhotoBgCache, photoBgAttrs, photoFit, photoFitAttrs, readEdges, tileAspect, type CardFill, type PhotoEdges, type PhotoFit, type RawPixels } from './photoBg';
 
 const TIMEOUT_MS = 4000;
 /** Sub-size candidates are a few KB to ~100 KB; only a photo without a srcset falls back to its original. */
@@ -39,25 +39,37 @@ async function readCapped(res: Response, max: number): Promise<Uint8Array | null
   return out;
 }
 
-/** Fetch and read one photo's edges. Throws on a network/HTTP/decode failure (remembered only briefly); a decided
- *  "nothing to go on" (too big, see-through) is null. The URL is already checked to be a
+/** Fetch and read one photo's edges. Throws on a transient failure (network reset, timeout, any HTTP error but the
+ *  ones below): the photo stays undecided and is tried again. A decided "nothing to go on" is null: too big,
+ *  see-through, a file the media host says is gone (404, 410), and bytes sharp can't decode. Those won't change on a
+ *  retry, and a page showing them must be able to settle, or it would never be kept. A 403 or 429 is not decided
+ *  here: a bot challenge or rate limit can answer for a file that exists. The URL is already checked to be a
  *  media-library file (isMediaFile); redirects are refused so it can't be bounced elsewhere. */
 export async function samplePhotoEdges(url: string): Promise<PhotoEdges | null> {
   const res = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!res.ok) {
     await res.body?.cancel();
+    if (res.status === 404 || res.status === 410) return null;
     throw new Error(`HTTP ${res.status}`);
   }
   const bytes = await readCapped(res, MAX_BYTES);
   if (!bytes) return null;
   const { default: sharp } = await import('sharp');
-  const { data, info } = await sharp(bytes, { limitInputPixels: 50_000_000 })
-    .resize(DECODE_EDGE, DECODE_EDGE, { fit: 'inside', withoutEnlargement: true })
-    .toColourspace('srgb')
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  return readEdges({ data, width: info.width, height: info.height, channels: info.channels });
+  // only the decode is guarded: a failure in readEdges itself is a bug, and must not pass for a decided null
+  let px: RawPixels;
+  try {
+    const { data, info } = await sharp(bytes, { limitInputPixels: 50_000_000 })
+      .resize(DECODE_EDGE, DECODE_EDGE, { fit: 'inside', withoutEnlargement: true })
+      .toColourspace('srgb')
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    px = { data, width: info.width, height: info.height, channels: info.channels };
+  } catch {
+    // not an image sharp can read: a retry reads the same bytes, so it is a decided null
+    return null;
+  }
+  return readEdges(px);
 }
 
 // 8 at once: a wall page asks for up to 27 photos, and settlePhotos waits for them (each a few KB to ~100 KB)

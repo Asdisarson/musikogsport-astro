@@ -184,26 +184,54 @@ describe('createPhotoBgCache', () => {
     });
     s.cache.lookup(A);
     await s.cache.idle();
-    expect(s.cache.lookup(A)).toBeNull(); // default while the error is remembered; no new sample
+    // a failed sample is not a decision: still undecided while the failure is remembered, and no new sample
+    expect(s.cache.lookup(A)).toBeUndefined();
     await s.cache.idle();
     expect(s.urls).toHaveLength(1);
     fail = false;
     s.tick(101);
-    expect(s.cache.lookup(A)).toBeNull(); // stale value served while it re-samples
+    expect(s.cache.lookup(A)).toBeUndefined(); // memo passed: tried again, still being read
     await s.cache.idle();
     expect(s.cache.lookup(A)).toBe('#e8eeef');
   });
 
+  it('remembers a failed sample for a minute by default (a media-host outage is not retried on every render)', async () => {
+    let now = 0;
+    let fail = true;
+    const urls: string[] = [];
+    const cache = createPhotoBgCache({
+      sample: async (url) => {
+        urls.push(url);
+        if (fail) throw new Error('HTTP 503');
+        return '#eaeaea';
+      },
+      now: () => now,
+      warn: () => {},
+    });
+    cache.lookup(A);
+    await cache.idle();
+    now += 59_000;
+    expect(cache.lookup(A)).toBeUndefined();
+    await cache.idle();
+    expect(urls).toHaveLength(1);
+    now += 2_000;
+    fail = false;
+    expect(cache.lookup(A)).toBeUndefined();
+    await cache.idle();
+    expect(cache.lookup(A)).toBe('#eaeaea');
+  });
+
   // The settle contract (photoBgServer.settlePhotos): undefined means "still being read" and is the only state that
-  // makes a page incomplete. A photo that can never be read (404, missing file, off-host URL) must settle, or its
-  // page would never be stored and every visit would render it again.
-  it('settles a photo that can never be read (failed sample or off-host URL), but not one still being read', async () => {
+  // makes a page incomplete. A photo that can never be read (a missing file, off-host URL) must settle, or its page
+  // would never be stored and every visit would render it again. A sample that failed may come back, so it stays
+  // undecided: its page is not kept as complete.
+  it('settles a photo that can never be read (missing file, off-host URL), but not one still being read', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
     const s = setup(async (url) => {
       if (url === A) {
         await gate;
-        throw new Error('HTTP 404');
+        return null; // the sampler's decided null for a 404 (samplePhotoEdges)
       }
       return '#eaeaea';
     });
@@ -211,7 +239,57 @@ describe('createPhotoBgCache', () => {
     expect(s.cache.lookup('https://evil.example/wp-content/uploads/a.jpg')).not.toBeUndefined();
     release();
     await s.cache.idle();
-    expect(s.cache.lookup(A)).toBeNull(); // the 404 is a decided null, so it settles
+    expect(s.cache.lookup(A)).toBeNull(); // the decided null settles
+  });
+
+  it('leaves a photo whose sample fails fast undecided, so the render cannot be kept as complete', async () => {
+    const s = setup(async () => {
+      throw new Error('connect ECONNREFUSED');
+    });
+    s.cache.lookup(A);
+    await s.cache.idle();
+    expect(s.cache.lookup(A)).toBeUndefined();
+    expect(s.urls).toHaveLength(1);
+  });
+
+  // Confirmed 5: a file whose sample keeps failing (a WAF's 403, a steady 5xx) must not stay undecided for ever: every page
+  // showing it would wait its settle bound and never be kept. After three failed samples in a row it is a decided null for
+  // a moderate lifetime (then it is tried again). One failure, or a failure followed by a success, does not decide it.
+  it('decides a photo null once three samples in a row have failed, so a file the host keeps refusing settles', async () => {
+    const s = setup(async () => {
+      throw new Error('HTTP 403');
+    });
+    s.cache.lookup(A);
+    await s.cache.idle(); // failure 1: undecided (the fast-failure rule)
+    expect(s.cache.lookup(A)).toBeUndefined();
+    s.tick(101);
+    s.cache.lookup(A);
+    await s.cache.idle(); // failure 2
+    expect(s.cache.lookup(A)).toBeUndefined();
+    s.tick(101);
+    s.cache.lookup(A);
+    await s.cache.idle(); // failure 3: decided
+    expect(s.cache.lookup(A)).toBeNull();
+    expect(s.urls).toHaveLength(3);
+  });
+
+  it('a decided null after repeated failures is tried again once its lifetime has passed', async () => {
+    let fail = true;
+    const s = setup(async () => {
+      if (fail) throw new Error('HTTP 503');
+      return '#e8eeef';
+    });
+    for (let i = 0; i < 3; i++) {
+      s.tick(101);
+      s.cache.lookup(A);
+      await s.cache.idle();
+    }
+    expect(s.cache.lookup(A)).toBeNull();
+    fail = false;
+    s.tick(10 * 60 * 1000 + 1); // the decided null's lifetime has passed: sampled again, and the stale null answers meanwhile
+    expect(s.cache.lookup(A)).toBeNull();
+    await s.cache.idle();
+    expect(s.cache.lookup(A)).toBe('#e8eeef');
   });
 
   it('keeps a known colour when a re-sample after the TTL fails (LC-11)', async () => {

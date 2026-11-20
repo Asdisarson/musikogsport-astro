@@ -1,12 +1,17 @@
 // /img/<width>/<avif|webp>/<version>/<uploads path>: a WordPress JPEG or PNG as AVIF or WebP at an allow-listed width (see
 // lib/img lightSources). A width followed by `c` is the phone crop of the photo (lib/img phoneCropSources). Path only, no query string: a Cloudflare rule challenges query URLs for visitors outside
-// Iceland. The result is kept on disk and served immutable; anything refused or failed answers with a short no-store
-// status, and the page's <img> falls back to the original (public/img-fallback.js).
+// Iceland. A kept file is served immutable. A miss never waits for the conversion: the visitor gets a 302 to the
+// original on the media host with no-store (so neither browser nor Cloudflare keeps the redirect), and the conversion
+// runs in the background through the gate, so the next request gets the kept file. A visitor over the miss limit gets
+// the same 302 with no conversion started. The phone crop redirects to the uncropped original too: the page draws it
+// with object-fit cover from the top centre, which shows the same region. Anything refused answers with a short
+// no-store status (404 for a path this endpoint does not serve); the page's <img> falls back to the original
+// (public/img-fallback.js) when a picture cannot be shown.
 import type { APIRoute } from 'astro';
 import { WP_INTERNAL_URL } from 'astro:env/server';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CONCURRENCY, LightError, MAX_WAITING, cachePathFor, createGate, makeLight, parseLightRequest, readCached } from '../../../../lib/imgConvert';
+import { CONCURRENCY, MAX_WAITING, answerMiss, cachePathFor, createGate, makeLight, parseLightRequest, readCached } from '../../../../lib/imgConvert';
 import { LIGHT_VERSION } from '../../../../lib/img';
 import { createLimiter } from '../../../../lib/rateLimit';
 import { runtimeEnv, log } from '../../../../lib/logger';
@@ -38,13 +43,10 @@ export const GET: APIRoute = async (ctx) => {
   const kept = await readCached(cachePathFor(DIR, req.width, req.format, req.rel, req.crop));
   if (kept) return new Response(new Uint8Array(kept), { headers });
 
-  if (!misses.take(visitorKey(ctx))) return refuse(429);
-  try {
-    const out = await makeLight(req, { origin: WP_INTERNAL_URL, dir: DIR, gate });
-    return new Response(new Uint8Array(out.data), { headers });
-  } catch (err) {
-    const status = err instanceof LightError ? err.status : 503;
-    if (status >= 500) log.warn('image not converted', { path: ctx.url.pathname, status, err });
-    return refuse(status);
-  }
+  // A miss does not wait for the conversion: see answerMiss.
+  return answerMiss(req, {
+    allowConvert: misses.take(visitorKey(ctx)),
+    convert: () => makeLight(req, { origin: WP_INTERNAL_URL, dir: DIR, gate }),
+    warn: (status, err) => log.warn('image not converted', { path: ctx.url.pathname, status, err }),
+  });
 };

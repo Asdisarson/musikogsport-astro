@@ -138,6 +138,16 @@ export function phoneCropSources(input: { src?: string | null; width?: number; h
   return { avif: build('avif'), webp: build('webp'), media: `(max-width: ${PHONE_CROP.maxScreen}px)`, sizes: `min(${Math.round(drawn(585))}px, ${Math.round(drawn(150))}vw)` };
 }
 
+/** The original on the media host for an uploads-relative path, where a visitor is sent while its light picture is
+ *  being made (src/pages/img answers 302 with no-store). Each segment is encoded, so no character ends the path or
+ *  starts a query; a `.`, `..` or empty segment could leave the uploads folder, so it is refused (null). `rel` comes
+ *  from parseLightRequest already; the check here is for whatever calls this next. */
+export function originalUrl(rel: string, base: string = MEDIA_BASE_URL): string | null {
+  const segments = rel.split('/');
+  if (segments.some((s) => s === '' || s === '.' || s === '..')) return null;
+  return `${base}${UPLOADS}${segments.map(encodeURIComponent).join('/')}`;
+}
+
 interface HasImages {
   images?: WooImage[];
   name?: string;

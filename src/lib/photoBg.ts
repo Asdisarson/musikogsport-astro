@@ -591,8 +591,9 @@ export async function waitWithin(done: () => boolean, ms: number): Promise<boole
 }
 
 export interface PhotoBgCache<T> {
-  /** The cached reading (null: keep the default tile) at once, or undefined on a miss. A miss or a stale entry
-   *  queues a background sample; the page renders with what's known now and later renders get the result. */
+  /** The cached reading (null: keep the default tile) at once, or undefined on a miss (also while a failed sample is
+   *  being remembered: undecided). A miss or a stale entry queues a background sample; the page renders with what's
+   *  known now and later renders get the result. */
   lookup(src: string, srcset?: string): T | null | undefined;
   /** Resolves when nothing is queued or running (tests, warm-up). */
   idle(): Promise<void>;
@@ -601,12 +602,19 @@ export interface PhotoBgCache<T> {
 /** An in-process, size-bounded cache of photo readings (PhotoEdges) keyed by the photo's src. Samples (fetch +
  *  decode) run in the background, at most `concurrency` at once, one per src however many renders ask; the queue is
  *  capped so a crawl can't grow it without bound (a dropped src is simply asked for again on a later render). A decided
- *  reading or null lives `ttlMs`; a failed sample (timeout, HTTP error, bad file) only `errorTtlMs`. */
+ *  reading or null lives `ttlMs`. A sample that throws (timeout, HTTP 5xx, reset) is not a decision: nothing is stored,
+ *  the photo stays undecided for `errorTtlMs` (then it is tried again), so a page rendered meanwhile is not kept as
+ *  complete. That memo is short: a media-host outage then costs a sample a minute per photo, not an uncached page
+ *  rendered from WordPress for ten minutes. Three failures in a row are a decision after all: null for failedTtlMs
+ *  (ten minutes), so a file the host keeps refusing (a WAF's 403, a steady 5xx) does not hold its pages undecided for ever. */
 export function createPhotoBgCache<T>(opts: {
   sample: (url: string) => Promise<T | null>;
   now?: () => number;
   ttlMs?: number;
   errorTtlMs?: number;
+  /** Failed samples of one src in a row that decide it null (for failedTtlMs). */
+  maxFailures?: number;
+  failedTtlMs?: number;
   maxEntries?: number;
   concurrency?: number;
   maxQueue?: number;
@@ -614,7 +622,7 @@ export function createPhotoBgCache<T>(opts: {
 }): PhotoBgCache<T> {
   const now = opts.now ?? Date.now;
   const ttlMs = opts.ttlMs ?? 24 * 60 * 60 * 1000;
-  const errorTtlMs = opts.errorTtlMs ?? 10 * 60 * 1000;
+  const errorTtlMs = opts.errorTtlMs ?? 60 * 1000;
   const concurrency = opts.concurrency ?? 4;
   const maxQueue = opts.maxQueue ?? 500;
   let lastWarn = -Infinity;
@@ -626,6 +634,15 @@ export function createPhotoBgCache<T>(opts: {
       console.warn('[photoBg] sample failed:', url, err instanceof Error ? err.message : err);
     });
   const entries = createTtlMap<string, T | null>(opts.maxEntries ?? 5000, now);
+  // srcs whose last sample threw: not asked again until errorTtlMs passes (kept apart from `entries`, so a failure
+  // leaves no decided reading behind)
+  const failures = createTtlMap<string, true>(opts.maxEntries ?? 5000, now);
+  // Failed samples of a src in a row (each one kept for failRunMs, so the run is recent). After `maxFailures` in a row the
+  // src is decided null for failedTtlMs: a file the host keeps refusing must not hold every page that shows it undecided.
+  const failRuns = createTtlMap<string, number>(opts.maxEntries ?? 5000, now);
+  const maxFailures = opts.maxFailures ?? 3;
+  const failedTtlMs = opts.failedTtlMs ?? 10 * 60 * 1000;
+  const failRunMs = failedTtlMs;
   const queue: { key: string; url: string }[] = [];
   const pending = new Set<string>();
   let active = 0;
@@ -644,11 +661,22 @@ export function createPhotoBgCache<T>(opts: {
       Promise.resolve()
         .then(() => opts.sample(job.url))
         .then(
-          (value) => entries.set(job.key, value ?? null, ttlMs),
+          (value) => {
+            failRuns.set(job.key, 0, failRunMs);
+            entries.set(job.key, value ?? null, ttlMs);
+          },
           (err) => {
-            // A failed re-sample keeps the last reading (a blip must not flip known tiles back to the default); with
-            // none, null. Either way it is not asked again for errorTtlMs.
-            entries.set(job.key, entries.get(job.key)?.value ?? null, errorTtlMs);
+            // Not a decision: nothing is stored, so lookup stays undefined (the page is not kept as complete) until
+            // errorTtlMs passes. A reading known from before stays in `entries` and keeps being served, so a blip
+            // doesn't flip known tiles back to the default. The third failure in a row is a decision (see failRuns).
+            const run = (failRuns.get(job.key)?.value ?? 0) + 1;
+            if (run >= maxFailures) {
+              failRuns.set(job.key, 0, failRunMs);
+              entries.set(job.key, null, failedTtlMs);
+            } else {
+              failRuns.set(job.key, run, failRunMs);
+              failures.set(job.key, true, errorTtlMs);
+            }
             warn(job.url, err);
           },
         )
@@ -666,7 +694,7 @@ export function createPhotoBgCache<T>(opts: {
       if (!isMediaFile(src)) return null;
       const hit = entries.get(src);
       if (hit?.fresh) return hit.value;
-      if (!pending.has(src) && queue.length < maxQueue) {
+      if (!pending.has(src) && !failures.get(src)?.fresh && queue.length < maxQueue) {
         const candidate = sampleCandidate(src, srcset);
         pending.add(src);
         queue.push({ key: src, url: isMediaFile(candidate) ? candidate : src });

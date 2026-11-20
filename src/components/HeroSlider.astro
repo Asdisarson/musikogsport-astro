@@ -4,7 +4,7 @@
 // slides on #F5F5F5 (ink text, no gradient), stepped by two round arrows when there are several.
 // planHome() (lib/homeLayout) decides which.
 import { heroBannerSizes, type HeroPlan } from '../lib/homeLayout';
-import { lightSources, mediaUrl, phoneCropSources } from '../lib/img';
+import { lightSources, mediaSrcset, mediaUrl, phoneCropSources } from '../lib/img';
 import { photoBgFor } from '../lib/photoBgServer';
 
 interface Props {
@@ -57,7 +57,7 @@ const heroCrop = plan.kind === 'banner' && heroLight ? phoneCropSources({ src: p
           aria-roledescription={many ? 'slide' : undefined}
           aria-label={many ? `${i + 1} af ${slides.length}` : undefined}
           aria-hidden={i === 0 ? undefined : 'true'}
-          {...photoBgFor(mediaUrl(s.image.url))}
+          {...photoBgFor(mediaUrl(s.image.url), mediaSrcset(s.image.srcset))}
         >
           <a class="hero__media" href={s.href} tabindex="-1" aria-hidden="true">
             {(() => {

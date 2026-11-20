@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('astro:env/client', () => ({ MOS_MEDIA_BASE_URL: 'https://musikogsport.is' }));
-import { phoneCropSources, lightSources, mainSources, mediaSrcset, modestCandidate, productImage, PLACEHOLDER } from './img';
+import { originalUrl, phoneCropSources, lightSources, mainSources, mediaSrcset, modestCandidate, productImage, PLACEHOLDER } from './img';
 
 describe('productImage', () => {
   it('gives the first image’s src and srcset, both on the media host', () => {
@@ -142,5 +142,28 @@ describe('phoneCropSources', () => {
 
   it('gives nothing when the crop would be too small to be worth a source', () => {
     expect(phoneCropSources({ src, width: 600, height: 300 })).toBeNull();
+  });
+});
+
+describe('originalUrl', () => {
+  it('builds the uploads path on the media host, each segment encoded', () => {
+    expect(originalUrl('2026/10/H24616 a.jpg', 'https://musikogsport.is')).toBe('https://musikogsport.is/wp-content/uploads/2026/10/H24616%20a.jpg');
+  });
+
+  it('defaults to the media host', () => {
+    expect(originalUrl('2026/04/a.jpg')).toBe('https://musikogsport.is/wp-content/uploads/2026/04/a.jpg');
+  });
+
+  it('encodes characters that would end the path or start a query or fragment', () => {
+    expect(originalUrl('2026/a?b#c%d.jpg', 'https://musikogsport.is')).toBe('https://musikogsport.is/wp-content/uploads/2026/a%3Fb%23c%25d.jpg');
+  });
+
+  it('refuses a path that could leave the uploads folder or the media origin', () => {
+    expect(originalUrl('../wp-config.jpg')).toBeNull();
+    expect(originalUrl('2026/../../x.jpg')).toBeNull();
+    expect(originalUrl('2026/./x.jpg')).toBeNull();
+    expect(originalUrl('2026//x.jpg')).toBeNull();
+    expect(originalUrl('/etc/x.jpg')).toBeNull();
+    expect(originalUrl('')).toBeNull();
   });
 });

@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('astro:env/client', () => ({ MOS_MEDIA_BASE_URL: 'https://musikogsport.is' }));
-import { cachePathFor, createGate, encodeLight, LightError, makeLight, parseLightRequest, writeCached } from './imgConvert';
+import { answerMiss, cachePathFor, createGate, encodeLight, LightError, makeLight, parseLightRequest, writeCached } from './imgConvert';
 
 let dir = '';
 beforeAll(async () => {
@@ -163,6 +163,10 @@ describe('createGate', () => {
     const first = gate.run('a', () => hold);
     const second = gate.run('b', async () => 'b');
     await expect(gate.run('c', async () => 'c')).rejects.toThrow('queue full');
+    // a full queue is the visitor's "slow down" (429), as DEPLOY.md says, not an outage (503)
+    const refused = await gate.run('d', async () => 'd').catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(LightError);
+    expect((refused as LightError).status).toBe(429);
     await Promise.all([first, second]);
   });
 
@@ -214,5 +218,64 @@ describe('makeLight', () => {
     const err = await makeLight({ ...req, rel: '2026/04/really.png' }, { origin: 'http://wp.test', dir, gate: createGate(2, 5), fetchImpl }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(LightError);
     expect((err as LightError).status).toBe(404);
+  });
+});
+
+describe('answerMiss', () => {
+  // a phone crop of a photo whose name needs encoding: the redirect goes to the uncropped original, encoded
+  const req = { width: 1080, format: 'avif' as const, rel: '2026/10/a b.jpg', crop: true as const };
+  const target = 'https://musikogsport.is/wp-content/uploads/2026/10/a%20b.jpg';
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+  const ok = async () => ({ data: Buffer.alloc(1), contentType: 'image/avif' });
+  const expectRedirect = (res: Response) => {
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe(target);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+  };
+
+  it('within the miss limit: answers the original at once and starts one conversion', async () => {
+    const convert = vi.fn(ok);
+    const warn = vi.fn();
+    expectRedirect(answerMiss(req, { allowConvert: true, convert, warn }));
+    expect(convert).toHaveBeenCalledTimes(1);
+    await flush();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('over the miss limit: answers the same redirect and starts no conversion', async () => {
+    const convert = vi.fn(ok);
+    expectRedirect(answerMiss(req, { allowConvert: false, convert, warn: vi.fn() }));
+    expect(convert).not.toHaveBeenCalled();
+  });
+
+  it('a refused or missing original and a full queue are quiet', async () => {
+    for (const status of [404, 429]) {
+      const warn = vi.fn();
+      answerMiss(req, { allowConvert: true, convert: async () => { throw new LightError(status, 'x'); }, warn });
+      await flush();
+      expect(warn).not.toHaveBeenCalled();
+    }
+  });
+
+  it('a server-side failure is logged once with its status', async () => {
+    const warn = vi.fn();
+    answerMiss(req, { allowConvert: true, convert: async () => { throw new LightError(502, 'original answered 500'); }, warn });
+    await flush();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toBe(502);
+  });
+
+  it('a plain error is logged as 503, and a conversion that throws at once is caught too', async () => {
+    const warn = vi.fn();
+    answerMiss(req, { allowConvert: true, convert: async () => { throw new Error('sharp died'); }, warn });
+    answerMiss(req, { allowConvert: true, convert: () => { throw new Error('sync'); }, warn });
+    await flush();
+    expect(warn.mock.calls.map((c) => c[0])).toEqual([503, 503]);
+  });
+
+  it('a path that could leave the uploads folder answers 404 and starts nothing', () => {
+    const convert = vi.fn(ok);
+    expect(answerMiss({ ...req, rel: '2026/../x.jpg' }, { allowConvert: true, convert, warn: vi.fn() }).status).toBe(404);
+    expect(convert).not.toHaveBeenCalled();
   });
 });
