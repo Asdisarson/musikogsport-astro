@@ -61,7 +61,7 @@ try {
     $fill = static fn (int $id, ?MOS_Clean_Journal $journal = null) => mos_clean_fill_product(wc_get_product($id), $brand_keys, $journal, false, $team_keys)['set'];
 
     // 1. The owner's example, as a brand-new product with nothing filled in. WooCommerce files a product with no
-    // category under its default one ("Óflokkað"); the fill adds to that, it does not take it away.
+    // category under its default one ("Óflokkað"), which only means "not filed yet": it goes when the garment is set.
     $default_cat = (string) get_term((int) get_option('default_product_cat'), 'product_cat')->slug;
     $with_default = static function (array $cats) use ($default_cat): array { $cats[] = $default_cat; sort($cats); return $cats; };
     $id = $make(new WC_Product_Simple(), 'HSÍ ADIDAS HANDBOLTATREYJA 2025 HERRASNIÐ');
@@ -73,7 +73,7 @@ try {
     ksort($set);
     $check('the example reports every field it set', $set === ['brand' => 'adidas', 'garment' => 'bolir-efri-likami', 'gender' => 'karlar', 'sport' => 'handbolti', 'team' => 'island-iceland'], wp_json_encode($set));
     $check('brand: Adidas', $slugs($id, 'product_brand') === ['adidas'], implode(',', $slugs($id, 'product_brand')));
-    $check('categories: the garment and the gender, both, next to what it had', $slugs($id, 'product_cat') === $with_default(['bolir-efri-likami', 'karlar']), implode(',', $slugs($id, 'product_cat')));
+    $check('categories: the garment and the gender, and the default category is gone', $slugs($id, 'product_cat') === ['bolir-efri-likami', 'karlar'], implode(',', $slugs($id, 'product_cat')));
     $check('team: Ísland, as a term and on the product itself', $slugs($id, 'pa_felag-lid') === ['island-iceland'] && $attribute_slugs($id, 'pa_felag-lid') === ['island-iceland'],
         implode(',', $slugs($id, 'pa_felag-lid')) . ' / ' . implode(',', $attribute_slugs($id, 'pa_felag-lid')));
     $check('sport: Handbolti', $slugs($id, 'pa_ithrott') === ['handbolti'] && $attribute_slugs($id, 'pa_ithrott') === ['handbolti']);
@@ -97,8 +97,8 @@ try {
     $p->set_attributes($attrs);
     $GLOBALS['mos_clean_running'] = true;
     try { $p->save(); } finally { $GLOBALS['mos_clean_running'] = false; }
-    $check('(the owner cleared the garment category and the team)', $slugs($id, 'product_cat') === $with_default(['karlar']) && $slugs($id, 'pa_felag-lid') === []);
-    $check('a cleared garment and team are not filled again', $fill($id) === [] && $slugs($id, 'product_cat') === $with_default(['karlar']) && $slugs($id, 'pa_felag-lid') === [],
+    $check('(the owner cleared the garment category and the team)', $slugs($id, 'product_cat') === ['karlar'] && $slugs($id, 'pa_felag-lid') === []);
+    $check('a cleared garment and team are not filled again', $fill($id) === [] && $slugs($id, 'product_cat') === ['karlar'] && $slugs($id, 'pa_felag-lid') === [],
         implode(',', $slugs($id, 'product_cat')) . ' / ' . implode(',', $slugs($id, 'pa_felag-lid')));
 
     // 4. The journal puts the product back as it was before the first fill.
@@ -119,6 +119,11 @@ try {
     $set = $fill($id2);
     $check('filed under Peysur by staff: no Yfirhafnir from "Jakki"', !isset($set['garment']) && $slugs($id2, 'product_cat') === ['peysur-efri-likami'], wp_json_encode($set));
     $check('but the team in its name is filled', ($set['team'] ?? null) === 'liverpool' && $slugs($id2, 'pa_felag-lid') === ['liverpool']);
+
+    // 5b. A gender alone is not "filed": a product that only gets Karlar stays in the default category too.
+    $id5 = $make(new WC_Product_Simple(), 'Herra gjafabréf');
+    $set = $fill($id5);
+    $check('only a gender filled: the default category stays', ($set['gender'] ?? null) === 'karlar' && $slugs($id5, 'product_cat') === $with_default(['karlar']), wp_json_encode($set) . ' ' . implode(',', $slugs($id5, 'product_cat')));
 
     // 6. A team attribute used for variations is never written.
     $variable = new WC_Product_Variable();
@@ -146,6 +151,7 @@ try {
     $made[] = $id4;
     $check('the save queued the product for filling', isset($GLOBALS['mos_clean_dirty'][$id4]));
     mos_clean_flush();                                  // what 'shutdown' runs first
+    $check('the save-time fill took it out of the default category', !in_array($default_cat, $slugs($id4, 'product_cat'), true), implode(',', $slugs($id4, 'product_cat')));
     $check('the save-time fill filed it: Ísland and Bolir', $slugs($id4, 'pa_felag-lid') === ['island-iceland'] && in_array('bolir-efri-likami', $slugs($id4, 'product_cat'), true),
         implode(',', $slugs($id4, 'pa_felag-lid')) . ' / ' . implode(',', $slugs($id4, 'product_cat')));
     $path = mos_shell_poke_path_of($id4);

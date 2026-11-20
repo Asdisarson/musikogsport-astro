@@ -230,8 +230,13 @@ function mos_clean_team_rules(): array {
  *    set as the garment itself (tight, top, long-sleeve, pants, jersey …). They count only in a name with no proper
  *    garment word ("Long-Sleeve Fleece Peysa" is a peysa, "Swim Shorts" are swimwear, "Pro Warm Tight" are tights).
  *  - A null target is a thing this table does not file (rain and snow trousers, which are outerwear or trousers by
- *    hand; shoes named only in English): the word decides nothing, and the describing words of that name do not
- *    count either ("Pants … regnbuxur", "High-Top … Boots").
+ *    hand): the word decides nothing, and the describing words of that name do not count either ("Pants …
+ *    regnbuxur").
+ *  - A shoe named without its kind ("Shoes", "barnaskór", "High-Top … Boots") goes under Skór itself, as a
+ *    describing word, so a name that does say the kind ("handboltaskór … Indoor Shoes") is filed by that.
+ * Each word is filed where staff already file the products that have it (measured on the catalog, 2026-11-20); a word
+ * they file two ways (set, cap) has no rule, and jacket, vest and galli decide nothing even beside a describing word
+ * ("Shirt Jacket" is not a shirt).
  * "Long sleeve" / "short sleeve" and "low top" / "high top" are read as one word (mos_clean_garment_from_name): a bare
  * "sleeve" is an arm sleeve, and a high-top is a shoe.
  *
@@ -239,9 +244,11 @@ function mos_clean_team_rules(): array {
  */
 function mos_clean_garment_rules(): array {
     return [
-        ['sundfatnadur-fatnadur-2', ['/sund(bol|bux|skyl|stuttbux)/', '/^bikini/', '/^swimsuit$/', '/^swim$/', '/^swm$/', '/^rash$/']],
+        ['toskur-aefingarvorur', ['/sundpok/']],   // before the swim words: a swim bag is filed with the bags
+        ['sundfatnadur-fatnadur-2', ['/sund(bol|bux|skyl|stuttbux|gleraug|hett)/', '/^bikini/', '/^swimsuit$/', '/^swim$/', '/^swm$/', '/^rash$/']],
         ['fimleikar', ['/^fimleika?(bol|bux|stuttbux)/']],
-        [null, ['/^(regn|snjo|polla|vind|skida)bux/', '/^boots?$/', '/^shoes?$/', '/^cleats?$/', '/^(low|mid|high)top$/']],
+        [null, ['/^(regn|snjo|polla|vind|skida)bux/']],
+        [null, ['/^jackets?$/', '/^vests?$/', '/^galli$/']],   // filed two ways by staff: a describing word beside one decides nothing
         ['fotboltaskor-ithrottaskor', ['/^fotboltask/', '/^takkask/', '/^gervigrassk/']],
         ['handboltaskor-ithrottaskor', ['/^handboltask/']],
         ['korfuboltaskor', ['/^korfuboltask/']],
@@ -249,15 +256,20 @@ function mos_clean_garment_rules(): array {
         ['inniskor', ['/^innisk/']],
         ['strigaskor-skor-2', ['/^strigask/']],
         ['stigvel-kuldaskor', ['/stigvel$/', '/^kuldask/']],
+        ['inniskor', ['/^clogs?$/']],
+        ['skor', ['/sko(r)?$/', '/^shoes?$/', '/^boots?$/', '/^cleats?$/', '/^sneakers?$/', '/^(low|mid|high)top$/'], true],
+        ['toskur-aefingarvorur', ['/task(a|an)$/', '/tosk(u|ur)$/', '/bakpok/', '/^bag$/', '/^backpack$/', '/^duff(el|le)$/']],
+        ['brusar', ['/brus(i|a|ar)$/', '/^bottle$/']],
+        ['boltar-aefingarvorur', ['/^(fot|hand|korfu)?bolt(i|ar)$/', '/^ball$/', '/^markmannshansk/']],
         ['sokkar-naerfatnadur', ['/sokk(ar|a|ur)$/', '/^socks?$/', '/^naerbux/']],
         ['buxur-leggings', ['/bux(ur|a|um)$/']],
-        ['buxur-leggings', ['/^pants$/', '/^shorts$/', '/^leggings?$/', '/^tights?$/'], true],
+        ['buxur-leggings', ['/^pants$/', '/^shorts$/', '/^leggings?$/', '/^tights?$/', '/^trousers$/', '/^sweatpants?$/'], true],
         ['bolir-efri-likami', ['/treyj(a|u|ur)$/', '/bol(ur|ir)$/']],
-        ['bolir-efri-likami', ['/^jersey$/', '/^jsy$/', '/^tee$/', '/^top$/', '/^(long|short)sleeve$/'], true],
+        ['bolir-efri-likami', ['/^jersey$/', '/^jsy$/', '/^tee$/', '/^top$/', '/^(long|short)sleeve$/', '/^shirt$/', '/^tank$/', '/^polo$/'], true],
         ['peysur-efri-likami', ['/peys(a|u|ur)$/', '/^hoodie$/', '/^sweatshirt$/']],
         ['topp-ur', ['/topp(ur|ar)$/']],
         ['topp-ur', ['/^bra$/'], true],
-        ['hufur-treflar', ['/huf(a|u|ur)$/', '/^trefil/', '/^trefl/', '/^beanie$/', '/^buff$/', '/^ennisb(and|ond)/']],
+        ['hufur-treflar', ['/huf(a|u|ur)$/', '/^trefil/', '/^trefl/', '/^beanie$/', '/^buff$/', '/^ennisb(and|ond)/', '/^harb(and|ond)/', '/^headband$/']],
         ['hanskar-vettlingar', ['/^(?!markm).*hansk(i|ar|a)$/', '/vettling(ar|a)$/']],
         ['yfirhafnir', ['/jakk(i|a|ar)$/', '/ulp(a|u|ur)$/', '/^parka$/']],
     ];
@@ -589,6 +601,7 @@ function mos_clean_decide(array $f, array $brand_keys, array $team_keys = []): a
 
     if (!array_intersect($f['cats'], mos_clean_garment_type_slugs())) {
         $one('garment', mos_clean_garment_from_name($tokens));
+        if (in_array($out['garment'], $f['cats'], true)) { $out['garment'] = null; }   // already there (Skór itself)
     }
 
     if (!$f['has_sport']) {
@@ -612,6 +625,22 @@ function mos_clean_decide(array $f, array $brand_keys, array $team_keys = []): a
         $out['colour'] = $colours[0] ?? null;   // "Black/Grey" → the first colour named
     }
     return $out;
+}
+
+/**
+ * A product's categories without the shop's default one ("Óflokkað"), once the product is filed under a product-type
+ * category: the default only ever meant "not filed yet". Unchanged when the product is in no product-type category
+ * besides it, or the shop has no default category.
+ *
+ * @param int[] $cat_ids the product's category ids
+ * @param int[] $type_ids the ids of the product-type categories (mos_clean_garment_type_slugs)
+ * @return int[]
+ */
+function mos_clean_without_default(array $cat_ids, int $default_id, array $type_ids): array {
+    $cat_ids = array_values(array_map('intval', $cat_ids));
+    if ($default_id <= 0 || !in_array($default_id, $cat_ids, true)) { return $cat_ids; }
+    if (!array_diff(array_intersect($cat_ids, array_map('intval', $type_ids)), [$default_id])) { return $cat_ids; }
+    return array_values(array_diff($cat_ids, [$default_id]));
 }
 
 /** "TABEDESIGN" → "Tabedesign"; mixed-case names are kept as typed. */
@@ -664,6 +693,20 @@ function mos_clean_team_keys(): array {
     $names = [];
     foreach (is_array($terms) ? $terms : [] as $t) { $names[(string) $t->slug] = (string) $t->name; }
     return mos_clean_team_key_map($names, mos_clean_team_rules());
+}
+
+/** The ids of the categories that file a product by what it is: the product-type categories the shop has
+ *  (mos_clean_garment_type_slugs) and Skór itself. @return int[] */
+function mos_clean_garment_type_ids(): array {
+    static $ids = null;
+    if ($ids === null) {
+        $ids = [];
+        foreach ([...mos_clean_garment_type_slugs(), 'skor'] as $slug) {
+            $t = get_term_by('slug', $slug, 'product_cat');
+            if ($t instanceof WP_Term) { $ids[] = (int) $t->term_id; }
+        }
+    }
+    return $ids;
 }
 
 /** @return array{name:string,cats:list<string>,has_brand:bool,vorumerki:list<string>,kyn:list<string>,aldur:list<string>,has_sport:bool,has_colour:bool,has_team:bool} */
@@ -1202,7 +1245,12 @@ function mos_clean_fill_product(WC_Product $p, array $brand_keys, ?MOS_Clean_Jou
     if ($dry || !$set) { return ['set' => $set, 'conflicts' => $d['conflicts']]; }
 
     $journal?->snapshot($id);
-    if ($cat_ids) { $p->set_category_ids(array_values(array_unique(array_merge($p->get_category_ids(), $cat_ids)))); }
+    if ($cat_ids) {
+        $all = array_values(array_unique(array_merge($p->get_category_ids(), $cat_ids)));
+        // Filed by garment now: the default category ("Óflokkað") has said its piece.
+        if (isset($set['garment'])) { $all = mos_clean_without_default($all, (int) get_option('default_product_cat', 0), mos_clean_garment_type_ids()); }
+        $p->set_category_ids($all);
+    }
     foreach ($attrs as $field => $term_id) {
         if (!mos_clean_set_attribute($p, MOS_CLEAN_ATTR_FIELDS[$field], [$term_id])) { unset($set[$field]); }
     }
@@ -1217,6 +1265,36 @@ function mos_clean_fill_product(WC_Product $p, array $brand_keys, ?MOS_Clean_Jou
     }
     update_post_meta($id, MOS_CLEAN_FILLED_META, array_values(array_unique(array_merge($filled, array_keys($set)))));
     return ['set' => $set, 'conflicts' => $d['conflicts']];
+}
+
+/**
+ * Take the default category ("Óflokkað") off every product that is filed by what it is and still carries it (the
+ * owner's call, 2026-11-20: a filed product is not unfiled). A preview ($journal null) only lists.
+ *
+ * @return array{changed:int[],lines:list<string>}
+ */
+function mos_clean_drop_default_category(?MOS_Clean_Journal $journal): array {
+    $default = (int) get_option('default_product_cat', 0);
+    $out = ['changed' => [], 'lines' => []];
+    if ($default <= 0) { return $out; }
+    foreach (mos_clean_products_with('product_cat', $default) as $id) {
+        $p = wc_get_product($id);
+        if (!$p instanceof WC_Product) { continue; }
+        $now = array_map('intval', $p->get_category_ids());
+        $next = mos_clean_without_default($now, $default, mos_clean_garment_type_ids());
+        if (count($next) === count($now)) { continue; }
+        $out['lines'][] = sprintf('%d "%s"', $id, $p->get_name());
+        if ($journal === null) { $out['changed'][] = $id; continue; }
+        try {
+            $journal->snapshot($id);
+            $p->set_category_ids($next);
+            $p->save();
+            $out['changed'][] = $id;
+        } catch (\Throwable $e) {
+            mos_clean_warn("product $id: could not take it out of the default category: " . $e->getMessage());
+        }
+    }
+    return $out;
 }
 
 /** The fields (of MOS_CLEAN_FIELDS) this plugin has filled on a product. @return list<string> */
@@ -1473,6 +1551,10 @@ if (defined('WP_CLI') && WP_CLI) {
                 // After the hygiene above: a merged or moved team term is gone by now (in a preview it is still
                 // there, which changes nothing: an alias decides before a term's own name does).
                 $fill = $this->fill($ids, $keys, mos_clean_team_keys(), $journal, $batch);
+                $undefault = mos_clean_drop_default_category($journal);
+                WP_CLI::log(sprintf('  filed products taken out of the default category: %d', count($undefault['lines'])));
+                foreach ($undefault['lines'] as $line) { WP_CLI::log("    $line"); }
+                $fill['changed'] = array_merge($fill['changed'], $journal ? $undefault['changed'] : []);
                 // After the fill, so its colour targets are in use (or, in a preview, known) before the unused ones go.
                 WP_CLI::log('  delete pa_litur terms nothing uses: ' . mos_clean_delete_unused_colours($journal, $ops['emptied'], array_keys($fill['colours'])));
                 $journal?->save();

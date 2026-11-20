@@ -35,6 +35,13 @@ check('kyn karl', mos_clean_gender_from_attrs(['karl'], ['fullordin-n']), ['karl
 check('kyn unisex adult', mos_clean_gender_from_attrs(['unisex'], []), ['karlar', 'konur']);
 check('kyn none', mos_clean_gender_from_attrs([], ['fullordin-n']), []);
 
+// A jacket, vest or galli is filed two ways by staff: a describing word beside it decides nothing.
+check('shirt jacket: no garment', mos_clean_garment_from_name(mos_clean_tokens('Nike Shirt Jacket Svartur')), []);
+check('polo zip jacket: no garment', mos_clean_garment_from_name(mos_clean_tokens('Nike Polo Zip Jacket')), []);
+check('tank vest: no garment', mos_clean_garment_from_name(mos_clean_tokens('Nike Tank Vest')), []);
+check('a proper word still decides beside a jacket', mos_clean_garment_from_name(mos_clean_tokens('Adidas Jacket hlaupajakki')), ['yfirhafnir']);
+check('a plain shirt is still a shirt', mos_clean_garment_from_name(mos_clean_tokens('Nike Golf Shirt')), ['bolir-efri-likami']);
+
 // Category fallback: only Kyn/sale (ignored) or nothing left → the product needs the fallback category.
 check('fallback: nothing left', mos_clean_needs_fallback([], [5, 6]), true);
 check('fallback: only ignored left', mos_clean_needs_fallback([5], [5, 6]), true);
@@ -126,12 +133,12 @@ check('nærbuxur are underwear, not buxur', $g('Nike Everyday Cotton Stretch næ
 check('fótboltasokkar', $g('Nike fótboltasokkar - Hvítir'), ['sokkar-naerfatnadur']);
 check('regnbuxur: no decision (staff file them as outerwear)', $g('Didriksons regnbuxur Dusk Kids'), []);
 check('snjóbuxur: no decision', $g('Tenson snjóbuxur kvenna'), []);
-check('markmannshanskar are not hanskar & vettlingar', $g('Adidas Predator markmannshanskar'), []);
+check('markmannshanskar are filed with the balls, not hanskar & vettlingar', $g('Adidas Predator markmannshanskar'), ['boltar-aefingarvorur']);
 check('vettlingar', $g('Kombi vettlingar barna'), ['hanskar-vettlingar']);
 check('regnjakki → yfirhafnir', $g('Nike regnjakki fullordinsst'), ['yfirhafnir']);
 check('a tight-fit top names two garments', $g('Nike Pro Mens Dri-FIT Tight Long-Sleeve Top'), ['buxur-leggings', 'bolir-efri-likami']);
 check('swim shorts are swimwear', $g('Adidas 3-Stripes Swim Shorts 3-Inch Herra'), ['sundfatnadur-fatnadur-2']);
-check('high-top boots are not a top', $g('Nike Jr. Tiempo High-Top Football Boots'), []);
+check('high-top boots are shoes, not a top', $g('Nike Jr. Tiempo High-Top Football Boots'), ['skor']);
 check('no garment word', $g('Stanley Quencher 1.18L Fuchsia'), []);
 check('each garment once', $g('Nike buxur - æfingabuxur'), ['buxur-leggings']);
 // A describing word (tight, sleeve, bra) decides only when the name has no proper garment word.
@@ -152,8 +159,8 @@ check('"pants" next to weather trousers decides nothing', $g("Didriksons Grand W
 check('ski pants named snjóbuxur decide nothing', $g('Tenson Grace Softshell Ski Pants snjóbuxur'), []);
 check('a shoe word in English next to the Icelandic one', $g('ADIDAS HANDBOLTASKÓR CRAZYFLIGHT 6 INDOOR SHOES'), ['handboltaskor-ithrottaskor']);
 check('ennisband', $g('Ennisband Stjarnan'), ['hufur-treflar']);
-check('a low-top shoe is not a top', $g('Nike Jr. Mercurial Vapor 16 Academy "Vini Jr." Big Kids Multi-Ground Low-Top Soccer Cleats'), []);
-check('a high-top with no other shoe word is not a top either', $g('Nike Court Vision High Top Hvítir'), []);
+check('a low-top shoe is a shoe, not a top', $g('Nike Jr. Mercurial Vapor 16 Academy "Vini Jr." Big Kids Multi-Ground Low-Top Soccer Cleats'), ['skor']);
+check('a high-top with no other shoe word is a shoe too', $g('Nike Court Vision High Top Hvítir'), ['skor']);
 check('a football top is a top', $g('Nike Strike Mens Dri-FIT Football Drill Top Bleik'), ['bolir-efri-likami']);
 check('a jersey-and-shorts kit names two garments', $g('Manchester United Home Jersey Shorts Mini Kit'), ['bolir-efri-likami', 'buxur-leggings']);
 check('a sports bra alone is a toppur', $g('Nike Swoosh Medium Support Bra'), ['topp-ur']);
@@ -284,6 +291,40 @@ check('two teams, none named, is not a suspect', $sus('Nike Academy peysa', ['fh
 check('the brand a name starts with is what the name says', $sus('Smartwool Tenson skíðasokkar', [], ['tenson']),
     ['brand' => ['name' => ['smartwool'], 'filed' => ['tenson']]]);
 check('several teams, one of them a name the rules never read, but it is in the name', $sus('Adidas Messi Mini Fótbolti', ['argentina', 'inter-miami', 'messi'], []), []);
+
+// ---- More words, each filed where staff already file products with that word (measured on the catalog).
+check('T-Shirt', $g('Nike Sportswear Older Kids T-Shirt'), ['bolir-efri-likami']);
+check('tank', $g('NIKE MENS TANK BLUE'), ['bolir-efri-likami']);
+check('polo', $g('Nike Velocity Mens Dri-FIT Golf Polo'), ['bolir-efri-likami']);
+check('trousers', $g('Nike Pro Training Mens Dri-FIT Trousers'), ['buxur-leggings']);
+check('taska', $g('Nike Utility Power 2.0 taska'), ['toskur-aefingarvorur']);
+check('skólataska', $g('NIKE SKÓLATASKA BLÁ M/ APPELSÍNUGULU PENNAVESKI'), ['toskur-aefingarvorur']);
+check('backpack', $g('Nike Brasilia Kids Backpack (18L)'), ['toskur-aefingarvorur']);
+check('sundpoki is a bag, as staff file it', $g('NIKE SUNDPOKI PRINT - BLÁR'), ['toskur-aefingarvorur']);
+check('duffel', $g('adidas Essentials 3-Stripes Duffel Bag Medium - Black'), ['toskur-aefingarvorur']);
+check('brúsi', $g('Camelbak Eddy+ Brúsi Charcoal 600ml'), ['brusar']);
+check('bottle', $g('Liverpool FC SIX HOUR HOT COLD BOTTLE 500ML'), ['brusar']);
+check('sundgleraugu', $g('ARENA SPIDER MASK BARNASUNDGLERAUGU BLÁ'), ['sundfatnadur-fatnadur-2']);
+check('sundhetta', $g('Fashy Sundhetta Dökkblá'), ['sundfatnadur-fatnadur-2']);
+check('a ball', $g('Adidas fótbolti blár STARLANCER'), ['boltar-aefingarvorur']);
+check('a mini ball', $g('MESSI MINI BALL BLUE'), ['boltar-aefingarvorur']);
+check('markmannshanskar are filed with the balls', $g('NIKE BARNA MARKMANNSHANSKAR - MATCH JR'), ['boltar-aefingarvorur']);
+check('fótboltabuxur are trousers, not a ball', $g('Nike fótboltabuxur barna'), ['buxur-leggings']);
+check('hárband', $g('NIKE HÁRBAND'), ['hufur-treflar']);
+check('clogs', $g('Crocs Classic Clog Chunky Glitter Bleikir Kids'), ['inniskor']);
+check('shoes, with no word for which kind: Skór', $g('Nike Flex Train Womens Workout Shoes'), ['skor']);
+check('barnaskór: Skór', $g('Adidas Terrex Agravic BOA barnaskór'), ['skor']);
+check('a jacket is filed two ways by staff: no decision', $g('Casall Soft Touch Zip Jacket Svartur'), []);
+$r = $d2(['name' => 'Nike Flex Train Womens Workout Shoes', 'cats' => ['skor']]);
+check('already under Skór: nothing to add', $r['garment'], null);
+check('filed under Skór counts as filed: the default category goes', mos_clean_without_default([15, 653], 15, [672, 653]), [653]);
+
+// ---- The default category ("Óflokkað") only ever meant "not filed yet": it goes once the product is filed by garment.
+check('filed by garment: the default category goes', mos_clean_without_default([15, 672, 2617], 15, [672]), [672, 2617]);
+check('not filed by any garment category: it stays', mos_clean_without_default([15, 2617], 15, [672]), [15, 2617]);
+check('no default category on the product: nothing changes', mos_clean_without_default([672, 2617], 15, [672]), [672, 2617]);
+check('the shop has no default category: nothing changes', mos_clean_without_default([15, 672], 0, [672]), [15, 672]);
+check('the default category is itself the only one: it stays', mos_clean_without_default([15], 15, [15]), [15]);
 
 printf("%d passed, %d failed\n", $pass, $fail);
 exit($fail === 0 ? 0 : 1);
