@@ -35,14 +35,23 @@ check('kyn karl', mos_clean_gender_from_attrs(['karl'], ['fullordin-n']), ['karl
 check('kyn unisex adult', mos_clean_gender_from_attrs(['unisex'], []), ['karlar', 'konur']);
 check('kyn none', mos_clean_gender_from_attrs([], ['fullordin-n']), []);
 
-// A jacket is outerwear (the owner's decision, 2026-11-20). A vest or galli is still filed two ways by staff: a
-// describing word beside one decides nothing.
+// A jacket is outerwear (the owner's decision, 2026-11-20), and so is a vest. A galli is still filed two ways by
+// staff: a describing word beside one decides nothing.
 check('a jacket is outerwear', mos_clean_garment_from_name(mos_clean_tokens('Casall Training Jacket Svartur')), ['yfirhafnir']);
 check('JKT is a jacket', mos_clean_garment_from_name(mos_clean_tokens('Didriksons Varja WNS JKT 2 Black')), ['yfirhafnir']);
 check('a shirt jacket is a jacket, not a shirt', mos_clean_garment_from_name(mos_clean_tokens('Nike Shirt Jacket Svartur')), ['yfirhafnir']);
 check('a polo zip jacket is a jacket', mos_clean_garment_from_name(mos_clean_tokens('Nike Polo Zip Jacket')), ['yfirhafnir']);
 check('a jacket named with another garment is left for a person', mos_clean_garment_from_name(mos_clean_tokens('Nike Tech Fleece Jacket peysa')), ['yfirhafnir', 'peysur-efri-likami']);
-check('tank vest: no garment', mos_clean_garment_from_name(mos_clean_tokens('Nike Tank Vest')), []);
+check('a vest is outerwear (the owner\'s decision, 2026-11-20)', mos_clean_garment_from_name(mos_clean_tokens('Nike Tempo Womens Repel Warm Running Vest')), ['yfirhafnir']);
+check('vesti', mos_clean_garment_from_name(mos_clean_tokens('Adidas Vesti Barna Svart')), ['yfirhafnir']);
+check('barnavesti', mos_clean_garment_from_name(mos_clean_tokens('Didriksons Kilo barnavesti svart')), ['yfirhafnir']);
+check('DownVest', mos_clean_garment_from_name(mos_clean_tokens('Tenson TXlite DownVest KVK Blue Grey')), ['yfirhafnir']);
+check('a tank vest is a vest, not a tank', mos_clean_garment_from_name(mos_clean_tokens('Nike Tank Vest')), ['yfirhafnir']);
+check('a hlaupavesti may be a drink pack: nothing is decided', mos_clean_garment_from_name(mos_clean_tokens('Adidas hlaupavesti brúnt - Terrex Xperior Trail Running Vest 2.5l')), []);
+check('nor beside the English word', mos_clean_garment_from_name(mos_clean_tokens('Adidas Running Climacool Vest Hlaupavesti')), []);
+check('a training bib is not outerwear', mos_clean_garment_from_name(mos_clean_tokens('Select Æfingavesti gult')), []);
+check('a galli still decides nothing beside a describing word', mos_clean_garment_from_name(mos_clean_tokens('Nike Tank Galli')), []);
+check('an investment of letters is not a vest', mos_clean_garment_from_name(mos_clean_tokens('Nike Harvest Pack')), []);
 check('a proper word still decides beside a jacket', mos_clean_garment_from_name(mos_clean_tokens('Adidas Jacket hlaupajakki')), ['yfirhafnir']);
 check('a plain shirt is still a shirt', mos_clean_garment_from_name(mos_clean_tokens('Nike Golf Shirt')), ['bolir-efri-likami']);
 
