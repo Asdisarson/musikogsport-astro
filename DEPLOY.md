@@ -628,9 +628,9 @@ On the WordPress host, in this order. Each step has its check; stop at the first
 2. **Upload** to `wp-content/mu-plugins/`: `mos-posturinn-droppoints.php`, `headless-bridge.php`,
    `mos-headless-api.php`, `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`,
    `mos-size-index.php`, `mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`, `mos-instagram.php`,
-   `mos-newsletter.php`, `mos-search.php`, `mos-staff-flag.php`, `mos-shell-poke.php` and `mos-shell-admin.php`. **Never
+   `mos-newsletter.php`, `mos-waitlist.php`, `mos-search.php`, `mos-staff-flag.php`, `mos-shell-poke.php` and `mos-shell-admin.php`. **Never
    `headless-bridge-local.php`** (the local-dev shim rewrites redirects to localhost).
-   Check: `wp plugin list --status=must-use` shows exactly those sixteen, and `ls wp-content/mu-plugins` has no
+   Check: `wp plugin list --status=must-use` shows exactly those seventeen, and `ls wp-content/mu-plugins` has no
    `-local` file. `mos-shell-poke.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), like
    `mos-headless-mode.php`; without it the storefront is not told when a product is saved, and its pages stay stale
    until their lifetime ends. `mos-headless-mode.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), so uploading

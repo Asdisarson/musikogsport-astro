@@ -34,8 +34,8 @@ export function resolveVariation<T extends VariationLike>(
   return variations.find((v) => matches(v, selected)) ?? null;
 }
 
-/** Whether one option can be picked given the OTHER attributes already chosen:
- *  'instock' (buyable), 'outofstock' (exists but sold out — live crosses it out), 'none' (no such combination),
+/** One option's state given the OTHER attributes already chosen:
+ *  'instock' (buyable), 'outofstock' (exists but sold out — crossed out, still pickable: its waitlist), 'none' (no such combination),
  *  'pending' (stock not known yet: selectable, never shown as sold out).
  *  Once every other attribute in `attrNames` is chosen, the option means one variation (the first match in
  *  menu order, as resolveVariation picks), so its stock decides. While others are still open, the option is
@@ -73,10 +73,33 @@ export function nothingToBuy(
   return variationStocks.length > 0 && variationStocks.every((s) => known(s) && !buyable(s as StockStatus));
 }
 
+/** The product a waitlist sign-up is for, when the choice shown is known to be sold out: the chosen variation of a
+ *  variable product (each variation has its own waitlist; the parent has none), or a simple product itself. Null for
+ *  anything that can be bought (backorders included), for stock not known yet, and while no variation is chosen. */
+export function waitlistTarget(
+  isVariable: boolean,
+  productId: number,
+  productStock: string | null | undefined,
+  resolved: { id: number; stock_status?: string } | null,
+): number | null {
+  const soldOut = (s: string | null | undefined) => s !== undefined && s !== null && !buyable(s as StockStatus);
+  if (isVariable) return resolved && soldOut(resolved.stock_status) ? resolved.id : null;
+  return soldOut(productStock) ? productId : null;
+}
+
+/** The waitlist target to show: the current one when the stock is known; while a refetch is pending (the tab came
+ *  back), the last known one as long as the same product or variation (`own`) is still chosen, so the form and what
+ *  was typed in it stay put. */
+export function waitlistDuring(pending: boolean, current: number | null, lastKnown: number | null, own: number | null): number | null {
+  if (!pending) return current;
+  return lastKnown !== null && lastKnown === own ? lastKnown : null;
+}
+
 /** The add-to-cart guidance while a selection is incomplete: "Veldu stærð" when the first unchosen attribute is a
  *  size (Stærð, Stærðir, Skóstærð, Size …), a generic "Veldu valkost" for any other attribute, null once everything
- *  is chosen. With `availability`, also null when no option of that attribute is selectable (every swatch sold out
- *  or 'none', as optionState judges them), since the hint would ask for something that can't be picked. */
+ *  is chosen. With `availability`, also null when no option of that attribute is selectable (every swatch 'none', as
+ *  optionState judges them), since the hint would ask for something that can't be picked. A sold-out option counts:
+ *  it is picked to join its waitlist. */
 export function choiceHint(
   attrNames: string[],
   selected: Record<string, string>,
@@ -86,10 +109,7 @@ export function choiceHint(
   if (missing === undefined) return null;
   if (availability) {
     const options = availability.attrs.find((a) => a.name === missing)?.options ?? [];
-    const selectable = options.some((opt) => {
-      const st = optionState(availability.variations, missing, opt, selected, attrNames);
-      return st === 'instock' || st === 'pending';
-    });
+    const selectable = options.some((opt) => optionState(availability.variations, missing, opt, selected, attrNames) !== 'none');
     if (!selectable) return null;
   }
   return isSizeAttribute(missing) ? 'Veldu stærð' : 'Veldu valkost';

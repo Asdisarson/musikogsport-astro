@@ -16,8 +16,8 @@
 export const PUBLIC_HTML = 'public, max-age=0, s-maxage=300, stale-while-revalidate=60';
 
 // Per-shopper pages and APIs: the cart, checkout and thank-you page, the account area, the wishlist, sign-out, and
-// the cart / checkout / order / account APIs.
-const PERSONAL = [/^\/karfa\//, /^\/gera-upp(\/|$)/, /^\/min-sida(\/|$)/, /^\/oskalisti(\/|$)/, /^\/utskra(\/|$)/, /^\/api\/(cart|checkout|order)(\/|$)/, /^\/api\/account\//];
+// the cart / checkout / order / account APIs, and the waitlist API (its GET answers the signed-in customer's address).
+const PERSONAL = [/^\/karfa\//, /^\/gera-upp(\/|$)/, /^\/min-sida(\/|$)/, /^\/oskalisti(\/|$)/, /^\/utskra(\/|$)/, /^\/api\/(cart|checkout|order|waitlist)(\/|$)/, /^\/api\/account\//];
 
 export function isPersonalPath(pathname: string): boolean {
   return PERSONAL.some((re) => re.test(pathname));

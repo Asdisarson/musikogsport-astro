@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { choiceHint, isSizeAttribute, nothingToBuy, optionImages, optionState, pricesVary, resolveVariation, sortSizeOptions, type VariationLike } from './variations';
+import { choiceHint, isSizeAttribute, nothingToBuy, optionImages, optionState, pricesVary, resolveVariation, sortSizeOptions, waitlistDuring, waitlistTarget, type VariationLike } from './variations';
 
 const v = (id: number, attrs: Record<string, string>, stock = 'instock', price = '10000', regular = price): VariationLike => ({
   id,
@@ -129,9 +129,9 @@ describe('choiceHint', () => {
     ];
     const names = attrs.map((a) => a.name);
 
-    it('is null when every option of the missing attribute is sold out', () => {
+    it('still asks when every option of the missing attribute is sold out: a sold-out one can be picked for its waitlist', () => {
       const vars = [v(1, { Stærðir: '40' }, 'outofstock'), v(2, { Stærðir: '41' }, 'outofstock')];
-      expect(choiceHint(['Stærðir'], {}, { attrs: [attrs[1]], variations: vars })).toBeNull();
+      expect(choiceHint(['Stærðir'], {}, { attrs: [attrs[1]], variations: vars })).toBe('Veldu stærð');
     });
 
     it('is null when no variation exists for any option of the missing attribute', () => {
@@ -147,7 +147,8 @@ describe('choiceHint', () => {
     it('judges the first unchosen attribute, as optionState does for its swatches', () => {
       const vars = [v(1, { Litur: 'Svartur', Stærðir: '40' }), v(2, { Litur: 'Rauður', Stærðir: '41' }, 'outofstock')];
       expect(choiceHint(names, {}, { attrs, variations: vars })).toBe('Veldu valkost');
-      expect(choiceHint(names, { Stærðir: '41' }, { attrs, variations: vars })).toBeNull();
+      expect(choiceHint(names, { Stærðir: '41' }, { attrs, variations: vars })).toBe('Veldu valkost');   // Rauður/41 is sold out, still pickable
+      expect(choiceHint(names, { Stærðir: '40' }, { attrs: [{ name: 'Litur', options: ['Rauður'] }, attrs[1]], variations: vars })).toBeNull();   // no Rauður/40 at all
     });
 
     it('is null with no variations at all', () => {
@@ -292,5 +293,54 @@ describe('unknown stock (pending live answer)', () => {
   it('a known sold-out option stays outofstock even next to unknown ones', () => {
     const mixed = [pending(1, { Stærðir: '40' }), v(2, { Stærðir: '41' }, 'outofstock')];
     expect(optionState(mixed, 'Stærðir', '41', {}, ['Stærðir'])).toBe('outofstock');
+  });
+});
+
+// The waitlist sign-up replaces "Setja í körfu" only for a choice known to be sold out; it names that exact product.
+describe('waitlistTarget', () => {
+  it('is the chosen variation when its stock is known and sold out', () => {
+    expect(waitlistTarget(true, 10, 'instock', { id: 22, stock_status: 'outofstock' })).toBe(22);
+  });
+
+  it('is null for a variation that can be bought, backorders included', () => {
+    expect(waitlistTarget(true, 10, 'instock', { id: 22, stock_status: 'instock' })).toBeNull();
+    expect(waitlistTarget(true, 10, 'instock', { id: 22, stock_status: 'onbackorder' })).toBeNull();
+  });
+
+  it('is null while the variation stock is unknown (pending or failed)', () => {
+    expect(waitlistTarget(true, 10, 'outofstock', { id: 22 })).toBeNull();
+  });
+
+  it('is null for a variable product with no variation chosen, even when all of it is sold out', () => {
+    expect(waitlistTarget(true, 10, 'outofstock', null)).toBeNull();
+  });
+
+  it('is the product itself for a sold-out simple product', () => {
+    expect(waitlistTarget(false, 10, 'outofstock', null)).toBe(10);
+  });
+
+  it('is null for a simple product that can be bought or whose stock is unknown', () => {
+    expect(waitlistTarget(false, 10, 'instock', null)).toBeNull();
+    expect(waitlistTarget(false, 10, 'onbackorder', null)).toBeNull();
+    expect(waitlistTarget(false, 10, undefined, null)).toBeNull();
+    expect(waitlistTarget(false, 10, null, null)).toBeNull();
+  });
+});
+
+// The live answer is fetched again when the tab comes back: the form must not vanish (with the typed address) meanwhile.
+describe('waitlistDuring', () => {
+  it('is the current target whenever the stock is known', () => {
+    expect(waitlistDuring(false, 22, 22, 22)).toBe(22);
+    expect(waitlistDuring(false, null, 22, 22)).toBeNull();
+  });
+
+  it('keeps the last known target while a refetch is pending and the choice is the same', () => {
+    expect(waitlistDuring(true, null, 22, 22)).toBe(22);
+  });
+
+  it('drops it while pending once another product or variation is chosen, or none', () => {
+    expect(waitlistDuring(true, null, 22, 23)).toBeNull();
+    expect(waitlistDuring(true, null, 22, null)).toBeNull();
+    expect(waitlistDuring(true, null, null, 22)).toBeNull();
   });
 });

@@ -9,16 +9,18 @@ import { gridStep } from '../lib/gridNav';
 import { mainSources } from '../lib/img';
 import { applyPhotoFit, photoBgProps, type PhotoFit } from '../lib/photoBg';
 import { isColourAttribute } from '../lib/productCard';
-import { choiceHint, isSizeAttribute, nothingToBuy, optionImages, optionState, resolveVariation } from '../lib/variations';
+import { choiceHint, isSizeAttribute, nothingToBuy, optionImages, optionState, resolveVariation, waitlistDuring, waitlistTarget } from '../lib/variations';
 import { qtyFromInput } from '../lib/validate';
 import type { PdpVariation } from '../lib/types';
+import WaitlistForm from './WaitlistForm';
 
 // The add-to-cart form (nike-look, SPEC § PDP; WooCommerce + Variation Swatches semantics): per attribute a label
 // row ("Veldu stærð" with the size-chart link at right for a size, else the attribute's name and the chosen value),
 // then radio-like buttons — colours as picture thumbs when every colour has its own photo, everything else as a
-// 2-column grid of 48px boxes with sold-out options struck through. Arrow keys move between the options. Then a
-// "Hreinsa" reset, the variation's stock, a quiet quantity box on its own line, and "Setja í körfu" as a full-width
-// pill (disabled, with a "Veldu stærð" hint under it, until a size is chosen).
+// 2-column grid of 48px boxes with sold-out options struck through (still pickable: a sold-out choice shows the
+// waitlist sign-up). Arrow keys move between the options. Then a "Hreinsa" reset, the variation's stock, a quiet
+// quantity box on its own line, and "Setja í körfu" as a full-width pill (disabled, with a "Veldu stærð" hint under
+// it, until a size is chosen). A choice known to be sold out gets the waitlist form (WaitlistForm) in their place.
 
 interface VarAttr {
   name: string;
@@ -48,8 +50,8 @@ interface Props {
   sizeGuide?: ReactNode;
 }
 
-/** Arrow keys move focus between a group's options (Up/Down by a row of the grid), skipping sold-out (disabled)
- *  ones (gridStep). Enter/Space pick. */
+/** Arrow keys move focus between a group's options (Up/Down by a row of the grid), skipping disabled ones: the
+ *  combinations that don't exist (gridStep). Enter/Space pick. */
 function moveFocus(e: KeyboardEvent<HTMLUListElement>) {
   if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
   const list = e.currentTarget;
@@ -246,15 +248,27 @@ export default function ProductPurchase({
   // A known sold-out choice, or one with nothing to buy: nothing to count, so the quantity box is not shown at all.
   const soldOut = (known && !buyable(stock as 'instock')) || sellsNothing;
   const canAdd = !adding && !none && !soldOut;
+  // A choice known to be sold out: the product (or exact variation) whose waitlist the sign-up joins, in place of the
+  // quantity box and "Setja í körfu". A variable product needs its variation chosen first (the hint asks for it).
+  // The answer is fetched again when the tab comes back (startLive): the form stays for the same choice meanwhile.
+  const waitNow = waitlistTarget(isVariable, productId, simpleStock, resolved);
+  const waitKnown = useRef<number | null>(null);
+  useEffect(() => {
+    if (live.state !== 'pending') waitKnown.current = waitNow;
+  }, [live.state, waitNow]);
+  const waitFor = waitlistDuring(live.state === 'pending', waitNow, waitKnown.current, own);
+  // The quantity box and "Setja í körfu" give way to the form, or to the hint asking what to wait for.
+  const noCart = soldOut || waitFor !== null;
   // Guidance under the button until every attribute is chosen ("Veldu stærð"); the button stays pressable then and
   // points at the missing choice instead of doing nothing.
-  // Only when the missing attribute has an option left to pick: a hint over all-crossed-out swatches can't be acted on.
-  // Not for a product with nothing to buy: there is no choice that would help.
-  const hint = isVariable && !variationsFailed && !sellsNothing ? choiceHint(attrNames, selected, { attrs: variationAttrs, variations: liveVars }) : null;
+  // Only when the missing attribute has an option left to pick. With nothing to buy, the choice is what to wait for.
+  const pick = isVariable && !variationsFailed ? choiceHint(attrNames, selected, { attrs: variationAttrs, variations: liveVars }) : null;
+  const hint = pick && sellsNothing ? `${pick} til að skrá þig á biðlista` : pick;
   const hintId = `pdp-hint-${productId}`;
   // Phones: a bottom bar with "Setja í körfu" once every option is picked and that variation is in stock (never on a
   // simple product), sliding in while the form's own button is out of sight
-  const barReady = isVariable && !!resolved && attrNames.every((n) => selected[n]) && barClosedFor !== resolved.id && (resolved.stock_status === undefined || buyable(resolved.stock_status as 'instock'));
+  // Never beside the waitlist form: while a refetch is pending the stock is unknown again, yet the choice is sold out.
+  const barReady = isVariable && !!resolved && waitFor === null && attrNames.every((n) => selected[n]) && barClosedFor !== resolved.id && (resolved.stock_status === undefined || buyable(resolved.stock_status as 'instock'));
   const missing = hint ? attrNames.find((n) => !selected[n]) : undefined;
 
   function choose(attr: string, option: string) {
@@ -268,7 +282,7 @@ export default function ProductPurchase({
       setNudged(true);
       const group = varsRef.current?.querySelector<HTMLElement>(`[data-var="${attrNames.indexOf(missing)}"]`);
       group?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      group?.querySelector<HTMLButtonElement>('[data-state="instock"]')?.focus({ preventScroll: true });
+      (group?.querySelector<HTMLButtonElement>('[data-state="instock"]') ?? group?.querySelector<HTMLButtonElement>('button:not(:disabled)'))?.focus({ preventScroll: true });
       return;
     }
     if (!canAdd) return;
@@ -339,7 +353,7 @@ export default function ProductPurchase({
                           aria-checked={selected[a.name] === opt}
                           aria-label={state === 'outofstock' ? `${opt} — uppselt` : opt}
                           data-state={state}
-                          disabled={state === 'outofstock' || state === 'none'}
+                          disabled={state === 'none'}
                           onClick={() => choose(a.name, opt)}
                           {...(images ? photoBgProps(photoBgs[images[opt]]) : {})}
                         >
@@ -371,7 +385,8 @@ export default function ProductPurchase({
       <StockLine state={live.state} stock={sellsNothing ? 'outofstock' : stock} hasChoice={!isVariable || !!resolved || sellsNothing} />
 
       <div className="pdp-cart" ref={cartRef}>
-        {!soldOut && <div className="pdp-qty" role="group" aria-label="Fjöldi">
+        {waitFor !== null && <WaitlistForm key={waitFor} productId={waitFor} />}
+        {!noCart && <div className="pdp-qty" role="group" aria-label="Fjöldi">
           <button type="button" onClick={() => setQtyText(String(Math.max(1, qty - 1)))} aria-label="Fækka">
             <Minus />
           </button>
@@ -398,7 +413,8 @@ export default function ProductPurchase({
             <Plus />
           </button>
         </div>}
-        <button
+        {/* Sold out: the waitlist form above takes its place, or (nothing chosen yet) the hint asks for a choice */}
+        {!noCart && <button
           type="button"
           className="pdp-atc"
           disabled={!canAdd && missing === undefined}
@@ -407,7 +423,7 @@ export default function ProductPurchase({
           onClick={handleAdd}
         >
           Setja í körfu
-        </button>
+        </button>}
       </div>
       {hint && (
         <p className={`pdp-hint${nudged ? ' is-error' : ''}`} id={hintId} role={nudged ? 'alert' : undefined}>

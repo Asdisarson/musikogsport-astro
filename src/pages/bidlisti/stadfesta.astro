@@ -1,0 +1,70 @@
+---
+// /bidlisti/stadfesta/?t=<token>: where the waitlist's confirmation mail links (wp-mu-plugins/mos-waitlist.php). The
+// visitor presses "Staðfesta skráningu" and the script posts the token to /api/waitlist/confirm: a press, not the
+// page view, confirms, so a mail scanner opening the link lists nobody. The token is read in the browser and is
+// never in the page, so the same HTML serves every link.
+import Base from '../../layouts/Base.astro';
+
+export const prerender = false;
+---
+
+<Base title="Staðfesta skráningu á biðlista" noindex>
+  <header class="page-header">
+    <h1 class="page-title">Biðlisti</h1>
+  </header>
+  <div class="wp-page container waitlist-confirm" data-waitlist-confirm>
+    <p data-lead>Staðfestu að þú viljir fá póst þegar varan kemur aftur á lager.</p>
+    <button type="button" class="btn btn--primary" data-go>Staðfesta skráningu</button>
+    <p class="waitlist-confirm__status" role="status" aria-live="polite" data-status></p>
+    <p><a href="/verslun/">Halda áfram að versla</a></p>
+    <noscript><p class="form-error">Kveikja þarf á JavaScript til að staðfesta skráninguna.</p></noscript>
+  </div>
+</Base>
+
+<script>
+  const FAILED = 'Ekki tókst að staðfesta skráninguna. Reyndu aftur síðar.';
+  const root = document.querySelector<HTMLElement>('[data-waitlist-confirm]');
+  const button = root?.querySelector<HTMLButtonElement>('[data-go]');
+  const status = root?.querySelector<HTMLElement>('[data-status]');
+  const lead = root?.querySelector<HTMLElement>('[data-lead]');
+  const token = new URLSearchParams(location.search).get('t') ?? '';
+
+  function say(text: string, state: 'ok' | 'error') {
+    if (!status) return;
+    status.textContent = text;
+    status.dataset.state = state;
+  }
+
+  if (button && !token) {
+    button.hidden = true;
+    if (lead) lead.hidden = true;
+    say('Hlekkurinn er ekki gildur. Opnaðu hlekkinn úr póstinum aftur.', 'error');
+  }
+  button?.addEventListener('click', async () => {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    try {
+      const res = await fetch('/api/waitlist/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ token }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: unknown; message?: unknown };
+      if (res.ok && data.ok === true) {
+        button.hidden = true;
+        if (lead) lead.hidden = true;
+        say('Skráningin er staðfest. Við sendum þér póst þegar varan kemur aftur á lager.', 'ok');
+        return;
+      }
+      say(typeof data.message === 'string' && data.message ? data.message : FAILED, 'error');
+      // a used or expired link, or the product back in stock: pressing again would not help
+      if (res.status === 404 || res.status === 409) button.hidden = true;
+    } catch {
+      say(FAILED, 'error');
+    } finally {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+    }
+  });
+</script>

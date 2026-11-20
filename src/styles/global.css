@@ -962,12 +962,14 @@
   .pdp-swatch:hover:not(:disabled) { border-color: var(--ink); }
   .pdp-swatch[aria-checked='true'] { border-color: var(--ink); box-shadow: inset 0 0 0 0.5px var(--ink); font-weight: 500; }
   .pdp-swatch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-  .pdp-swatch:disabled { cursor: not-allowed; background: var(--surface); color: var(--disabled-text); text-decoration: line-through; }
+  /* sold out: struck and grey, yet pickable (its waitlist); a combination that doesn't exist is disabled as well */
+  .pdp-swatch[data-state='outofstock'], .pdp-swatch:disabled { background: var(--surface); color: var(--disabled-text); text-decoration: line-through; }
+  .pdp-swatch:disabled { cursor: not-allowed; }
   .pdp-swatches--images { display: flex; flex-wrap: wrap; }
   .pdp-swatch--image { width: 70px; height: 70px; min-height: 0; padding: 0; overflow: hidden; border-radius: var(--radius-photo-sm); background: #fff; }
   .pdp-swatch--image img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
   .pdp-swatch--image[aria-checked='true'] { box-shadow: inset 0 0 0 1px var(--ink); }
-  .pdp-swatch--image:disabled { opacity: 0.45; }
+  .pdp-swatch--image[data-state='outofstock'] img, .pdp-swatch--image:disabled img { opacity: 0.45; }
   /* The product page's photo tiles (gallery, thumbnail, colour swatch) are white, never grey: no #f5f5f5 tile and no
      photo-edge tint ([data-photo-bg] / --photo-grad are left unused here; cards still use [data-photo-fill]).
      A photo whose subject is cut by its own frame (lib/photoBg photoFit) is drawn edge to edge, so the cut sits on the
@@ -1005,6 +1007,22 @@
   .pdp-atc:disabled { cursor: not-allowed; }
   .pdp-atc:disabled:not([aria-busy='true']) { background: var(--surface); color: var(--disabled-text); }
   .pdp-atc[aria-busy='true'] { opacity: 0.6; }
+  /* sold out: the waitlist sign-up in place of the quantity box and the pill: a label, the address field, the same pill */
+  .pdp-waitlist { display: flex; flex-direction: column; gap: 12px; margin: 0; }
+  .pdp-waitlist__lead { margin: 0; font-size: 16px; line-height: 24px; color: var(--ink); }
+  .pdp-waitlist__field { display: flex; flex-direction: column; gap: 4px; font-size: 16px; font-weight: 500; line-height: 24px; color: var(--ink); }
+  .pdp-waitlist__field input { width: 100%; height: var(--field-h); padding: 0 12px; border: 1px solid var(--field-border); border-radius: var(--radius-size); background: #fff; color: var(--ink); font-size: 16px; font-weight: 400; }
+  .pdp-waitlist__trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  .pdp-waitlist__note { margin: 0; font-size: 14px; line-height: 20px; color: var(--meta); }
+  .pdp-waitlist__note a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+  .pdp-waitlist__done { margin: 0; font-size: 16px; font-weight: 500; line-height: 24px; color: var(--good); }
+  .pdp-waitlist .form-error { margin: 0; }
+  /* /bidlisti/stadfesta/: the confirmation mail's landing page */
+  .waitlist-confirm { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+  .waitlist-confirm p { margin: 0; }
+  .waitlist-confirm__status:empty { display: none; }
+  .waitlist-confirm__status[data-state='ok'] { color: var(--good); font-weight: 500; }
+  .waitlist-confirm__status[data-state='error'] { color: var(--invalid-text); }
   .pdp-hint { margin: 8px 0 0; font-size: 16px; line-height: 24px; color: var(--text); text-align: center; }
   .pdp-qty button[aria-disabled='true'] { opacity: 0.35; cursor: not-allowed; }
   /* phones: a bottom bar with the name, the choice and "Setja í körfu", sliding up once a variation is picked

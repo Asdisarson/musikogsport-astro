@@ -18,6 +18,8 @@ describe('isPersonalPath', () => {
       '/api/checkout',
       '/api/order',
       '/api/account/login',
+      '/api/waitlist',
+      '/api/waitlist/confirm',
     ])
       expect(isPersonalPath(p), p).toBe(true);
   });

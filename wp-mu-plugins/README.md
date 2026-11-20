@@ -211,6 +211,21 @@ run and clear are refused and the page says so, and the page reloads while a run
   subscribed; already on the list: untouched; left the list earlier: pending again. Same answer in all three cases.
   Capped per address, per caller and store-wide per hour; failures are logged as `[mos-newsletter]` with Mailchimp's
   status, never the key or the address. Tests: `php tests/mos_newsletter_test.php`.
+- **mos-waitlist.php** — the product page's "Skrá á biðlista", shown in place of "Setja í körfu" for a sold-out
+  product or variation (`/api/waitlist` → here → the WooCommerce Waitlist plugin's `wcwl_add_user_to_waitlist()`).
+  It needs the WooCommerce Waitlist plugin active (503 without it); that plugin keeps the list and mails it when the
+  stock returns. `POST mos/v1/waitlist {email, product_id}` lists nobody yet: it mails the address a link to the
+  storefront's `/bidlisti/stadfesta/?t=<token>` (double opt-in; needs `MOS_STOREFRONT_URL`, 503 without it) and
+  answers `confirm: true`. The token is random, kept two days, and is all the link carries. A signed-in customer
+  (the storefront passes the session's Bearer token on) giving the account's own address is listed at once:
+  `confirm: false`. `POST mos/v1/waitlist/confirm {token}` lists the address the token was mailed to, once; the
+  storefront page posts it when its button is pressed, so a mail scanner opening the link confirms nothing. Only a
+  published simple product or variation that is not in stock can be waited for: in stock (backorders too) is a 409,
+  anything else a 404. No customer account is made for the address: the plugin's "create account" option reads `no`
+  during the call, whatever is stored. Same answers for a new address and one already listed. Capped per address,
+  per caller and store-wide per hour (each sign-up is a mail); failures are logged as `[mos-waitlist]` with the
+  product id, never the address or the token. Tests: `php tests/mos_waitlist_test.php` and, on a local site,
+  `wp eval-file tests/mos_waitlist_wp_test.php` (it makes one sold-out test product and deletes it; no mail leaves).
 - **mos-stillingar.php** — "Stillingar", the first item of the wp-admin sidebar (for anyone who can edit the front
   page): the front page's pictures on one screen — header logo, the eight banners, each hero slide's
   product and picture — laid out as a small copy of the storefront's front page, computed from the saved values with
@@ -270,9 +285,9 @@ Other tests (all read-only; the `wp eval-file` ones run against the local site's
 
 Deploy: copy `mos-posturinn-droppoints.php`, `headless-bridge.php`, `mos-headless-api.php`,
 `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`, `mos-size-index.php`,
-`mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`, `mos-instagram.php`, `mos-newsletter.php`, `mos-search.php`,
+`mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`, `mos-instagram.php`, `mos-newsletter.php`, `mos-waitlist.php`, `mos-search.php`,
 `mos-staff-flag.php`, `mos-shell-poke.php` and `mos-shell-admin.php` to `wp-content/mu-plugins/` on the WP host (never the `-local` shim;
-the same sixteen files as DEPLOY.md's checklist, step 2). `mos-shell-poke.php` and `mos-shell-admin.php` changed in the latest round:
+the same seventeen files as DEPLOY.md's checklist, step 2). `mos-shell-poke.php` and `mos-shell-admin.php` changed in the latest round:
 copy them again where a copy is installed. Then run
 `wp mos-size reindex` once, and `wp db export` → `wp mos-clean preview` → `wp mos-clean apply` (keep the journal) → `wp mos-nav apply`. Requires ACF (free) for the Forsíða fields. In `wp-config.php` define
 `MOS_STOREFRONT_URL` (the storefront's origin) and `MOS_HEADLESS_REDIRECT_STATUS` (`301`), and `MOS_SHELL_POKE_KEY` (the same value as the storefront's `MOS_SHELL_POKE_KEY`): without
