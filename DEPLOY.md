@@ -657,7 +657,10 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    1000 pages cannot tell the storefront about all of them. Keep the
    journal it names (`wp-content/uploads/mos-clean/journal-<time>-<random>.json`): `wp mos-clean restore <journal>`
    undoes that run (not later save-time fills; the SQL export covers those). The folder gets an `.htaccess` deny;
-   on nginx, block `/wp-content/uploads/mos-clean/` in the server config (or move the journal off the server). From then on new and edited products are filled
+   that deny does nothing on production, where nginx serves `/wp-content/uploads/` on the apex itself (a journal was
+   readable there, and once fetched Cloudflare kept a copy for 30 days): block `/wp-content/uploads/mos-clean/` in
+   the server config, or move the journal out of the web root straight after the run (production keeps them in
+   `<home>/mos-cli-logs/journals/`) and do not fetch its URL to test. From then on new and edited products are filled
    on save, never refilling a field the owner cleared. `wp mos-size reindex` is not needed again (sizes are untouched).
    The same apply also tidies the categories (`mos_clean_category_ops`): the Íþrótt tree becomes the sport filter,
    the club categories (Stjarnan, FH, Fimleikafélagið Björk) the club filter, the top-level Didriksons the brand,
@@ -679,8 +682,12 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    `wp mos-names apply` (keep the journal it names; `wp mos-names restore <journal>` puts the names back), and
    `curl -X POST https://<storefront>/api/content-refresh` so the pages are re-rendered. From then on a new product's
    name is tidied once, on its first save. To switch that on without renaming anything: `wp mos-names mark`.
-   On nginx, block `/wp-content/uploads/mos-names/` in the server config (the journal holds the old names, drafts
-   included). Check: a second `wp mos-names preview` says 0 names would change.
+   On nginx, block `/wp-content/uploads/mos-names/` in the server config or move the journal out of the web root
+   after the run (it holds the old names, drafts included; see 3b). Check: a second `wp mos-names preview` says 0 names would change.
+   **Done on production 2026-11-20** (3b, 3c and 3b-2, in that order, after a database dump): 3b 468 products, 3c
+   249 menu items (the menu of 16 Nov kept as "Aðalvalmynd 2026 (afrit)"), 3b-2 1,804 names in 12 minutes. On that
+   host the commands run through `wp-mu-plugins/bin/mos-cli.php` as the site's system user (README, "No WP-CLI on
+   the host"), not through WP Toolkit's `wp-cli`. Second previews say 0.
 3c. **Main menu** (after 3b, which it counts): `wp mos-nav preview` (prints the menu with product counts), then
    `wp mos-nav apply`: writes the menu "Aðalvalmynd 2026" and puts it in the primary location; the old menu stays.
    Rollback: Útlit → Valmyndir → Stjórna staðsetningum → Aðalvalmynd. Only ONE earlier build is kept ("Aðalvalmynd

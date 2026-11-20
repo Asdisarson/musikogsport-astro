@@ -5,6 +5,8 @@
  *   php mos-cli.php mos-clean preview|apply [--samples=15] [--batch=200]
  *   php mos-cli.php mos-clean restore <journal file>
  *   php mos-cli.php mos-nav preview|apply
+ *   php mos-cli.php mos-names preview|apply|mark
+ *   php mos-cli.php mos-names restore <journal file>
  *   php mos-cli.php mos-size reindex [--dry-run] | purge
  *
  * It loads WordPress with WP_CLI defined and a stand-in WP_CLI class (log, warning, success, error, add_command), so
@@ -26,7 +28,7 @@ $mos_rest = array_slice($mos_positional, 2);
 $mos_wordpress_dir = rtrim((string) ($mos_assoc['wp'] ?? (__DIR__ . '/../../../httpdocs')), '/');
 unset($mos_assoc['wp']);
 if (!preg_match('/^mos-[a-z-]+$/', $mos_command) || !preg_match('/^[a-z_]+$/', $mos_sub)) {
-    fwrite(STDERR, "Usage: php mos-cli.php mos-clean|mos-nav|mos-size <subcommand> [arguments]\n");
+    fwrite(STDERR, "Usage: php mos-cli.php mos-clean|mos-nav|mos-names|mos-size <subcommand> [arguments]\n");
     exit(1);
 }
 if (!is_file($mos_wordpress_dir . '/wp-load.php')) { fwrite(STDERR, "No wp-load.php in $mos_wordpress_dir\n"); exit(1); }
