@@ -152,8 +152,12 @@ run and clear are refused and the page says so, and the page reloads while a run
     Run it again after uploading a copy whose normaliser changed (2026-11: "22/23" is the pair 22/23, no longer
     the typo "22 2/3"), so existing products are re-read.
   - **No WP-CLI on the host (Plesk):** `php bin/mos-cli.php mos-size reindex` (Scheduled Tasks → "Run a PHP script"
-    → Run Now; `--dry-run` writes nothing). `bin/mos-cli.php` runs every `mos-*` command this way, with the commands'
-    own code, and logs to `<home>/mos-cli-logs/`; `bin/mos-size-reindex.php` is the older single-purpose runner.
+    → Run Now; `--dry-run` writes nothing). `bin/mos-cli.php` runs every `mos-*` command this way (`mos-clean`, `mos-nav`, `mos-names`, `mos-size`), with the commands'
+    own code, and logs to `<home>/mos-cli-logs/`. From a root shell run it as the site's system user with the
+    site's PHP (`sudo -u <site user> /opt/plesk/php/<version>/bin/php -c <the site's php.ini> -d memory_limit=1G
+    bin/mos-cli.php <command> --wp=<WordPress folder>`). Plesk WP Toolkit's own `wp-cli` does not load WooCommerce,
+    so `mos-clean` fails there ("undefined function wc_get_product"). A run of minutes belongs under `nohup … &`:
+    the browser terminal's connection drops. `bin/mos-size-reindex.php` is the older single-purpose runner.
   - **Uninstall:** `wp mos-size purge` *while the file is still installed* (deletes the terms and their
     relationships), then delete the file. Nothing else to clean up.
   - Tests: `php tests/mos_size_normalise_test.php` (normaliser), `php tests/mos_size_helpers_test.php` (guards,
@@ -201,12 +205,16 @@ run and clear are refused and the page says so, and the page reloads while a run
     three or more teams none of which the name mentions: reported for a person, never changed), and published
     products with no primary category whose address may change with the new category.
   - WP-CLI: `wp mos-clean preview` (writes nothing; lists every change, conflicts and coverage), `wp mos-clean apply`
-    (one run is enough; writes `uploads/mos-clean/journal-<time>-<random>.json`, folder denied to the web by `.htaccess`), `wp mos-clean restore <journal>` (undoes that
+    (one run is enough; writes `uploads/mos-clean/journal-<time>-<random>.json`; the folder's `.htaccess` deny does nothing where nginx serves `/wp-content/uploads/` itself, as on production: move the journal out of the web root after the run), `wp mos-clean restore <journal>` (undoes that
     run: puts back the products' categories, brands and attributes, re-creates deleted terms, reverts renames, removes
     created terms; restore several journals newest first; fills made later by the save hook are not undone). Local run 2026-10-29, published products: brand 86.4 → 93.1%,
     gender 62.6 → 93.2%, sport 8.7 → 37.0%, colour 1.5 → 39.4%. Local run 2026-11-20 (team, garment, brand anywhere;
     3782 products of every status): garment 424 products (70 published), team 76, brand 12, sport 13; published
     coverage team 14.0 → 15.9%, product-type category 96.2 → 98.4%; then the HSÍ → Ísland merge (8 products).
+    Production run 2026-11-20 (4,423 products): 468 products in the journal: team 168, garment 318, brand 10, sport 7,
+    4 out of the default category, HSÍ → Ísland 7 products; published product-type coverage 96.1 → 98.1%. The
+    production preview found what the local copy could not: a team term `brasilia` there matched Nike's Brasilia
+    bags (a deny rule since), so read the preview on the catalog the run is for.
   - Category tidy-up (`mos_clean_category_ops()`, same preview/apply/restore): merges, category → attribute term
     (clubs → `pa_felag-lid`, the Íþrótt tree → `pa_ithrott`), category → brand, reparent, rename, delete empty (never
     the default category). A product the op would leave with no category besides Kyn/sale gets the op's fallback.
@@ -249,9 +257,12 @@ run and clear are refused and the page says so, and the page reloads while a run
     The storefront is not told by a bulk `apply`: `curl -X POST https://<storefront>/api/content-refresh` afterwards.
   - Local run 2026-11-20: 1,376 of 3,782 names changed (1,310 capitals, 50 spaces, 15 repeats, 1 Dri-FIT) and the
     6,239 variation titles under them; two drafts without a slug got one from their old name; no SKU and no
-    existing slug changed. Production: not run.
-  - The journal folder gets a deny-all `.htaccess`; on nginx block `/wp-content/uploads/mos-names/` in the server
-    config, as for `mos-clean`.
+    existing slug changed. Production run 2026-11-20: 1,804 of 4,423 names and the variation titles under them
+    (10,281 titles in all, 12 minutes), 4,623 products marked; checked against the dump taken before it: no SKU,
+    no status and no existing slug changed (two drafts without a slug got one).
+  - The journal folder gets a deny-all `.htaccess`, which nginx ignores where it serves `/wp-content/uploads/`
+    itself (production): block `/wp-content/uploads/mos-names/` in the server config, or move the journal out of
+    the web root after the run, as for `mos-clean`.
   - Tests: `php tests/mos_names_test.php` (the rules) and `wp eval-file tests/mos_names_wp_test.php` (a new
     product's name, link and SKU, and a later rename; makes and deletes throwaway products).
 
