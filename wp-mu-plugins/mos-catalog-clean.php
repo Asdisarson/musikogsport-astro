@@ -239,8 +239,8 @@ function mos_clean_team_rules(): array {
  *  - A shoe named without its kind ("Shoes", "barnaskór", "High-Top … Boots") goes under Skór itself, as a
  *    describing word, so a name that does say the kind ("handboltaskór … Indoor Shoes") is filed by that.
  * Each word is filed where staff already file the products that have it (measured on the catalog, 2026-11-20); a word
- * they file two ways (set, cap) has no rule, and jacket, vest and galli decide nothing even beside a describing word
- * ("Shirt Jacket" is not a shirt).
+ * they file two ways (set, cap) has no rule, and vest and galli decide nothing even beside a describing word
+ * ("Tank Vest" is not a tank). A jacket was such a word until the owner decided it is outerwear (2026-11-20).
  * "Long sleeve" / "short sleeve" and "low top" / "high top" are read as one word (mos_clean_garment_from_name): a bare
  * "sleeve" is an arm sleeve, and a high-top is a shoe.
  *
@@ -252,7 +252,7 @@ function mos_clean_garment_rules(): array {
         ['sundfatnadur-fatnadur-2', ['/sund(bol|bux|skyl|stuttbux|gleraug|hett)/', '/^bikini/', '/^swimsuit$/', '/^swim$/', '/^swm$/', '/^rash$/']],
         ['fimleikar', ['/^fimleika?(bol|bux|stuttbux)/']],
         [null, ['/^(regn|snjo|polla|vind|skida)bux/']],
-        [null, ['/^jackets?$/', '/^vests?$/', '/^galli$/']],   // filed two ways by staff: a describing word beside one decides nothing
+        [null, ['/^vests?$/', '/^galli$/']],   // filed two ways by staff: a describing word beside one decides nothing
         ['fotboltaskor-ithrottaskor', ['/^fotboltask/', '/^takkask/', '/^gervigrassk/']],
         ['handboltaskor-ithrottaskor', ['/^handboltask/']],
         ['korfuboltaskor', ['/^korfuboltask/']],
@@ -275,7 +275,7 @@ function mos_clean_garment_rules(): array {
         ['topp-ur', ['/^bra$/'], true],
         ['hufur-treflar', ['/huf(a|u|ur)$/', '/^trefil/', '/^trefl/', '/^beanie$/', '/^buff$/', '/^ennisb(and|ond)/', '/^harb(and|ond)/', '/^headband$/']],
         ['hanskar-vettlingar', ['/^(?!markm).*hansk(i|ar|a)$/', '/vettling(ar|a)$/']],
-        ['yfirhafnir', ['/jakk(i|a|ar)$/', '/ulp(a|u|ur)$/', '/^parka$/']],
+        ['yfirhafnir', ['/jakk(i|a|ar)$/', '/ulp(a|u|ur)$/', '/^parka$/', '/^jackets?$/', '/^jkt$/']],   // a jacket is outerwear: the owner's decision, 2026-11-20
     ];
 }
 
