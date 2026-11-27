@@ -122,5 +122,33 @@ $check('wp_mail: one Reply-To address, the sender', $one_parsed || $one_raw, jso
 $check('hide out of stock items: pinned off', has_filter('pre_option_woocommerce_hide_out_of_stock_items') !== false
     && get_option('woocommerce_hide_out_of_stock_items') === 'no');
 
+// The owner's menu: the editor offers Félag/Lið and Íþrótt, a term picked there links to the storefront's filter, the
+// shop's boxes are never hidden, and a menu save is wired to the storefront poke. Nothing is written: the items are
+// built in memory around real terms.
+foreach (MOS_MENU_FILTER_TAXONOMIES as $taxonomy => $param) {
+    $object = get_taxonomy($taxonomy);
+    $check("menu editor offers $taxonomy", $object && $object->show_in_nav_menus === true);
+    $terms = get_terms(['taxonomy' => $taxonomy, 'number' => 1, 'hide_empty' => false]);
+    if (!is_array($terms) || !$terms) { $check("a $taxonomy term exists to test with", false); continue; }
+    $item = (object) ['ID' => 900001, 'menu_item_parent' => 0, 'title' => $terms[0]->name, 'url' => get_term_link($terms[0]),
+        'target' => '', 'classes' => [], 'type' => 'taxonomy', 'object' => $taxonomy, 'object_id' => $terms[0]->term_id];
+    $tree = mos_build_menu_tree([$item]);
+    $check("a $taxonomy menu item links to ?$param=", ($tree[0]['href'] ?? '') === "/verslun/?$param=" . rawurlencode($terms[0]->slug) && ($tree[0]['external'] ?? null) === false, json_encode($tree[0] ?? null));
+}
+$custom = (object) ['ID' => 900002, 'menu_item_parent' => 0, 'title' => 'Skór', 'url' => home_url('/voruflokkur/skor/'), 'target' => '', 'classes' => [],
+    'type' => 'custom', 'object' => 'custom', 'object_id' => 900002];
+$check('a custom menu item keeps its path', (mos_build_menu_tree([$custom])[0]['href'] ?? '') === '/voruflokkur/skor/');
+if ($admin_id > 0) {
+    $saved = get_user_meta($admin_id, 'metaboxhidden_nav-menus', true);
+    $hidden = get_user_option('metaboxhidden_nav-menus', $admin_id);
+    $check('menu screen: the shop boxes are not among the hidden ones', !is_array($hidden) || array_intersect($hidden, MOS_MENU_SHOP_BOXES) === [],
+        json_encode([$saved, $hidden]));
+}
+foreach (['wp_update_nav_menu', 'wp_delete_nav_menu', 'wp_update_nav_menu_item'] as $hook) {
+    $check("$hook is wired", has_action($hook) !== false);
+}
+$check('a location change is wired', has_action('update_option_theme_mods_' . get_option('stylesheet')) !== false);
+$check('a first location assignment is wired', has_action('add_option_theme_mods_' . get_option('stylesheet')) !== false);
+
 wp_set_current_user($before_user);
 echo $fail === 0 ? "ALL PASS\n" : "$fail FAILED\n";

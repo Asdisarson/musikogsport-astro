@@ -72,7 +72,7 @@ check('brand two words', mos_clean_brand_from_name(mos_clean_tokens('Kari Traa u
 check('brand not at start', mos_clean_brand_from_name(mos_clean_tokens('Bolur frá Nike'), $keys), null);
 
 // Decide: a fact sheet with nothing set.
-$base = ['name' => '', 'cats' => [], 'has_brand' => false, 'vorumerki' => [], 'kyn' => [], 'aldur' => [], 'has_sport' => false, 'has_colour' => false];
+$base = ['name' => '', 'cats' => [], 'has_brand' => false, 'brand_names' => [], 'gender' => [], 'age' => [], 'has_sport' => false, 'has_colour' => false];
 $d = static fn (array $over) => mos_clean_decide(array_merge($base, $over), $keys + ['camelbak' => 'camelbak']);
 
 $r = $d(['name' => 'Speedo sundskýla herra - Mens Hyperboom Jammer Black/Grey']);
@@ -81,7 +81,7 @@ check('speedo gender (herra + mens agree)', $r['gender'], ['karlar']);
 check('speedo sport', $r['sport'], 'sund');
 check('speedo colour = first named', $r['colour'], 'svartur');
 
-$r = $d(['name' => 'Kombi Epic lúffur svartar dömur', 'vorumerki' => ['Kombi']]);
+$r = $d(['name' => 'Kombi Epic lúffur svartar dömur', 'brand_names' => ['Kombi']]);
 check('new brand from vorumerki', [$r['brand'], $r['brand_new']], [null, 'Kombi']);
 check('dömur (women) → konur', $r['gender'], ['konur']);
 check('svartar → svartur', $r['colour'], 'svartur');
@@ -112,7 +112,7 @@ check('no colour in team names', $r['colour'], null);
 
 $r = $d(['name' => 'Nike England Older Kids Jersey', 'cats' => ['karlar']]);
 check('existing gender category kept', $r['gender'], []);
-$r = $d(['name' => 'Bolur', 'has_brand' => true, 'has_sport' => true, 'has_colour' => true, 'vorumerki' => ['Nike']]);
+$r = $d(['name' => 'Bolur', 'has_brand' => true, 'has_sport' => true, 'has_colour' => true, 'brand_names' => ['Nike']]);
 check('nothing overwritten', [$r['brand'], $r['brand_new'], $r['sport'], $r['colour']], [null, null, null, null]);
 
 check('display name caps', mos_clean_brand_display_name('TABEDESIGN'), 'Tabedesign');

@@ -4,9 +4,12 @@
  * Description: Builds the storefront's main menu from the catalog. `wp mos-nav preview` prints the menu it would
  *  build (with product counts); `wp mos-nav apply` writes it as the menu "Aðalvalmynd 2026" and puts it in the
  *  primary location. The previous menu is kept: switching back is one change in Útlit → Valmyndir. The result is an
- *  ordinary WordPress menu, so the owner can edit it in wp-admin afterwards (a later `apply` rebuilds it). The
- *  "Endursmíða valmynd" button on the Stillingar page (administrators) does what `apply` does. Each rebuild keeps
- *  the build it replaces, hand edits included, as "Aðalvalmynd 2026 (afrit)": one backup, in Útlit → Valmyndir.
+ *  ordinary WordPress menu, and from then on it is the owner's: they order, rename, add and remove its items in
+ *  Stillingar → Valmynd (mos-menu.php, the "Breyta valmynd" button on the Stillingar page), or in Útlit → Valmyndir
+ *  as the fallback, and the storefront shows what they saved.
+ *  A menu edited by hand, or one no build is recorded for, is never rebuilt unasked: `apply` refuses without
+ *  `--force`, and "Smíða upp á nýtt úr vörulista" on the Stillingar page (administrators) needs its box ticked. Each
+ *  rebuild keeps the menu it replaces, hand edits included, as "Aðalvalmynd 2026 (afrit)": one backup, in Útlit → Valmyndir.
  *  Konur / Karlar / Börn get the same columns (Fatnaður, Skór, Íþróttir, Félagslið, Vörumerki, Úrval); every
  *  column takes the links with the most products (none with fewer than MOS_NAV_MIN_PRODUCTS), lists them in
  *  alphabetical order (Icelandic), and is dropped when empty. The featured clubs (MOS_NAV_FEATURED_CLUBS) lead every
@@ -27,6 +30,7 @@ if (!defined('ABSPATH')) { exit; }
 const MOS_NAV_MENU_NAME = 'Aðalvalmynd 2026';
 const MOS_NAV_BACKUP_NAME = MOS_NAV_MENU_NAME . ' (afrit)';   // the build a rebuild replaced; one is kept
 const MOS_NAV_LOCATION = 'primary';
+const MOS_NAV_BUILT_OPTION = 'mos_nav_built';   // ['menu_id' => int, 'hash' => string]: the last build, as it was written
 const MOS_NAV_MIN_PRODUCTS = 5;   // a link must lead to at least this many products
 const MOS_NAV_COLUMN_LINKS = 8;   // links per column
 const MOS_NAV_GENDERS = ['konur' => 'Konur', 'karlar' => 'Karlar', 'born' => 'Börn'];   // Kyn category slug → title
@@ -306,6 +310,34 @@ function mos_nav_tree(array $index): array {
     return mos_nav_alphabetical(array_values(array_filter($items)));
 }
 
+/**
+ * A fingerprint of a menu as its editor shows it: each item's title and address, in order, with the position of the
+ * item it sits under. Item ids are left out, so a rebuild of the same menu has the same fingerprint.
+ *
+ * @param list<array{id:int,parent:int,title:string,url:string}> $rows in menu order
+ */
+function mos_nav_items_hash(array $rows): string {
+    $position = [];
+    foreach (array_values($rows) as $i => $row) { $position[(int) $row['id']] = $i; }
+    $shape = [];
+    foreach ($rows as $row) {
+        $shape[] = [(string) $row['title'], (string) $row['url'], $position[(int) $row['parent']] ?? -1];
+    }
+    return sha1((string) json_encode($shape));
+}
+
+/**
+ * Whether the menu shown is the owner's own work: anything but the last build exactly as it was written. With no
+ * menu shown there is nothing to lose. A menu no build is recorded for counts as theirs.
+ *
+ * @param mixed $built the MOS_NAV_BUILT_OPTION record
+ */
+function mos_nav_is_hand_edited($built, int $shown_menu_id, string $shown_hash): bool {
+    if ($shown_menu_id <= 0) { return false; }
+    if (!is_array($built) || !is_int($built['menu_id'] ?? null) || !is_string($built['hash'] ?? null)) { return true; }
+    return $built['menu_id'] !== $shown_menu_id || $built['hash'] !== $shown_hash;
+}
+
 /* ------------------------------------------------------------------------
  * 2. WordPress: the catalog index and the menu writer.
  * --------------------------------------------------------------------- */
@@ -333,6 +365,11 @@ function mos_nav_index(): array {
     return $index;
 }
 
+/** The address a menu item is saved with: a place in the shop ("/…") on this site; a heading ("#") or a full address as it is. */
+function mos_nav_item_url(string $href): string {
+    return $href !== '' && $href[0] === '/' ? home_url($href) : $href;
+}
+
 /**
  * Write the tree as the menu MOS_NAV_MENU_NAME and put it in the primary location. It is built as a new menu and
  * swapped in only once complete, so a failure halfway leaves the menu the storefront shows untouched; an earlier
@@ -350,7 +387,7 @@ function mos_nav_write(array $tree): array {
         foreach ($items as $item) {
             $id = wp_update_nav_menu_item($menu_id, 0, [
                 'menu-item-title' => $item['title'],
-                'menu-item-url' => $item['href'] === '#' ? '#' : home_url($item['href']),
+                'menu-item-url' => mos_nav_item_url($item['href']),
                 'menu-item-type' => 'custom',
                 'menu-item-status' => 'publish',
                 'menu-item-parent-id' => $parent,
@@ -412,21 +449,54 @@ function mos_nav_rotate_backup(int $replaced, int $old_backup, array &$warnings)
 
 /** The catalog gave no menu columns: nothing is written. */
 final class MOS_Nav_Empty extends RuntimeException {}
+/** The menu shown is the owner's own work and replacing it was not asked for: nothing is written. */
+final class MOS_Nav_Edited extends RuntimeException {}
+
+/** The menu in the primary location (0: none). */
+function mos_nav_shown_menu_id(): int {
+    return (int) (get_nav_menu_locations()[MOS_NAV_LOCATION] ?? 0);
+}
+
+/** The fingerprint (mos_nav_items_hash) of a menu as it is saved now. */
+function mos_nav_menu_hash(int $menu_id): string {
+    $items = wp_get_nav_menu_items($menu_id);
+    $rows = [];
+    foreach (is_array($items) ? $items : [] as $item) {
+        $rows[] = ['id' => (int) $item->ID, 'parent' => (int) $item->menu_item_parent, 'title' => (string) $item->title, 'url' => (string) $item->url];
+    }
+    return mos_nav_items_hash($rows);
+}
+
+/** Whether the menu shown has the owner's own work in it (mos_nav_is_hand_edited). */
+function mos_nav_hand_edited(): bool {
+    $shown = mos_nav_shown_menu_id();
+    return mos_nav_is_hand_edited(get_option(MOS_NAV_BUILT_OPTION, null), $shown, $shown > 0 ? mos_nav_menu_hash($shown) : '');
+}
 
 /**
  * Build the menu from the catalog and write it (`wp mos-nav apply` and the Stillingar button).
  *
  * @param null|callable(list<array>):void $before_write gets the tree once it is known to be writable
+ * @param bool $force replace a menu the owner edited by hand too (it is kept as the backup)
  * @return array{menu_id:int,items:int,previous:string,backup:string,warnings:list<string>,tree:list<array>}
- * @throws MOS_Nav_Empty when the catalog gives no columns; RuntimeException when the write fails (nothing changed).
+ * @throws MOS_Nav_Empty when the catalog gives no columns; MOS_Nav_Edited when the menu shown is the owner's own work
+ *  and $force is false; RuntimeException when the write fails (nothing changed in any of the three).
  */
-function mos_nav_rebuild(?callable $before_write = null): array {
+function mos_nav_rebuild(?callable $before_write = null, bool $force = false): array {
+    // Refused first, before the catalog index and tree are built: a refused rebuild costs nothing. An edited menu
+    // wins over an empty catalog, so MOS_Nav_Edited is thrown even when there would be nothing to write either.
+    if (!$force && mos_nav_hand_edited()) {
+        throw new MOS_Nav_Edited('Nothing written: the menu shown was edited by hand, or was not built here.');
+    }
     $tree = mos_nav_tree(mos_nav_index());
     if (!array_filter($tree, static fn ($item) => $item['children'] !== [])) {
         throw new MOS_Nav_Empty('Nothing to write: the catalog gave no menu columns (no published products or categories?).');
     }
     if ($before_write !== null) { $before_write($tree); }
-    return mos_nav_write($tree) + ['tree' => $tree];
+    $r = mos_nav_write($tree);
+    // Read back, not computed from $tree: the fingerprint is of the menu as WordPress saved it.
+    update_option(MOS_NAV_BUILT_OPTION, ['menu_id' => (int) $r['menu_id'], 'hash' => mos_nav_menu_hash((int) $r['menu_id'])], false);
+    return $r + ['tree' => $tree];
 }
 
 /* ------------------------------------------------------------------------
@@ -438,36 +508,50 @@ const MOS_NAV_NOTICES = [
     'backup'  => ['success', 'Valmyndin var endursmíðuð (%d atriði). Fyrri útgáfa er geymd sem afrit í Útlit → Valmyndir.'],
     'empty'   => ['error', 'Ekkert til að smíða úr: engar birtar vörur eða flokkar fundust. Valmyndin er óbreytt.'],
     'failed'  => ['error', 'Endursmíðin mistókst og valmyndin er óbreytt. Ástæðan er í villuskrá vefþjónsins.'],
+    'refused' => ['error', 'Valmyndin er óbreytt: henni hefur verið breytt handvirkt. Hakaðu í reitinn til að smíða hana samt upp á nýtt.'],
 ];
-const MOS_NAV_CONFIRM = 'Þetta smíðar aðalvalmyndina upp á nýtt úr vörulistanum. Handvirkar breytingar hverfa; '
-    . 'fyrri valmynd er geymd sem afrit í Útlit → Valmyndir. Halda áfram?';
+const MOS_NAV_CONFIRM = 'Þetta smíðar aðalvalmyndina upp á nýtt úr vörulistanum og setur hana í stað þeirrar sem nú er sýnd. '
+    . 'Sú sem nú er sýnd er geymd sem afrit í Útlit → Valmyndir. Halda áfram?';
 
-add_action('mos_stillingar_after', 'mos_nav_admin_box');
+add_action('mos_settings_after', 'mos_nav_admin_box');
 add_action('admin_post_mos_nav_rebuild', 'mos_nav_handle_rebuild');
 
 /** The Stillingar page at the Valmynd box, showing one of MOS_NAV_NOTICES. */
 function mos_nav_admin_url(string $notice, int $items = 0): string {
-    $args = ['page' => defined('MOS_STILLINGAR_SLUG') ? MOS_STILLINGAR_SLUG : 'mos-stillingar', 'mos_nav' => $notice];
+    $args = ['page' => defined('MOS_SETTINGS_SLUG') ? MOS_SETTINGS_SLUG : 'mos-settings', 'mos_nav' => $notice];
     if ($items > 0) { $args['mos_nav_items'] = $items; }
-    return add_query_arg($args, admin_url('admin.php')) . '#valmynd';
+    return add_query_arg($args, admin_url('admin.php')) . '#menu';
 }
 
 function mos_nav_admin_box(): void {
     if (!current_user_can('manage_options')) { return; }
     $notice = isset($_GET['mos_nav']) ? sanitize_key(wp_unslash($_GET['mos_nav'])) : '';
-    echo '<section class="mos-st-box"><h2 id="valmynd">Valmynd</h2>';
+    $shown = mos_nav_shown_menu_id();
+    $edited = mos_nav_hand_edited();
+    echo '<section class="mos-set-box"><h2 id="menu">Valmynd</h2>';
     if (isset(MOS_NAV_NOTICES[$notice])) {
         [$kind, $text] = MOS_NAV_NOTICES[$notice];
         $text = sprintf($text, absint(wp_unslash($_GET['mos_nav_items'] ?? 0)));
         echo '<div class="notice notice-' . esc_attr($kind) . ' inline"><p>' . esc_html($text) . '</p></div>';
     }
-    echo '<p>Aðalvalmyndin er smíðuð úr vörulistanum: vörufjöldi ræður hvaða flokkar, íþróttir, félagslið og vörumerki komast í hvern dálk; þau raðast í stafrófsröð, með völdum liðum efst. '
-        . 'Endursmíðaðu hana þegar nýir flokkar eða lið hafa bæst við.</p>';
+    echo '<p>Þú ræður aðalvalmyndinni: hvað er í henni, hvað það heitir og í hvaða röð.</p>';
+    // The owner's own editor (mos-menu.php) when it is installed, else WordPress's menu screen.
+    $edit = function_exists('mos_menu_editor_url') ? mos_menu_editor_url() : admin_url('nav-menus.php' . ($shown > 0 ? '?action=edit&menu=' . $shown : ''));
+    echo '<p><a class="button button-primary" href="' . esc_url($edit) . '">Breyta valmynd</a></p>';
+    echo '<h3>Smíða upp á nýtt úr vörulista</h3>';
+    echo '<p>' . ($edited
+        ? '<strong>Handbreytt.</strong> Valmyndinni hefur verið breytt frá síðustu sjálfvirku smíð (eða hún var ekki smíðuð hér).'
+        : '<strong>Óbreytt</strong> frá síðustu sjálfvirku smíð.')
+        . ' Sjálfvirka smíðin velur flokka, íþróttir, félagslið og vörumerki eftir vörufjölda og kemur í stað valmyndarinnar sem nú er sýnd; sú er geymd sem afrit.</p>';
     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" '
         . 'onsubmit="if(!confirm(\'' . esc_js(MOS_NAV_CONFIRM) . '\'))return false;this.querySelector(\'button\').disabled=true">';
     echo '<input type="hidden" name="action" value="mos_nav_rebuild">';
     wp_nonce_field('mos_nav_rebuild');
-    echo '<button class="button">Endursmíða valmynd</button></form></section>';
+    if ($edited) {
+        echo '<p><label><input type="checkbox" name="mos_nav_discard" value="1" required> '
+            . 'Ég skil að valmyndin sem ég hef breytt fer úr versluninni og verður aðeins til sem afrit.</label></p>';
+    }
+    echo '<button class="button">Smíða upp á nýtt úr vörulista</button></form></section>';
 }
 
 function mos_nav_handle_rebuild(): void {
@@ -477,13 +561,17 @@ function mos_nav_handle_rebuild(): void {
     check_admin_referer('mos_nav_rebuild');
     $user = get_current_user_id();
     try {
-        $r = mos_nav_rebuild();
+        // The tick is asked for only when the menu is the owner's own work; without it such a menu is left alone.
+        $r = mos_nav_rebuild(null, !empty($_POST['mos_nav_discard']));
         foreach ($r['warnings'] as $warning) { error_log('[mos-nav] ' . $warning); }
         error_log(sprintf('[mos-nav] rebuilt by user %d: %d items (menu %d)', $user, $r['items'], $r['menu_id']));
         $to = mos_nav_admin_url($r['backup'] !== '' ? 'backup' : 'rebuilt', $r['items']);
     } catch (MOS_Nav_Empty $e) {
         error_log(sprintf('[mos-nav] rebuild by user %d refused: the catalog gave no menu columns', $user));
         $to = mos_nav_admin_url('empty');
+    } catch (MOS_Nav_Edited $e) {
+        error_log(sprintf('[mos-nav] rebuild by user %d refused: the menu shown was edited by hand', $user));
+        $to = mos_nav_admin_url('refused');
     } catch (\Throwable $e) {
         error_log(sprintf('[mos-nav] rebuild by user %d failed: %s', $user, $e->getMessage()));
         $to = mos_nav_admin_url('failed');
@@ -507,10 +595,20 @@ if (defined('WP_CLI') && WP_CLI) {
             WP_CLI::success('Preview done; nothing written.');
         }
 
-        /** Write the menu as "Aðalvalmynd 2026" and put it in the primary location (the previous menu is kept, and the build it replaces as one backup). */
+        /**
+         * Write the menu as "Aðalvalmynd 2026" and put it in the primary location (the previous menu is kept, and the build it replaces as one backup).
+         *
+         * ## OPTIONS
+         *
+         * [--force]
+         * : Replace the menu shown even when the owner edited it by hand, or when no build is recorded for it.
+         */
         public function apply(array $args, array $assoc): void {
             try {
-                $r = mos_nav_rebuild(fn (array $tree) => $this->print($tree, 0));
+                $r = mos_nav_rebuild(fn (array $tree) => $this->print($tree, 0), !empty($assoc['force']));
+            } catch (MOS_Nav_Edited $e) {
+                WP_CLI::error('The menu shown was edited by hand, or was not built by mos-nav, so it is the owner\'s: nothing written. '
+                    . 'To replace it anyway (it is kept as the backup): wp mos-nav apply --force');
             } catch (\Throwable $e) {
                 WP_CLI::error($e->getMessage());
             }

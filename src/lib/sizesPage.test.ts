@@ -4,7 +4,7 @@
 // classes the page script and the CSS share are pinned here.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import page from '../pages/staerdir.astro?raw';
+import page from '../routes/sizes.astro?raw';
 
 // read from disk: vitest returns an empty string for a stylesheet imported with ?raw
 const css = readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8');

@@ -19,7 +19,7 @@ Inside of your Astro project, you'll see the following folders and files:
 └── package.json
 ```
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name. The shop's pages with Icelandic addresses (`/karfa`, `/verslun/…`) have English file names in `src/routes/` and are mounted on their address by `src/lib/localizedRoutes.mjs`; a new one goes there with a line in that table.
 
 There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
 

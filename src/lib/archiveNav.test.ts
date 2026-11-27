@@ -71,10 +71,10 @@ describe('composeOp: a click that would cross a pick cap does nothing (confirmed
   });
 
   it('refuses the thirteenth pick across groups (12 in all), but still allows unticking', () => {
-    const kyn = Array.from({ length: 6 }, (_, i) => `k${i + 1}`).join(',');
-    const url = `${base}?kyn=${kyn}&brand=b1,b2,b3,b4,b5,b6`;
+    const genders = Array.from({ length: 6 }, (_, i) => `k${i + 1}`).join(',');
+    const url = `${base}?kyn=${genders}&brand=b1,b2,b3,b4,b5,b6`;
     expect(composeOp(url, base, pick('team', 't1'))).toBeNull();
-    expect(composeOp(url, base, { type: 'toggle', key: 'brand', value: 'b1' })).toBe(`${base}?kyn=${encodeURIComponent(kyn)}&brand=b2%2Cb3%2Cb4%2Cb5%2Cb6`);
+    expect(composeOp(url, base, { type: 'toggle', key: 'brand', value: 'b1' })).toBe(`${base}?kyn=${encodeURIComponent(genders)}&brand=b2%2Cb3%2Cb4%2Cb5%2Cb6`);
   });
 
   it('is the same as applyOp when the composed URL is within the caps', () => {

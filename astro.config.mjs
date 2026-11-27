@@ -3,6 +3,7 @@ import { defineConfig, envField } from 'astro/config';
 import node from '@astrojs/node';
 import react from '@astrojs/react';
 import { allowedDomains, buildEnv } from './src/lib/allowedHosts.mjs';
+import { localizedRoutes } from './src/lib/localizedRoutes.mjs';
 
 // Headless WooCommerce storefront — SSR on-demand by default.
 // Static pages opt out per-route with `export const prerender = true`.
@@ -11,7 +12,7 @@ export default defineConfig({
   site: 'https://musikogsport.is',
   output: 'server',
   adapter: node({ mode: 'standalone' }),
-  integrations: [react()],
+  integrations: [react(), localizedRoutes()],
   // Fetch a catalogue page ahead of the click. Astro's own link scanning stays off (prefetchAll: false, and no link
   // carries data-astro-prefetch): the layout's script decides per link through lib/prefetchRule, so a page that a
   // visit changes (/utskra/) or a per-shopper page is never fetched ahead. This only provides `astro:prefetch`.

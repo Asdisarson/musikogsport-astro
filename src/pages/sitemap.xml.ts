@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import { listAllProductSlugs } from '../lib/woo';
 import { loadCatalogTerms } from '../lib/catalogTerms';
 import { categoryChain, childrenOf } from '../lib/categoryTree';
-import { KYN_PARENT_SLUG } from '../lib/liveFilters';
+import { GENDER_PARENT_SLUG } from '../lib/liveFilters';
 import { categoryPath, productPath } from '../lib/paths';
 
 export const prerender = false;
@@ -29,8 +29,8 @@ export const GET: APIRoute = async ({ site }) => {
     if ((terms.counts.get(c.id) ?? 0) > 0) urls.push({ loc: `${base}${categoryPath(categoryChain(terms.categories, c.id))}` });
   }
   // Konur, Karlar, Börn: the shop filtered by one gender is a page of its own (lib/seo listingCanonicalSearch).
-  const kyn = terms.categories.find((c) => c.slug === KYN_PARENT_SLUG);
-  for (const c of kyn ? childrenOf(terms.categories, kyn.id) : []) {
+  const genderCategory = terms.categories.find((c) => c.slug === GENDER_PARENT_SLUG);
+  for (const c of genderCategory ? childrenOf(terms.categories, genderCategory.id) : []) {
     if ((terms.counts.get(c.id) ?? 0) > 0) urls.push({ loc: `${base}/verslun/?kyn=${c.slug}` });
   }
   try {

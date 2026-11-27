@@ -391,16 +391,16 @@ const MOS_INSTAGRAM_NOTICES = [
 ];
 
 function mos_instagram_admin_url(string $notice): string {
-    $slug = defined('MOS_STILLINGAR_SLUG') ? MOS_STILLINGAR_SLUG : 'mos-stillingar';
+    $slug = defined('MOS_SETTINGS_SLUG') ? MOS_SETTINGS_SLUG : 'mos-settings';
     return add_query_arg(['page' => $slug, 'mos_ig' => $notice], admin_url('admin.php'));
 }
 
-add_action('mos_stillingar_after', 'mos_instagram_admin_box');
+add_action('mos_settings_after', 'mos_instagram_admin_box');
 
 function mos_instagram_admin_box(): void {
     if (!current_user_can('manage_options')) { return; }
     $notice = isset($_GET['mos_ig']) ? sanitize_key(wp_unslash($_GET['mos_ig'])) : '';
-    echo '<section class="mos-st-box"><h2 id="instagram">Instagram</h2>';
+    echo '<section class="mos-set-box"><h2 id="instagram">Instagram</h2>';
     if (isset(MOS_INSTAGRAM_NOTICES[$notice])) {
         [$kind, $text] = MOS_INSTAGRAM_NOTICES[$notice];
         echo '<div class="notice notice-' . esc_attr($kind) . ' inline"><p>' . esc_html($text) . '</p></div>';

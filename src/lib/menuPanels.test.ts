@@ -34,9 +34,9 @@ describe('buildPanels', () => {
   });
 
   it('links each parent entry to its panel and leaves leaves unlinked', () => {
-    const konur = panels[0].items.find((i) => i.title === 'Konur');
-    const verslun = panels[0].items.find((i) => i.title === 'Verslun');
-    expect(konur?.panel).toBe('m2');
-    expect(verslun?.panel).toBeNull();
+    const womens = panels[0].items.find((i) => i.title === 'Konur');
+    const shopItem = panels[0].items.find((i) => i.title === 'Verslun');
+    expect(womens?.panel).toBe('m2');
+    expect(shopItem?.panel).toBeNull();
   });
 });

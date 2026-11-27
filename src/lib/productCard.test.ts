@@ -108,37 +108,37 @@ describe('productSubtitle', () => {
 });
 
 describe('subtitleLink', () => {
-  const peysur = { name: 'Peysur', path: '/voruflokkur/fatnadur/efri-likami/peysur-efri-likami/' };
+  const sweater = { name: 'Peysur', path: '/voruflokkur/fatnadur/efri-likami/peysur-efri-likami/' };
 
   it('links the category at the start of the subtitle and keeps the rest as text', () => {
-    expect(subtitleLink('Peysur · Nike', peysur)).toEqual({ name: 'Peysur', href: peysur.path, rest: ' · Nike' });
-    expect(subtitleLink('Peysur', peysur)).toEqual({ name: 'Peysur', href: peysur.path, rest: '' });
+    expect(subtitleLink('Peysur · Nike', sweater)).toEqual({ name: 'Peysur', href: sweater.path, rest: ' · Nike' });
+    expect(subtitleLink('Peysur', sweater)).toEqual({ name: 'Peysur', href: sweater.path, rest: '' });
   });
 
   it('links nothing when the subtitle does not start with the category (brand only, or none)', () => {
-    expect(subtitleLink('Nike', peysur)).toBeNull();
+    expect(subtitleLink('Nike', sweater)).toBeNull();
     expect(subtitleLink('Nike', undefined)).toBeNull();
-    expect(subtitleLink('', peysur)).toBeNull();
+    expect(subtitleLink('', sweater)).toBeNull();
     expect(subtitleLink('Peysur · Nike', { name: 'Peysur', path: '' })).toBeNull();
   });
 });
 
 describe('subtitleParts', () => {
-  const peysur = { name: 'Peysur', path: '/voruflokkur/fatnadur/efri-likami/peysur-efri-likami/' };
+  const sweater = { name: 'Peysur', path: '/voruflokkur/fatnadur/efri-likami/peysur-efri-likami/' };
   const nike = { name: 'Nike', path: '/brand/nike/' };
 
   it('links both the category and the brand, with the separator as text between them', () => {
-    expect(subtitleParts('Peysur · Nike', peysur, nike)).toEqual([{ text: 'Peysur', href: peysur.path }, { text: ' · ' }, { text: 'Nike', href: nike.path }]);
+    expect(subtitleParts('Peysur · Nike', sweater, nike)).toEqual([{ text: 'Peysur', href: sweater.path }, { text: ' · ' }, { text: 'Nike', href: nike.path }]);
   });
 
   it('links a brand that stands alone', () => {
     expect(subtitleParts('Nike', undefined, nike)).toEqual([{ text: 'Nike', href: nike.path }]);
-    expect(subtitleParts('Nike', peysur, nike)).toEqual([{ text: 'Nike', href: nike.path }]);
+    expect(subtitleParts('Nike', sweater, nike)).toEqual([{ text: 'Nike', href: nike.path }]);
   });
 
   it('leaves the brand as text when the product has no brand page (the brand was read from its name)', () => {
-    expect(subtitleParts('Peysur · Nike', peysur)).toEqual([{ text: 'Peysur', href: peysur.path }, { text: ' · Nike' }]);
-    expect(subtitleParts('Peysur · Nike', peysur, { name: 'Nike', path: '' })).toEqual([{ text: 'Peysur', href: peysur.path }, { text: ' · Nike' }]);
+    expect(subtitleParts('Peysur · Nike', sweater)).toEqual([{ text: 'Peysur', href: sweater.path }, { text: ' · Nike' }]);
+    expect(subtitleParts('Peysur · Nike', sweater, { name: 'Nike', path: '' })).toEqual([{ text: 'Peysur', href: sweater.path }, { text: ' · Nike' }]);
   });
 
   it('links the brand even when the category has no page', () => {
@@ -146,12 +146,12 @@ describe('subtitleParts', () => {
   });
 
   it('links a brand only where the subtitle ends with it', () => {
-    expect(subtitleParts('Peysur · Hoka', peysur, nike)).toEqual([{ text: 'Peysur', href: peysur.path }, { text: ' · Hoka' }]);
-    expect(subtitleParts('Peysur', peysur, { name: 'Peysur', path: '/brand/peysur/' })).toEqual([{ text: 'Peysur', href: peysur.path }]);
+    expect(subtitleParts('Peysur · Hoka', sweater, nike)).toEqual([{ text: 'Peysur', href: sweater.path }, { text: ' · Hoka' }]);
+    expect(subtitleParts('Peysur', sweater, { name: 'Peysur', path: '/brand/peysur/' })).toEqual([{ text: 'Peysur', href: sweater.path }]);
   });
 
   it('is the subtitle as text when nothing can be linked, and nothing for an empty one', () => {
     expect(subtitleParts('Peysur · Nike')).toEqual([{ text: 'Peysur · Nike' }]);
-    expect(subtitleParts('', peysur, nike)).toEqual([]);
+    expect(subtitleParts('', sweater, nike)).toEqual([]);
   });
 });

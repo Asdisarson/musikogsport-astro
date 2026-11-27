@@ -84,7 +84,7 @@ const legal = [
   <div class="site-footer__bar">
     <div class="site-footer__bar-inner">
       <p class="site-footer__company">
-        {company ? (<>© {year} {company.name}<span class="site-footer__dot" aria-hidden="true">·</span>Kt. {company.kennitala}</>) : f.companyLine}
+        {company ? (<>© {year} {company.name}<span class="site-footer__dot" aria-hidden="true">·</span>Kt. {company.nationalId}</>) : f.companyLine}
       </p>
       <ul class="site-footer__legal">
         {legal.map((item) => (<li><a href={item.href}>{item.title}</a></li>))}

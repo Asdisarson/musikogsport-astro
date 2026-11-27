@@ -112,16 +112,16 @@ describe('loadArchive', () => {
     expect(brand.showCounts).toBe(true);
     expect(brand.options.map((o) => [o.slug, o.count])).toEqual([['nike', 6], ['hoka', 1]]);
     expect(a.groups.find((g) => g.key === 'team')).toBeUndefined(); // no Félag/Lið terms
-    const kyn = a.groups.find((g) => g.key === 'kyn')!;
-    expect(kyn.options.map((o) => o.slug)).toEqual(['konur', 'karlar']);
+    const genderGroup = a.groups.find((g) => g.key === 'kyn')!;
+    expect(genderGroup.options.map((o) => o.slug)).toEqual(['konur', 'karlar']);
   });
 
   it('builds Litur: commonest colour first, a swatch per known colour, colours without products hidden', async () => {
     counts.mockResolvedValue({ ...mainCounts, attribute: new Map([[364, 4], [363, 9], [900, 0]]) });
     const a = await loadArchive(P(), 1);
     expect(counts.mock.calls[0][1]).toMatchObject({ attributes: ['pa_felag-lid', 'pa_ithrott', 'pa_litur'] });
-    const litur = a.groups.find((g) => g.key === 'litur')!;
-    expect(litur.options.map((o) => [o.slug, o.count, o.swatch])).toEqual([
+    const colour = a.groups.find((g) => g.key === 'litur')!;
+    expect(colour.options.map((o) => [o.slug, o.count, o.swatch])).toEqual([
       ['blar', 9, ['#2f6fed']],
       ['svartur', 4, ['#1b1b1b']],
     ]);

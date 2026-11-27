@@ -30,7 +30,14 @@ live at `app/public/wp-content/mu-plugins/` (outside this repo).
 - **mos-headless-api.php** — the storefront's public API:
   - `GET /wp-json/mos/v1/menu/location/<primary|topbar|footer>` and `GET …/menu/<id>`:
     nested menu trees with storefront-relative paths. It registers those three menu locations,
-    so editors assign menus under Appearance → Menus.
+    so editors assign menus under Appearance → Menus. The menus are the owner's to edit there: the editor also
+    offers Félag/Lið and Íþrótt (WooCommerce registers attributes without a menu box), and an item picked from
+    those links to the shop's filter (`/verslun/?team=<slug>`, `?ithrott=<slug>`), since the storefront has no page
+    per term; categories and brands keep their own pages. Those four boxes are never among a user's hidden ones.
+    A menu save, a deleted menu or a menu moved into another location pokes the storefront once when the request
+    ends (`/api/content-refresh`, as a Forsíða save does), so the header shows it within seconds (a stored page is served once more while it is rendered again, as after a
+    Forsíða save). An item removed outside the menu screen (WP-CLI, the customizer) is covered too
+    (`before_delete_post`). Test: `wp eval-file tests/mos_menu_edit_wp_test.php` (writes one menu of its own and deletes it).
   - `GET /wp-json/mos/v1/front-page`: the homepage and site chrome, from the ACF
     "Forsíða" fields on the static front page (campaign bar, hero product slides, two product
     rows, eight banners, footer) plus `shipping_bar`: Goya's free-shipping progress bar settings,
@@ -271,6 +278,27 @@ run and clear are refused and the page says so, and the page reloads while a run
   - Tests: `php tests/mos_names_test.php` (the rules) and `wp eval-file tests/mos_names_wp_test.php` (a new
     product's name, link and SKU, and a later rename; makes and deletes throwaway products).
 
+- **mos-menu.php** — the owner's menu editor: the page **Stillingar → Valmynd** (`admin.php?page=mos-menu`,
+  `edit_theme_options`, what WordPress asks for its own menu screen). On the left a copy of the shop's header: the
+  flipar in a row and the open flipi's dálkar and tenglar under it (three levels), with a find box above it; clicking
+  an item selects it and the side panel edits it in place (name, where it leads, ← → or ↑ ↓, which flipi or dálkur it
+  sits under, remove), and the copy follows while typing. "+ Flipi / + Dálkur / + Tengill" sit in the copy where the
+  new item lands. Where an item leads is picked from the catalog with a search and product counts (Vöruflokkur,
+  Vörumerki, Félagslið, Íþrótt, optionally only for Konur / Karlar / Börn: `?kyn=`), an address of its own, or a
+  heading without a link; the kyn filter applies to catalog picks only, and "Vista valmynd" is blocked while a typed
+  address is not valid. If the server refuses a save ('invalid' or 'failed'), the page offers the edits back from this
+  tab ("Sækja þær aftur", sessionStorage). Nothing reaches the shop until "Vista valmynd", which posts the whole menu; the server
+  checks all of it again (`mos_menu_editor_clean_tree`: names, at most three
+  levels and 600 items, addresses that are a shop path, `#`, or http(s)/mailto/tel) and refuses a save when the menu
+  changed since the editor was opened. A save writes the menu the way a build does (`mos_nav_write`: a new
+  WordPress menu in the primary location, the one it replaces kept as "Aðalvalmynd 2026 (afrit)"), so "Afturkalla
+  síðustu vistun" is a switch back to that backup, and a second one undoes the first. Only ONE earlier version is kept:
+  the save after next deletes it. A saved menu counts as hand-edited for `mos-nav.php`, and the storefront is told by
+  `mos-headless-api.php`. Menu items are written as custom links (as every build is), so an item's CSS classes or
+  link target set in WordPress's own menu screen do not survive a save here (the built menu has none). Needs
+  `mos-nav.php` and `mos-headless-api.php`. Tests: `php tests/mos_menu_editor_test.php` (what a save accepts) and, on a
+  local site, `wp eval-file tests/mos_menu_editor_wp_test.php` (save, refusals, undo and the page against real menus;
+  it puts the site's menus back). Uninstall leaves nothing of its own.
 - **mos-nav.php** — builds the main menu from the catalog: `wp mos-nav preview` prints it with product counts,
   `wp mos-nav apply` writes it as "Aðalvalmynd 2026" in the primary location (the previous menu is kept for
   rollback). Konur/Karlar/Börn get the same columns (Fatnaður, Skór, Íþróttir, Félagslið, Vörumerki, Úrval); links
@@ -281,10 +309,17 @@ run and clear are refused and the page says so, and the page reloads while a run
   Landslið. The teams in `MOS_NAV_FEATURED_CLUBS` and `MOS_NAV_FEATURED_NATIONAL_TEAMS` lead their columns, in the
   order of those lists (the featured clubs are also always listed under Íþróttir › Félagslið); the rest of a column
   stays alphabetical. An ordinary
-  menu afterwards (editable in wp-admin; a later apply rebuilds it). The "Endursmíða valmynd" button in the
-  "Valmynd" box on the Stillingar page (administrators) does what `apply` does, so the owner needs no WP-CLI. A
-  rebuild replaces the whole menu, hand edits included: the build it replaces is kept as "Aðalvalmynd 2026 (afrit)"
+  menu afterwards, and from then on **the owner's**: they order, rename, add and remove items on the page
+  Stillingar → Valmynd (`mos-menu.php`; "Breyta valmynd" in the "Valmynd" box on the Stillingar page opens it, or
+  WordPress's own Útlit → Valmyndir where that plugin is not installed), and the storefront shows a save
+  at once (`mos-headless-api.php` pokes it; it also gives the editor its Félag/Lið and Íþrótt boxes). A build is
+  recorded with a fingerprint of the menu as written (option `mos_nav_built`); a menu that differs from it, another
+  menu in the location, or a menu no build is recorded for (every menu built before this) counts as hand-edited and
+  is not rebuilt unasked: `wp mos-nav apply` refuses without `--force`, and "Smíða upp á nýtt úr vörulista" in the
+  box (administrators; it does what `apply` does) needs its tick, checked on the server. A
+  rebuild replaces the whole menu, hand edits included: the menu it replaces is kept as "Aðalvalmynd 2026 (afrit)"
   (one backup; switch back in Útlit → Valmyndir, and a rebuild after that keeps the menu they switched to).
+  Uninstall leaves the option `mos_nav_built`.
   Tests: `php tests/mos_nav_rules_test.php` (the pure builder), `php tests/mos_nav_write_test.php` (the writer,
   the backup, the button and the box against in-memory menus) and, on a local site,
   `wp eval-file tests/mos_nav_wp_test.php` (the same against real menus; it rebuilds the menu and puts it back).
@@ -311,21 +346,26 @@ run and clear are refused and the page says so, and the page reloads while a run
   per caller and store-wide per hour (each sign-up is a mail); failures are logged as `[mos-waitlist]` with the
   product id, never the address or the token. Tests: `php tests/mos_waitlist_test.php` and, on a local site,
   `wp eval-file tests/mos_waitlist_wp_test.php` (it makes one sold-out test product and deletes it; no mail leaves).
-- **mos-stillingar.php** — "Stillingar", the first item of the wp-admin sidebar (for anyone who can edit the front
-  page): the front page's pictures on one screen — header logo, the eight banners, each hero slide's
-  product and picture — laid out as a small copy of the storefront's front page, computed from the saved values with
-  the storefront's rules (`src/lib/homeLayout.ts`: the first banner with a picture on top, or the slides when none
-  has one; the other banners paired between the product rows), in sections (Haus, Forsíðumynd, Borðar; the
-  unused slides folded under "Varaforsíða", empty banners last) beside a panel that counts unsaved changes and holds
-  the save button. Saving the front page's fields (here or on the Forsíða screen) pokes the storefront
-  (`mos_front_page_poke()` in `mos-headless-api.php` → `POST /api/content-refresh`), so the pictures show at once
-  instead of after the storefront's one-minute cache. The footer logo field is not on the page: the
-  storefront's footer draws its own small copy from the media library (`src/lib/site.ts`), beside the recognitions. It shows the existing ACF "Forsíða" fields of `mos-headless-api.php` for the front page (`acf_form()`), so
-  it stores nothing of its own; texts, product rows and footer stay on the Forsíða edit screen. Needs ACF and a front
+- **mos-settings.php** — "Stillingar", the first item of the wp-admin sidebar (for anyone who can edit the front
+  page): the front page's pictures and texts on one screen. On the left a small copy of the storefront's front page,
+  drawn from zones (`mos_settings_zones()`, from `mos_settings_layout()`, which follows `src/lib/homeLayout.ts`: the
+  first banner with a picture on top, or the slides when none has one; the other banners paired between the product
+  rows): the orange bar, the header logo, the hero (picture, heading, text, button 1), each product row (title, which
+  products, category, count), each banner tile (picture, title, link) and the grey notice. Clicking a zone shows its
+  fields in the side panel beside "Vista breytingar"; the copy follows while typing, with the storefront's fallbacks
+  (an empty heading shows the hero banner's title; a button without text or link gives way to button 2, then to
+  "Skoða nýjungar"). What the storefront does not show now (the slides while a banner is on top, empty banners) is
+  listed under the copy as "Ekki á forsíðunni núna". The footer and hero button 2 stay on the Forsíða edit screen
+  (linked from the panel). Saving the front page's fields (here or on the Forsíða screen) pokes the storefront
+  (`mos_front_page_poke()` in `mos-headless-api.php` → `POST /api/content-refresh`); the page says it can take up to
+  30 seconds for pictures and texts to show (measured locally: about 2 s, the stored page is served once more first).
+  It shows the existing ACF "Forsíða" fields of `mos-headless-api.php` for the front page (`acf_form()`), so it
+  stores nothing of its own. Without JavaScript the fields are plain cards with the save button. Needs ACF and a front
   page (otherwise it says so); when the slides are on top it warns about one the storefront would leave out
-  (unpublished product or no picture). If `homeLayout.ts` changes, change `mos_stillingar_layout()` with it. Changes
-  reach the storefront within a few minutes (the front-page caches). Test: `wp eval-file tests/mos_stillingar_wp_test.php`.
-  Below the pictures it runs `do_action('mos_stillingar_after')` for other settings boxes (each checks its own rights).
+  (unpublished product or no picture). If `homeLayout.ts` changes, change `mos_settings_layout()` with it. The old
+  addresses `admin.php?page=mos-stillingar` and `page=mos-valmynd` redirect to the renamed pages
+  (`mos_settings_renamed_url`). Test: `wp eval-file tests/mos_settings_wp_test.php`. Below the front page it runs
+  `do_action('mos_settings_after')` for other settings boxes (each checks its own rights).
 - **mos-instagram.php** — the home page's "Músík og Sport á Instagram" row: `GET /wp-json/mos/v1/instagram` (public)
   answers `{handle, profile_href, posts: [{id, href, caption, image: {url, width, height, alt}}]}`, the latest 12
   posts of @musikogsport (`Cache-Control: public, max-age=60`, as the other public reads). The GET itself never waits
@@ -370,11 +410,12 @@ Other tests (all read-only; the `wp eval-file` ones run against the local site's
 
 Deploy: copy `mos-posturinn-droppoints.php`, `headless-bridge.php`, `mos-headless-api.php`,
 `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`, `mos-size-index.php`,
-`mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`, `mos-instagram.php`, `mos-newsletter.php`, `mos-waitlist.php`, `mos-search.php`,
+`mos-catalog-clean.php`, `mos-nav.php`, `mos-menu.php`, `mos-settings.php`, `mos-instagram.php`, `mos-newsletter.php`, `mos-waitlist.php`, `mos-search.php`,
 `mos-staff-flag.php`, `mos-shell-poke.php` and `mos-shell-admin.php` to `wp-content/mu-plugins/` on the WP host (never the `-local` shim;
-the same seventeen files as DEPLOY.md's checklist, step 2). `mos-shell-poke.php` and `mos-shell-admin.php` changed in the latest round:
-copy them again where a copy is installed. Then run
-`wp mos-size reindex` once, and `wp db export` → `wp mos-clean preview` → `wp mos-clean apply` (keep the journal) → `wp mos-nav apply`. Requires ACF (free) for the Forsíða fields. In `wp-config.php` define
+the same eighteen files as DEPLOY.md's checklist, step 2). `mos-headless-api.php`, `mos-nav.php`, `mos-instagram.php` and `mos-shell-admin.php` changed in the latest round,
+`mos-menu.php` is new, and `mos-stillingar.php` is now `mos-settings.php`: copy them again where a copy is installed, and
+**delete the old `mos-stillingar.php`** (otherwise there are two Stillingar pages). Then run
+`wp mos-size reindex` once, and `wp db export` → `wp mos-clean preview` → `wp mos-clean apply` (keep the journal) → `wp mos-nav apply` (a first install only: afterwards the menu is the owner's, and `apply` refuses to replace it without `--force`). Requires ACF (free) for the Forsíða fields. In `wp-config.php` define
 `MOS_STOREFRONT_URL` (the storefront's origin) and `MOS_HEADLESS_REDIRECT_STATUS` (`301`), and `MOS_SHELL_POKE_KEY` (the same value as the storefront's `MOS_SHELL_POKE_KEY`): without
 `MOS_STOREFRONT_URL` headless mode does nothing, and card-payment returns, which WooCommerce builds on
 `WP_HOME` (the WordPress host), never reach the storefront.

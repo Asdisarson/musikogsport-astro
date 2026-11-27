@@ -158,7 +158,7 @@ describe('childrenOf', () => {
 });
 
 describe('productCrumbTrail', () => {
-  const withKyn: CategoryTerm[] = [
+  const withGender: CategoryTerm[] = [
     ...cats,
     { id: 2616, slug: 'kyn', parent: 0, name: 'Kyn' },
     { id: 2617, slug: 'karlar', parent: 2616, name: 'Karlar' },
@@ -166,19 +166,19 @@ describe('productCrumbTrail', () => {
   ];
 
   it("follows WooCommerce's main term (highest parent id), not the URL's category — live: Heim / Verslun / Kyn / Karlar", () => {
-    expect(productCrumbTrail(withKyn, [701, 2618, 2617])).toEqual([
+    expect(productCrumbTrail(withGender, [701, 2618, 2617])).toEqual([
       { name: 'Kyn', path: '/voruflokkur/kyn/' },
       { name: 'Karlar', path: '/voruflokkur/kyn/karlar/' },
     ]);
   });
 
   it('picks the deepest-parented term among top-level and nested categories', () => {
-    expect(productCrumbTrail(withKyn, [718, 701]).map((t) => t.name)).toEqual(['Skór', 'Íþróttaskór', 'Fótboltaskór']);
+    expect(productCrumbTrail(withGender, [718, 701]).map((t) => t.name)).toEqual(['Skór', 'Íþróttaskór', 'Fótboltaskór']);
   });
 
   it('is empty when the product has no known category', () => {
-    expect(productCrumbTrail(withKyn, [])).toEqual([]);
-    expect(productCrumbTrail(withKyn, [123456])).toEqual([]);
+    expect(productCrumbTrail(withGender, [])).toEqual([]);
+    expect(productCrumbTrail(withGender, [123456])).toEqual([]);
   });
 });
 

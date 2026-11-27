@@ -24,7 +24,7 @@ describe('adminBarLinks', () => {
       { label: 'Stjórnborð', href: 'https://wp.example.is/wp-admin/' },
       { label: 'Pantanir', href: 'https://wp.example.is/wp-admin/edit.php?post_type=shop_order' },
       { label: 'Vörur', href: 'https://wp.example.is/wp-admin/edit.php?post_type=product' },
-      { label: 'Stillingar', href: 'https://wp.example.is/wp-admin/admin.php?page=mos-stillingar' },
+      { label: 'Stillingar', href: 'https://wp.example.is/wp-admin/admin.php?page=mos-settings' },
     ]);
   });
 

@@ -4,7 +4,7 @@ import { loadCatalogTerms, loadSizeTerms, type CatalogData } from './catalogTerm
 import { categoryChain, childrenOf, STRUCTURAL_ROOT_SLUGS } from './categoryTree';
 import { activeFilterList, colourSwatch, COVERAGE_GROUPS, coversEnough, isPlainColour, keepOption, pickCounts, pickNote, pseudoCategoryIds, sizeBlocks, type ActiveFilter, type SizeBlock } from './facets';
 import {
-  KYN_PARENT_SLUG,
+  GENDER_PARENT_SLUG,
   MERGED_COLOURS,
   PRICE_PRESETS,
   parseLiveFilters,
@@ -145,7 +145,7 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
   const separateCounts = () =>
     Promise.all(ranges.map((r) => matchCount({ ...q, minPrice: r.min, maxPrice: r.max })));
   const pluginAbsent = sizeIndex.status === 'absent';
-  const [result, main, withoutPc, withoutKyn, withoutBrand, separate] = await Promise.all([
+  const [result, main, withoutPc, withoutGender, withoutBrand, separate] = await Promise.all([
     storeProducts(q).catch((): null => null),
     collectionCounts(q, {
       taxonomies: [category, brand],
@@ -233,7 +233,7 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
   // Vöruflokkar: a collapsible category tree, starting at the top level (structural roots and the brand and club
   // pseudo-categories hidden). Only where the rail has no category links of its own (shop, brand, tag and search),
   // or on a category archive with a sub-category already chosen, so it stays removable.
-  const kynParent = terms.categories.find((c) => c.slug === KYN_PARENT_SLUG);
+  const genderParent = terms.categories.find((c) => c.slug === GENDER_PARENT_SLUG);
   const pseudo = pseudoCategoryIds(terms.categories, terms.brands, terms.teams, terms.sports);
   const pcSource = pick(withoutPc)?.taxonomy ?? null;
   const isActivePc = (slug: string) => active['product-category']?.includes(slug) ?? false;
@@ -280,7 +280,7 @@ export async function loadArchive(params: URLSearchParams, page: number, scope: 
   const groups: FacetGroup[] = [
     { key: 'utsala', label: 'Útsala', kind: 'toggles', showCounts: true, open: true, options: toggles } satisfies FacetGroup,
     sizeGroup,
-    listGroup('kyn', 'Aldur/Kyn', kynParent ? childrenOf(terms.categories, kynParent.id) : [], pick(withoutKyn)?.taxonomy ?? null),
+    listGroup('kyn', 'Aldur/Kyn', genderParent ? childrenOf(terms.categories, genderParent.id) : [], pick(withoutGender)?.taxonomy ?? null),
     { key: 'verd', label: 'Verð', kind: 'list', showCounts: true, open: Boolean(activePrice), options: priceOptions } satisfies FacetGroup,
     listGroup('brand', 'Vörumerki', terms.brands, pick(withoutBrand)?.taxonomy ?? null),
     colourGroup,

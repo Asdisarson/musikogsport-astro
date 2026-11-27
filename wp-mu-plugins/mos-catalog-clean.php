@@ -352,15 +352,15 @@ function mos_clean_match(array $tokens, array $rules): array {
 /**
  * Gender categories from pa_aldur / pa_kyn: children go to Börn; Karl/Kona map across; adult Unisex is both.
  *
- * @param list<string> $kyn pa_kyn slugs
- * @param list<string> $aldur pa_aldur slugs
+ * @param list<string> $gender_slugs pa_kyn slugs
+ * @param list<string> $age_slugs pa_aldur slugs
  * @return list<string> category slugs (possibly empty)
  */
-function mos_clean_gender_from_attrs(array $kyn, array $aldur): array {
-    if (in_array('born', $aldur, true)) { return ['born']; }
+function mos_clean_gender_from_attrs(array $gender_slugs, array $age_slugs): array {
+    if (in_array('born', $age_slugs, true)) { return ['born']; }
     $out = [];
-    if (in_array('karl', $kyn, true) || in_array('unisex', $kyn, true)) { $out[] = 'karlar'; }
-    if (in_array('kona', $kyn, true) || in_array('unisex', $kyn, true)) { $out[] = 'konur'; }
+    if (in_array('karl', $gender_slugs, true) || in_array('unisex', $gender_slugs, true)) { $out[] = 'karlar'; }
+    if (in_array('kona', $gender_slugs, true) || in_array('unisex', $gender_slugs, true)) { $out[] = 'konur'; }
     return $out;
 }
 
@@ -577,8 +577,8 @@ function mos_clean_suspect(array $tokens, array $teams, array $brands, array $br
  * Brand, team and garment are read from the name only when the name says exactly one; two is a conflict, left empty
  * and reported. The garment is decided only for a product in no product-type category (mos_clean_garment_type_slugs()).
  *
- * @param array{name:string,cats:list<string>,has_brand:bool,vorumerki:list<string>,kyn:list<string>,
- *   aldur:list<string>,has_sport:bool,has_colour:bool,has_team?:bool} $f
+ * @param array{name:string,cats:list<string>,has_brand:bool,brand_names:list<string>,gender:list<string>,
+ *   age:list<string>,has_sport:bool,has_colour:bool,has_team?:bool} $f
  * @param array<string,string> $brand_keys normalised key → product_brand slug
  * @param array<string,string> $team_keys normalised key → pa_felag-lid slug (mos_clean_team_key_map); none: no team is decided
  * @return array{brand:?string,brand_new:?string,gender:list<string>,sport:?string,colour:?string,team:?string,
@@ -597,7 +597,7 @@ function mos_clean_decide(array $f, array $brand_keys, array $team_keys = []): a
     if (!$f['has_brand']) {
         $from_attr = [];
         $unknown = [];
-        foreach ($f['vorumerki'] as $name) {
+        foreach ($f['brand_names'] as $name) {
             $key = mos_clean_key($name);
             if ($key === '') { continue; }
             if (isset($brand_keys[$key])) { $from_attr[$brand_keys[$key]] = true; } else { $unknown[$key] = $name; }
@@ -614,7 +614,7 @@ function mos_clean_decide(array $f, array $brand_keys, array $team_keys = []): a
     }
 
     if (!array_intersect($f['cats'], MOS_CLEAN_GENDER_CATS)) {
-        $gender = mos_clean_gender_from_attrs($f['kyn'], $f['aldur']);
+        $gender = mos_clean_gender_from_attrs($f['gender'], $f['age']);
         if (!$gender) {
             $words = mos_clean_match($tokens, mos_clean_gender_words());
             if (count($words) === 1) { $gender = $words; }
@@ -737,10 +737,10 @@ function mos_clean_garment_type_ids(): array {
     return $ids;
 }
 
-/** @return array{name:string,cats:list<string>,has_brand:bool,vorumerki:list<string>,kyn:list<string>,aldur:list<string>,has_sport:bool,has_colour:bool,has_team:bool} */
+/** @return array{name:string,cats:list<string>,has_brand:bool,brand_names:list<string>,gender:list<string>,age:list<string>,has_sport:bool,has_colour:bool,has_team:bool} */
 function mos_clean_facts(WC_Product $p): array {
     $id = $p->get_id();
-    $vorumerki = get_the_terms($id, 'pa_vorumerki');
+    $brand_names = get_the_terms($id, 'pa_vorumerki');
     $has_colour = mos_clean_slugs($id, 'pa_litur') !== [];
     foreach ($p->get_attributes() as $attr) {
         if (!$attr->is_taxonomy() && mos_clean_key($attr->get_name()) === 'litur') { $has_colour = true; }
@@ -749,9 +749,9 @@ function mos_clean_facts(WC_Product $p): array {
         'name' => $p->get_name(),
         'cats' => mos_clean_slugs($id, 'product_cat'),
         'has_brand' => mos_clean_slugs($id, 'product_brand') !== [],
-        'vorumerki' => is_array($vorumerki) ? array_values(array_map(static fn ($t) => (string) $t->name, $vorumerki)) : [],
-        'kyn' => mos_clean_slugs($id, 'pa_kyn'),
-        'aldur' => mos_clean_slugs($id, 'pa_aldur'),
+        'brand_names' => is_array($brand_names) ? array_values(array_map(static fn ($t) => (string) $t->name, $brand_names)) : [],
+        'gender' => mos_clean_slugs($id, 'pa_kyn'),
+        'age' => mos_clean_slugs($id, 'pa_aldur'),
         'has_sport' => mos_clean_slugs($id, 'pa_ithrott') !== [],
         'has_colour' => $has_colour,
         'has_team' => mos_clean_slugs($id, 'pa_felag-lid') !== [],

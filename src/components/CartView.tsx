@@ -12,7 +12,7 @@ import ShippingCalc from './ShippingCalc';
 
 // /karfa/ (nike-look, SPEC § Bag): the lines left (150px #f5f5f5 image, name and price, the variation in grey, a
 // quiet stepper pill and a trash button), "Samantekt" right (rows, the total, the discount code behind a
-// <details>, the free-shipping bar, "Ganga frá pöntun"). The "Karfa" h1 is server-rendered by karfa.astro.
+// <details>, the free-shipping bar, "Ganga frá pöntun"). The "Karfa" h1 is server-rendered by routes/cart.astro.
 export default function CartView({ shippingBar = null }: { shippingBar?: ShippingBar | null }) {
   const $cart = useStore(cart);
   const err = useStore(cartError);

@@ -6,8 +6,10 @@
  *  - a second rebuild leaves exactly one backup (the older one goes);
  *  - when the owner has switched back to the backup, a rebuild keeps that one (the menu they chose) as the backup;
  *  - an empty catalog writes nothing; a failure halfway leaves the shown menu and no half-built one;
+ *  - a menu the owner edited by hand (or one no build is recorded for) is not replaced unless that is asked for;
  *  - the button: refused without manage_options and without a valid nonce (nothing written), a good submit redirects
- *    with the item count; the box is not shown without manage_options.
+ *    with the item count, a hand-edited menu needs the box ticked; the box links to the menu editor, says whether
+ *    the menu was edited, and is not shown without manage_options.
  *
  * Run: php wp-mu-plugins/tests/mos_nav_write_test.php   (exit code 0 = all pass)
  */
@@ -68,8 +70,9 @@ function wp_create_nav_menu(string $name) {
 }
 function wp_update_nav_menu_item(int $menu_id, int $item_id, array $data) {
     if ($data['menu-item-title'] === $GLOBALS['fail_item']) { return new WP_Error('no'); }
-    $GLOBALS['menus'][$menu_id]['items'][] = $data;
-    return $GLOBALS['next_id']++;
+    $id = $GLOBALS['next_id']++;
+    $GLOBALS['menus'][$menu_id]['items'][] = $data + ['id' => $id];
+    return $id;
 }
 function wp_delete_nav_menu(int $menu_id): bool {
     if (!isset($GLOBALS['menus'][$menu_id]) || $menu_id === ($GLOBALS['undeletable'] ?? 0)) { return false; }
@@ -82,6 +85,14 @@ function wp_update_nav_menu_object(int $menu_id, array $data) {
     $GLOBALS['menus'][$menu_id]['name'] = $data['menu-name'];
     return $menu_id;
 }
+function wp_get_nav_menu_items(int $menu_id) {
+    if (!isset($GLOBALS['menus'][$menu_id])) { return false; }
+    return array_map(static fn (array $d) => (object) ['ID' => $d['id'] ?? 0, 'menu_item_parent' => (string) ($d['menu-item-parent-id'] ?? 0),
+        'title' => $d['menu-item-title'] ?? '', 'url' => $d['menu-item-url'] ?? ''], $GLOBALS['menus'][$menu_id]['items']);
+}
+$GLOBALS['options'] = [];
+function get_option(string $name, $default = false) { return $GLOBALS['options'][$name] ?? $default; }
+function update_option(string $name, $value, $autoload = null): bool { $GLOBALS['options'][$name] = $value; return true; }
 function get_terms(array $args): array { return $GLOBALS['catalog']['terms'][$args['taxonomy']] ?? []; }
 $GLOBALS['wpdb'] = new class {
     public string $term_relationships = 'tr', $term_taxonomy = 'tt', $posts = 'p';
@@ -112,6 +123,12 @@ for ($p = 1; $p <= 6; $p++) {
     $full['rows']['product_cat'][] = (object) ['id' => $p, 'term' => 12];
 }
 
+// --- a menu item's address: a place in the shop is written on this site, a heading and a full address as they are ---
+check('url: a shop path', mos_nav_item_url('/verslun/?kyn=konur') === 'https://wp.example.test/verslun/?kyn=konur');
+check('url: a heading', mos_nav_item_url('#') === '#');
+check('url: a full address is not prefixed', mos_nav_item_url('https://www.instagram.com/x/') === 'https://www.instagram.com/x/', mos_nav_item_url('https://www.instagram.com/x/'));
+check('url: mailto is not prefixed', mos_nav_item_url('mailto:a@b.is') === 'mailto:a@b.is');
+
 // --- an empty catalog writes nothing ---
 try { mos_nav_rebuild(); check('empty catalog: refused', false, 'no exception'); }
 catch (MOS_Nav_Empty $e) { check('empty catalog: refused', $GLOBALS['menus'] === []); }
@@ -120,7 +137,10 @@ catch (MOS_Nav_Empty $e) { check('empty catalog: refused', $GLOBALS['menus'] ===
 $GLOBALS['catalog'] = $full;
 $GLOBALS['menus'][5] = ['name' => 'Main Navigation', 'items' => []];
 $GLOBALS['locations'] = [MOS_NAV_LOCATION => 5];
-$r = mos_nav_rebuild();
+$before = [$GLOBALS['menus'], $GLOBALS['locations']];
+try { mos_nav_rebuild(); check('first: a menu no build is recorded for is not replaced unasked', false, 'no exception'); }
+catch (MOS_Nav_Edited $e) { check('first: a menu no build is recorded for is not replaced unasked', [$GLOBALS['menus'], $GLOBALS['locations']] === $before); }
+$r = mos_nav_rebuild(null, true);
 check('first: shown menu is the new one', shown() === MOS_NAV_MENU_NAME, shown());
 check('first: old theme menu kept, no backup yet', names() === [MOS_NAV_MENU_NAME, 'Main Navigation'] && $r['backup'] === '' && $r['previous'] === 'Main Navigation', json_encode(names()));
 check('first: items counted and written', $r['items'] > 0 && count($GLOBALS['menus'][$r['menu_id']]['items']) === $r['items']);
@@ -129,14 +149,25 @@ check('first: no warnings', $r['warnings'] === [], json_encode($r['warnings']));
 
 // --- second rebuild: the menu it replaces becomes the backup (with the owner's hand edits) ---
 $first_id = $r['menu_id'];
+check('first: the build as written is not hand-edited', mos_nav_hand_edited() === false);
 $GLOBALS['menus'][$first_id]['items'][] = ['menu-item-title' => 'Handvirkt'];
-$r = mos_nav_rebuild();
+check('second: the owner\'s edit is seen', mos_nav_hand_edited() === true);
+$before = [$GLOBALS['menus'], $GLOBALS['locations']];
+try { mos_nav_rebuild(); check('second: a hand-edited menu is not replaced unasked', false, 'no exception'); }
+catch (MOS_Nav_Edited $e) { check('second: a hand-edited menu is not replaced unasked', [$GLOBALS['menus'], $GLOBALS['locations']] === $before); }
+// the refusal comes before the catalog is read: a hand-edited menu with an empty catalog is refused, not "empty"
+$GLOBALS['catalog'] = ['terms' => [], 'rows' => []];
+try { mos_nav_rebuild(); check('second: refused wins over an empty catalog', false, 'no exception'); }
+catch (MOS_Nav_Edited $e) { check('second: refused wins over an empty catalog', [$GLOBALS['menus'], $GLOBALS['locations']] === $before); }
+catch (MOS_Nav_Empty $e) { check('second: refused wins over an empty catalog', false, 'empty'); }
+$GLOBALS['catalog'] = $full;
+$r = mos_nav_rebuild(null, true);
 check('second: new menu shown', shown() === MOS_NAV_MENU_NAME && $r['menu_id'] !== $first_id);
 check('second: replaced menu is the backup', ($GLOBALS['menus'][$first_id]['name'] ?? '') === MOS_NAV_BACKUP_NAME && $r['backup'] === MOS_NAV_BACKUP_NAME);
 check('second: the backup still has the hand edit', in_array('Handvirkt', array_column($GLOBALS['menus'][$first_id]['items'], 'menu-item-title'), true));
 check('second: no warnings', $r['warnings'] === [], json_encode($r['warnings']));
 
-// --- third rebuild: still exactly one backup ---
+// --- third rebuild (an untouched build needs no asking): still exactly one backup ---
 $second_id = $r['menu_id'];
 $r = mos_nav_rebuild();
 check('third: one backup, the older one gone', names() === [MOS_NAV_MENU_NAME, MOS_NAV_BACKUP_NAME, 'Main Navigation'] && !isset($GLOBALS['menus'][$first_id])
@@ -145,7 +176,8 @@ check('third: one backup, the older one gone', names() === [MOS_NAV_MENU_NAME, M
 // --- the owner switched back to the backup: a rebuild keeps that one, drops the build they left ---
 $third_id = $r['menu_id'];
 $GLOBALS['locations'][MOS_NAV_LOCATION] = $second_id;
-$r = mos_nav_rebuild();
+check('switched back: the menu they chose counts as theirs', mos_nav_hand_edited() === true);
+$r = mos_nav_rebuild(null, true);
 check('switched back: the menu they chose is still the backup', ($GLOBALS['menus'][$second_id]['name'] ?? '') === MOS_NAV_BACKUP_NAME && !isset($GLOBALS['menus'][$third_id])
     && $r['backup'] === MOS_NAV_BACKUP_NAME, json_encode(names()));
 check('switched back: the backup is not also reported as the previous menu', $r['previous'] === '');
@@ -184,14 +216,15 @@ $_REQUEST = [];
 check('button: refused without a nonce', $run() === 'die:nonce' && [$GLOBALS['menus'], $GLOBALS['locations']] === $before);
 $_REQUEST = ['_wpnonce' => 'nonce-mos_nav_rebuild'];
 $to = $run();
-check('button: rebuilds and redirects with the count', str_contains($to, 'page=mos-stillingar') && str_contains($to, 'mos_nav=backup') && (bool) preg_match('/mos_nav_items=[1-9]\d*/', $to)
-    && str_ends_with($to, '#valmynd') && [$GLOBALS['menus'], $GLOBALS['locations']] !== $before, $to);
+check('button: rebuilds and redirects with the count', str_contains($to, 'page=mos-settings') && str_contains($to, 'mos_nav=backup') && (bool) preg_match('/mos_nav_items=[1-9]\d*/', $to)
+    && str_ends_with($to, '#menu') && [$GLOBALS['menus'], $GLOBALS['locations']] !== $before, $to);
 $kept = $GLOBALS;
 $GLOBALS['menus'] = [];
 $GLOBALS['locations'] = [];
 check('button: a first build promises no backup', str_contains($run(), 'mos_nav=rebuilt&'));
 $GLOBALS['menus'] = $kept['menus'];
 $GLOBALS['locations'] = $kept['locations'];
+$GLOBALS['options'] = $kept['options'];
 $GLOBALS['catalog'] = ['terms' => [], 'rows' => []];
 $before = [$GLOBALS['menus'], $GLOBALS['locations']];
 check('button: empty catalog -> empty notice, nothing written', str_contains($run(), 'mos_nav=empty') && [$GLOBALS['menus'], $GLOBALS['locations']] === $before);
@@ -199,12 +232,27 @@ $GLOBALS['catalog'] = $full;
 $GLOBALS['fail_item'] = 'Bolir';
 check('button: failure -> failed notice, nothing written', str_contains($run(), 'mos_nav=failed') && [$GLOBALS['menus'], $GLOBALS['locations']] === $before);
 $GLOBALS['fail_item'] = '';
+// A hand-edited menu: the box must be ticked.
+$shown_id = $GLOBALS['locations'][MOS_NAV_LOCATION];
+$GLOBALS['menus'][$shown_id]['items'][0]['menu-item-title'] = 'Dömur';
+$before = [$GLOBALS['menus'], $GLOBALS['locations']];
+$_POST = [];
+check('button: a hand-edited menu is not replaced without the tick', str_contains($run(), 'mos_nav=refused') && [$GLOBALS['menus'], $GLOBALS['locations']] === $before);
+$edited_box = (static function (): string { $_GET = []; ob_start(); mos_nav_admin_box(); return (string) ob_get_clean(); })();
+$_POST = ['mos_nav_discard' => '1'];
+check('button: with the tick it is rebuilt, the edited menu kept as the backup', str_contains($run(), 'mos_nav=backup')
+    && ($GLOBALS['menus'][$shown_id]['name'] ?? '') === MOS_NAV_BACKUP_NAME && ($GLOBALS['menus'][$shown_id]['items'][0]['menu-item-title'] ?? '') === 'Dömur');
+$_POST = [];
 
 // --- the box ---
 $box = static function (array $get): string { $_GET = $get; ob_start(); mos_nav_admin_box(); return (string) ob_get_clean(); };
 $html = $box([]);
-check('box: heading, button, action, nonce, confirm', str_contains($html, 'id="valmynd"') && str_contains($html, 'Endursmíða valmynd') && str_contains($html, 'value="mos_nav_rebuild"')
+check('box: heading, rebuild button, action, nonce, confirm', str_contains($html, 'id="menu"') && str_contains($html, 'Smíða upp á nýtt') && str_contains($html, 'value="mos_nav_rebuild"')
     && str_contains($html, 'nonce-mos_nav_rebuild') && str_contains($html, 'confirm('));
+check('box: links to the editor of the menu shown', str_contains($html, 'nav-menus.php?action=edit&menu=' . $GLOBALS['locations'][MOS_NAV_LOCATION]) && str_contains($html, 'Breyta valmynd'), $html);
+check('box: an untouched build says so and asks for no tick', str_contains($html, 'Óbreytt') && !str_contains($html, 'mos_nav_discard'));
+check('box: a hand-edited menu says so and asks for the tick', str_contains($edited_box, 'Handbreytt') && (bool) preg_match('/<input[^>]+name="mos_nav_discard"[^>]+required/', $edited_box), $edited_box);
+check('box: refused notice', str_contains($box(['mos_nav' => 'refused']), 'notice-error'));
 check('box: no notice by default', !str_contains($html, 'notice-'));
 $html = $box(['mos_nav' => 'backup', 'mos_nav_items' => '244']);
 check('box: rebuilt notice with the count and the backup', str_contains($html, 'notice-success') && str_contains($html, '244') && str_contains($html, 'afrit'));

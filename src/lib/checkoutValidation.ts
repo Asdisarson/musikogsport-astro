@@ -14,7 +14,7 @@ export interface CheckoutFormState {
   /** The other delivery address, or null when the order goes to the billing address. */
   shipping: Record<string, string> | null;
   shippingFields: FieldRule[];
-  kennitala: string;
+  nationalId: string;
   needsShipping: boolean;
   rateChosen: boolean;
   needsPostbox: boolean;
@@ -35,7 +35,7 @@ export function validateCheckout(s: CheckoutFormState): CheckoutProblems {
     }
   };
   requireFilled('billing', s.billing, s.billingFields);
-  if (s.kennitala.trim() && s.kennitala.replace(/\D/g, '').length !== 10) problems.set('billing_kennitala', 'Kennitala á að vera 10 tölustafir.');
+  if (s.nationalId.trim() && s.nationalId.replace(/\D/g, '').length !== 10) problems.set('billing_national_id', 'Kennitala á að vera 10 tölustafir.');
   const email = (s.billing.email ?? '').trim();
   if (email && !/^\S+@\S+\.\S+$/.test(email)) problems.set('billing_email', 'Ógilt netfang.');
   if (s.shipping) requireFilled('shipping', s.shipping, s.shippingFields);

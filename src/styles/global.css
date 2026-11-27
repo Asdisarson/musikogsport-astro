@@ -1155,7 +1155,7 @@
   }
   @keyframes sizeguide-up { from { transform: translateY(100%); } }
   @media (prefers-reduced-motion: reduce) { .sizeguide[open] { animation: none; } }
-  /* /staerdir/ (pages/staerdir.astro): the popup's chart cards down a page, each chart under its heading, at the
+  /* /staerdir/ (routes/sizes.astro): the popup's chart cards down a page, each chart under its heading, at the
      popup's width, with no scrolling box; gathered by audience (Börn, Karlar, Konur), and the popup's pills on top
      are links that jump to each audience. The WordPress tables they are drawn from stay in the page, shown unless the
      charts are drawn over them (no JavaScript, no chart found, or the page script never ran). */
@@ -1328,7 +1328,7 @@
   .cart-totals__checkout { margin-top: 24px; }
   .cart-totals__note { margin: 12px 0 0; font-size: 12px; line-height: 16px; color: var(--meta); }
 
-  /* empty: "Karfan er tóm" 24/500 and a black pill, centred; then the home "Vinsælt núna" tiles (karfa.astro renders
+  /* empty: "Karfan er tóm" 24/500 and a black pill, centred; then the home "Vinsælt núna" tiles (routes/cart.astro renders
      them hidden; only the empty state shows them, so the carousel measures its real width from the start) */
   .cart-empty { display: flex; flex-direction: column; align-items: center; padding: 48px 0 24px; text-align: center; }
   .cart-empty__msg { margin: 0 0 24px; font-size: 24px; font-weight: 500; line-height: 32px; color: var(--ink); }
@@ -1551,7 +1551,7 @@
      32px on phones), a 760px reading column, 20/500 section headings; WPBakery rows keep their 12-column grid inside
      the page gutter */
   .page-header { padding: 48px var(--gutter) 0; text-align: center; }
-  /* Opnunartími (pages/opnunartimi): today's status as a pill, the week as ruled rows (today in bold), then where we are */
+  /* Opnunartími (routes/opening-hours): today's status as a pill, the week as ruled rows (today in bold), then where we are */
   .hours { max-width: calc(640px + 2 * var(--gutter)); margin: 0 auto; padding: 48px var(--gutter) 96px; }
   .hours__head { display: flex; flex-direction: column; align-items: center; gap: 20px; text-align: center; }
   /* the open/closed pill (OpenStatus): a grey dot when closed, a green one with a halo when open */
@@ -1596,7 +1596,7 @@
   .vc-text figure { margin: 0 0 32px; overflow-x: auto; }
   .vc-icon { display: grid; place-items: center; width: 56px; height: 56px; margin: 0 auto 24px; border: 1.5px solid var(--ink); border-radius: 50%; color: var(--ink); }
   .vc-map { display: block; width: 100%; height: clamp(360px, 36vw, 520px); border: 0; background: var(--surface); }   /* grey until the embed paints */
-  /* Hafa samband (pages/hafa-samband): the WordPress info columns + an opening-hours card as grey cards beside the
+  /* Hafa samband (routes/contact): the WordPress info columns + an opening-hours card as grey cards beside the
      map, the contact form in a card under them */
   .store { padding-top: 40px; padding-bottom: 32px; }
   .store__top { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 24px; align-items: stretch; }

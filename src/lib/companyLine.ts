@@ -4,8 +4,8 @@
 // when it doesn't read that way.
 
 /** The company's name (up to and including its form: ehf., hf., slf. …) and kennitala as "DDMMYY-NNNN", or null. */
-export function companyParts(line: string): { name: string; kennitala: string } | null {
+export function companyParts(line: string): { name: string; nationalId: string } | null {
   const name = /^\s*(.+?\b(?:ehf|hf|slf|sf|ses|ohf)\.)/i.exec(line)?.[1];
-  const kt = /\b(?:kennitala|kt\.?)\s*(\d{6})-?(\d{4})\b/i.exec(line);
-  return name && kt ? { name, kennitala: `${kt[1]}-${kt[2]}` } : null;
+  const nationalIdMatch = /\b(?:kennitala|kt\.?)\s*(\d{6})-?(\d{4})\b/i.exec(line);
+  return name && nationalIdMatch ? { name, nationalId: `${nationalIdMatch[1]}-${nationalIdMatch[2]}` } : null;
 }

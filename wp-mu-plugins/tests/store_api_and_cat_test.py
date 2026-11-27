@@ -19,10 +19,10 @@ def brand_counts(q):
         return {c['term']: c['count'] for c in json.load(r)['taxonomy_counts'] or []}
 
 
-fat = total('category=654')
-fat_konur = total('category=654&mos_and_cat=2618')
-fat_konur_born = total('category=654&mos_and_cat=2618,2620')
-konur = total('category=2618')
+clothing = total('category=654')
+clothing_womens = total('category=654&mos_and_cat=2618')
+clothing_womens_or_kids = total('category=654&mos_and_cat=2618,2620')
+womens = total('category=2618')
 ok = True
 
 
@@ -32,11 +32,11 @@ def check(name, cond, detail):
     print(('PASS' if cond else 'FAIL'), name, detail)
 
 
-check('AND narrows the parent', 0 < fat_konur < fat, f'fatnadur={fat} fatnadur∩konur={fat_konur}')
-check('AND is bounded by konur', fat_konur <= konur, f'konur={konur}')
-check('OR within the extra clause', fat_konur < fat_konur_born <= fat, f'fatnadur∩(konur∪born)={fat_konur_born}')
+check('AND narrows the parent', 0 < clothing_womens < clothing, f'fatnadur={clothing} fatnadur∩konur={clothing_womens}')
+check('AND is bounded by konur', clothing_womens <= womens, f'konur={womens}')
+check('OR within the extra clause', clothing_womens < clothing_womens_or_kids <= clothing, f'fatnadur∩(konur∪born)={clothing_womens_or_kids}')
 b_all = brand_counts('category=654')
-b_konur = brand_counts('category=654&mos_and_cat=2618')
-check('brand counts follow the extra clause', sum(b_konur.values()) < sum(b_all.values()),
-      f'brand total fatnadur={sum(b_all.values())} fatnadur∩konur={sum(b_konur.values())}')
+brands_womens = brand_counts('category=654&mos_and_cat=2618')
+check('brand counts follow the extra clause', sum(brands_womens.values()) < sum(b_all.values()),
+      f'brand total fatnadur={sum(b_all.values())} fatnadur∩konur={sum(brands_womens.values())}')
 sys.exit(0 if ok else 1)

@@ -13,8 +13,8 @@ describe('megaPanel', () => {
   });
 
   it('groups depth-1 children into heading columns when any of them has children', () => {
-    const konur = item(2, 'Konur', [item(21, 'Fatnaður', leaves(6)), item(22, 'Skór', leaves(5, 200)), item(23, 'Sund')]);
-    const panel = megaPanel(konur);
+    const womens = item(2, 'Konur', [item(21, 'Fatnaður', leaves(6)), item(22, 'Skór', leaves(5, 200)), item(23, 'Sund')]);
+    const panel = megaPanel(womens);
     expect(panel?.kind).toBe('grouped');
     if (panel?.kind !== 'grouped') return;
     expect(panel.groups.map((g) => g.title)).toEqual(['Fatnaður', 'Skór', 'Sund']);
@@ -24,21 +24,21 @@ describe('megaPanel', () => {
   });
 
   it('keeps depth-3 children on the links so they render as nested lists', () => {
-    const born = item(3, 'Börn', [item(31, 'Fatnaður', [item(311, 'Útivera', leaves(5))])]);
-    const panel = megaPanel(born);
+    const kids = item(3, 'Börn', [item(31, 'Fatnaður', [item(311, 'Útivera', leaves(5))])]);
+    const panel = megaPanel(kids);
     if (panel?.kind !== 'grouped') throw new Error('expected grouped');
     expect(panel.groups[0].links[0].children).toHaveLength(5);
   });
 
   it('links "Sjá allt" under a column and across the panel only where the heading is a real link', () => {
-    const fatnadur = item(21, 'Fatnaður', leaves(3));
-    const urval = { ...item(22, 'Úrval', leaves(2, 200)), href: '#' };
-    const panel = megaPanel(item(2, 'Konur', [fatnadur, urval]));
+    const clothing = item(21, 'Fatnaður', leaves(3));
+    const selection = { ...item(22, 'Úrval', leaves(2, 200)), href: '#' };
+    const panel = megaPanel(item(2, 'Konur', [clothing, selection]));
     if (panel?.kind !== 'grouped') throw new Error('expected grouped');
     expect(panel.groups.map((g) => g.more)).toEqual(['/21/', null]);
     expect(panel.all).toBe('/2/');
-    expect(megaPanel({ ...item(7, 'Vörumerki', [fatnadur]), href: '#' })?.all).toBeNull();
-    expect(megaPanel({ ...item(8, 'Gamalt', [fatnadur]), href: '/' })?.all).toBeNull();
+    expect(megaPanel({ ...item(7, 'Vörumerki', [clothing]), href: '#' })?.all).toBeNull();
+    expect(megaPanel({ ...item(8, 'Gamalt', [clothing]), href: '/' })?.all).toBeNull();
   });
 
   it('uses at least four column slots and at most six for groups', () => {

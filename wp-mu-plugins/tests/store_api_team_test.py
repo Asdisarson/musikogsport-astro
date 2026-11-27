@@ -18,7 +18,7 @@ BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:10025").rstrip("
 TEAM = "pa_felag-lid"
 SPORT = "pa_ithrott"
 REF_SLUG = "hsi-kk-treyja-2025"  # HSÍ ADIDAS HANDBOLTATREYJA 2025 HERRASNIÐ
-KYN_SLUGS = {"karlar", "konur", "born"}  # the storefront's Kyn audiences (src/lib/sizeGuide.ts)
+GENDER_SLUGS = {"karlar", "konur", "born"}  # the storefront's gender audiences (src/lib/sizeGuide.ts)
 
 fail = 0
 
@@ -105,9 +105,9 @@ else:
     team_ids = [term["id"] for a in p["attributes"] if a.get("taxonomy") == TEAM for term in a["terms"]]
     sport_ids = [term["id"] for a in p["attributes"] if a.get("taxonomy") == SPORT for term in a["terms"]]
     brand_ids = [b["id"] for b in p.get("brands", [])]
-    kyn_ids = [c["id"] for c in p["categories"] if c["slug"] in KYN_SLUGS]
-    print(f"reference {p['name']}: team {team_ids}, sport {sport_ids}, brand {brand_ids}, kyn {kyn_ids}")
-    if not (team_ids and sport_ids and brand_ids and kyn_ids):
+    gender_ids = [c["id"] for c in p["categories"] if c["slug"] in GENDER_SLUGS]
+    print(f"reference {p['name']}: team {team_ids}, sport {sport_ids}, brand {brand_ids}, kyn {gender_ids}")
+    if not (team_ids and sport_ids and brand_ids and gender_ids):
         skip("the reference product lacks a team, sport, brand or Kyn category: combined-filter check not run")
     else:
         combined = [
@@ -115,14 +115,14 @@ else:
             term_query(SPORT, sport_ids, index=1),
             "attribute_relation=and",
             "brand=" + ",".join(map(str, brand_ids)),
-            "mos_and_cat=" + ",".join(map(str, kyn_ids)),
+            "mos_and_cat=" + ",".join(map(str, gender_ids)),
         ]
         check(p["id"] in listing_ids("&".join(combined)), "all groups together contain the reference product")
         other = [t["id"] for t in teams if t["id"] not in team_ids]
         if other:
             # Only a team it does not carry (team facet replaced, every other group kept): it must drop out.
             swapped = [term_query(TEAM, other[:1]), term_query(SPORT, sport_ids, index=1), "attribute_relation=and",
-                       "brand=" + ",".join(map(str, brand_ids)), "mos_and_cat=" + ",".join(map(str, kyn_ids))]
+                       "brand=" + ",".join(map(str, brand_ids)), "mos_and_cat=" + ",".join(map(str, gender_ids))]
             check(p["id"] not in listing_ids("&".join(swapped)), "a team it does not carry excludes it")
         else:
             skip("no second team with products: exclusion check not run")
