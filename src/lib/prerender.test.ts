@@ -3,7 +3,8 @@
 // deploy while every other page picks it up within the chrome cache's minute.
 import { describe, expect, it } from 'vitest';
 
-const pages = import.meta.glob('../pages/**/*.astro', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+// src/routes holds the pages mounted on their Icelandic addresses (lib/localizedRoutes.mjs).
+const pages = import.meta.glob(['../pages/**/*.astro', '../routes/**/*.astro'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 
 describe('prerendered pages', () => {
   it('finds the pages (the premise of the next test)', () => {

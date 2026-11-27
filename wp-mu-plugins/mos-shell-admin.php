@@ -535,7 +535,7 @@ function mos_shell_admin_call(string $method, ?array $body = null): array {
 }
 
 function mos_shell_admin_register(): void {
-    $parent = defined('MOS_STILLINGAR_SLUG') ? MOS_STILLINGAR_SLUG : 'mos-stillingar';
+    $parent = defined('MOS_SETTINGS_SLUG') ? MOS_SETTINGS_SLUG : 'mos-settings';
     add_submenu_page($parent, 'Síðugeymsla', 'Síðugeymsla', 'edit_pages', MOS_SHELL_ADMIN_SLUG, 'mos_shell_admin_render');
 }
 

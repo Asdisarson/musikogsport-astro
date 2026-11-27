@@ -46,7 +46,7 @@ export interface CatalogTerms {
   sizes?: SizeRef[];
 }
 
-export const KYN_PARENT_SLUG = 'kyn';
+export const GENDER_PARENT_SLUG = 'kyn';
 export const TEAM_TAXONOMY = 'pa_felag-lid';
 export const SPORT_TAXONOMY = 'pa_ithrott';
 export const COLOUR_TAXONOMY = 'pa_litur';
@@ -271,11 +271,11 @@ export function toStoreFilter(
   baseCategoryId?: number,
   minorUnit = 0,
 ): { filter: StoreFilter; active: Partial<Record<FilterKey, string[]>>; activeCount: number } {
-  const kynParent = terms.categories.find((c) => c.slug === KYN_PARENT_SLUG);
-  const kynPool = kynParent ? terms.categories.filter((c) => c.parent === kynParent.id) : [];
+  const genderParent = terms.categories.find((c) => c.slug === GENDER_PARENT_SLUG);
+  const genderPool = genderParent ? terms.categories.filter((c) => c.parent === genderParent.id) : [];
 
   const pc = resolve(state.productCategory, terms.categories);
-  const kyn = resolve(state.kyn, kynPool);
+  const genderResolved = resolve(state.kyn, genderPool);
   const brand = resolve(state.brand, terms.brands);
   const team = resolve(state.team, terms.teams);
   const sport = resolve(state.ithrott, terms.sports);
@@ -289,7 +289,7 @@ export function toStoreFilter(
   const filter: StoreFilter = { ...ORDERINGS[state.orderby] };
   const categoryIds = pc.ids.length ? pc.ids : baseCategoryId ? [baseCategoryId] : [];
   if (categoryIds.length) filter.categoryIds = categoryIds;
-  if (kyn.ids.length) filter.andCategoryIds = kyn.ids;
+  if (genderResolved.ids.length) filter.andCategoryIds = genderResolved.ids;
   if (brand.ids.length) filter.brandIds = brand.ids;
   const attributes: AttributeFilter[] = [];
   if (team.ids.length) attributes.push({ taxonomy: TEAM_TAXONOMY, termIds: team.ids });
@@ -305,7 +305,7 @@ export function toStoreFilter(
 
   const active: Partial<Record<FilterKey, string[]>> = {};
   if (pc.slugs.length) active['product-category'] = pc.slugs;
-  if (kyn.slugs.length) active.kyn = kyn.slugs;
+  if (genderResolved.slugs.length) active.kyn = genderResolved.slugs;
   if (brand.slugs.length) active.brand = brand.slugs;
   if (team.slugs.length) active.team = team.slugs;
   if (sport.slugs.length) active.ithrott = sport.slugs;

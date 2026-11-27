@@ -143,19 +143,45 @@ check('Karlar › Félagslið stays ranked only (pinned and thin teams are not a
 // The tree.
 $tree = mos_nav_tree($index);
 check('top level', array_column($tree, 'title'), ['Konur', 'Karlar', 'Börn', 'Skór', 'Íþróttir', 'Æfingavörur', 'Vörumerki', 'Útsala']);
-$konur = $tree[0];
-check('Konur href', $konur['href'], '/verslun/?kyn=konur');
-check('Konur columns (thin and empty columns dropped)', array_column($konur['children'], 'title'), ['Fatnaður', 'Íþróttir', 'Vörumerki', 'Úrval']);
-check('Konur › Fatnaður links are leaf categories with the gender', array_column($konur['children'][0]['children'], 'href'),
+$womens = $tree[0];
+check('Konur href', $womens['href'], '/verslun/?kyn=konur');
+check('Konur columns (thin and empty columns dropped)', array_column($womens['children'], 'title'), ['Fatnaður', 'Íþróttir', 'Vörumerki', 'Úrval']);
+check('Konur › Fatnaður links are leaf categories with the gender', array_column($womens['children'][0]['children'], 'href'),
     ['/voruflokkur/fatnadur/efri-likami/bolir/?kyn=konur', '/voruflokkur/fatnadur/efri-likami/peysur/?kyn=konur']);
-check('Konur › Íþróttir', array_column($konur['children'][1]['children'], 'href'), ['/verslun/?kyn=konur&ithrott=hlaup']);
-check('Úrval always has popular and newest', array_column($konur['children'][3]['children'], 'title'), ['Vinsælt núna', 'Nýjast']);
-$karlar = $tree[1];
-check('Karlar has Félagslið and Útsala in Úrval', [array_column($karlar['children'], 'title'), array_column(end($karlar['children'])['children'], 'title')],
+check('Konur › Íþróttir', array_column($womens['children'][1]['children'], 'href'), ['/verslun/?kyn=konur&ithrott=hlaup']);
+check('Úrval always has popular and newest', array_column($womens['children'][3]['children'], 'title'), ['Vinsælt núna', 'Nýjast']);
+$mens = $tree[1];
+check('Karlar has Félagslið and Útsala in Úrval', [array_column($mens['children'], 'title'), array_column(end($mens['children'])['children'], 'title')],
     [['Skór', 'Félagslið', 'Vörumerki', 'Úrval'], ['Vinsælt núna', 'Nýjast', 'Útsala']]);
 check('Börn (no products) has only Úrval', array_column($tree[2]['children'], 'title'), ['Úrval']);
 check('Útsala is a plain link', [$tree[7]['href'], $tree[7]['children']], ['/voruflokkur/sale/', []]);
 check('Vörumerki is not a link', $tree[6]['href'], '#');
+
+// The owner's hand edits. A menu's fingerprint is its items' titles, addresses, order and nesting, never their ids.
+$rows = [
+    ['id' => 10, 'parent' => 0, 'title' => 'Konur', 'url' => 'https://wp.test/verslun/?kyn=konur'],
+    ['id' => 11, 'parent' => 10, 'title' => 'Bolir', 'url' => 'https://wp.test/voruflokkur/bolir/'],
+    ['id' => 12, 'parent' => 0, 'title' => 'Skór', 'url' => '#'],
+];
+$hash = mos_nav_items_hash($rows);
+$with = static function (array $rows, int $i, array $change): array { $rows[$i] = $change + $rows[$i]; return $rows; };
+check('fingerprint: the same menu under other ids', mos_nav_items_hash([
+    ['id' => 70, 'parent' => 0] + $rows[0], ['id' => 71, 'parent' => 70] + $rows[1], ['id' => 90, 'parent' => 0] + $rows[2],
+]), $hash);
+check('fingerprint: a renamed item', mos_nav_items_hash($with($rows, 1, ['title' => 'Toppar'])) === $hash, false);
+check('fingerprint: a changed address', mos_nav_items_hash($with($rows, 2, ['url' => 'https://wp.test/voruflokkur/skor/'])) === $hash, false);
+check('fingerprint: an item moved under another', mos_nav_items_hash($with($rows, 1, ['parent' => 0])) === $hash, false);
+check('fingerprint: items in another order', mos_nav_items_hash([$rows[2], $rows[0], $rows[1]]) === $hash, false);
+check('fingerprint: an item removed', mos_nav_items_hash([$rows[0], $rows[2]]) === $hash, false);
+check('fingerprint: an empty menu has one', mos_nav_items_hash([]) !== '' && mos_nav_items_hash([]) !== $hash, true);
+
+$built = ['menu_id' => 5, 'hash' => $hash];
+check('hand edits: the build as it was written', mos_nav_is_hand_edited($built, 5, $hash), false);
+check('hand edits: the build, changed', mos_nav_is_hand_edited($built, 5, 'other'), true);
+check('hand edits: another menu is shown', mos_nav_is_hand_edited($built, 6, $hash), true);
+check('hand edits: a menu no build is recorded for', mos_nav_is_hand_edited(null, 5, $hash), true);
+check('hand edits: a record that is not one', mos_nav_is_hand_edited(['menu_id' => '5'], 5, $hash), true);
+check('hand edits: no menu is shown, so there is nothing to lose', mos_nav_is_hand_edited(null, 0, ''), false);
 
 printf("%d passed, %d failed\n", $pass, $fail);
 exit($fail ? 1 : 0);

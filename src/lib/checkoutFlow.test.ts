@@ -19,7 +19,7 @@ const addr = (over: Partial<FormAddress> = {}): FormAddress => ({
 });
 const base = {
   billing: addr(), ship: addr({ address_1: 'Skipholt 2' }), notes: '  takk  ', paymentMethod: 'bacs', needsPayment: true,
-  kennitala: '010203-2390', skiptimidi: true, postbox: null as string | null, attempt: 'a'.repeat(32),
+  nationalId: '010203-2390', giftReceipt: true, postbox: null as string | null, attempt: 'a'.repeat(32),
 };
 
 describe('newAttemptId', () => {
@@ -44,7 +44,7 @@ describe('checkoutBody', () => {
   });
 
   it('sends kennitala null when cleared, and the locker with the billing phone when one is chosen', () => {
-    const b = checkoutBody({ ...base, kennitala: '  ', skiptimidi: false, postbox: 'DPO9552' });
+    const b = checkoutBody({ ...base, nationalId: '  ', giftReceipt: false, postbox: 'DPO9552' });
     expect(b.extensions.mos).toMatchObject({ kennitala: null, skiptimidi: false });
     expect(b).toMatchObject({ postis_dpo_postbox: 'DPO9552', postis_dpo_phonenumber: '6123456' });
   });

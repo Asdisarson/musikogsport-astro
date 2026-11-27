@@ -631,11 +631,16 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    `jwt-authentication-for-wp-rest-api`.
 2. **Upload** to `wp-content/mu-plugins/`: `mos-posturinn-droppoints.php`, `headless-bridge.php`,
    `mos-headless-api.php`, `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`,
-   `mos-size-index.php`, `mos-catalog-clean.php`, `mos-nav.php`, `mos-stillingar.php`, `mos-instagram.php`,
+   `mos-size-index.php`, `mos-catalog-clean.php`, `mos-nav.php`, `mos-menu.php`, `mos-settings.php`, `mos-instagram.php`,
    `mos-newsletter.php`, `mos-waitlist.php`, `mos-search.php`, `mos-staff-flag.php`, `mos-shell-poke.php` and `mos-shell-admin.php`. **Never
    `headless-bridge-local.php`** (the local-dev shim rewrites redirects to localhost).
-   Check: `wp plugin list --status=must-use` shows exactly those seventeen, and `ls wp-content/mu-plugins` has no
-   `-local` file. `mos-shell-poke.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), like
+   Check: `wp plugin list --status=must-use` shows exactly those eighteen, and `ls wp-content/mu-plugins` has no
+   `-local` file. **Renamed in the owner-menu round:** `mos-stillingar.php` is now `mos-settings.php`; delete the old
+   `mos-stillingar.php` from `wp-content/mu-plugins/` when uploading the new one (both together give two Stillingar
+   pages). Upload it in the same go as `mos-menu.php`, `mos-nav.php`, `mos-headless-api.php`, `mos-instagram.php` and
+   `mos-shell-admin.php`: they hang their boxes and the Valmynd / Síðugeymsla subpages on the renamed page. Old
+   bookmarks to `admin.php?page=mos-stillingar` still land on the page. Do this **before** deploying the storefront:
+   its admin bar links to `admin.php?page=mos-settings`, which does not exist until `mos-settings.php` is up. `mos-shell-poke.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), like
    `mos-headless-mode.php`; without it the storefront is not told when a product is saved, and its pages stay stale
    until their lifetime ends. `mos-headless-mode.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), so uploading
    it before cutover is safe; the others act at once but only add routes, fields and the wp-admin "Stillingar" page.
@@ -698,9 +703,13 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    `wp mos-nav apply`: writes the menu "Aðalvalmynd 2026" and puts it in the primary location; the old menu stays.
    Rollback: Útlit → Valmyndir → Stjórna staðsetningum → Aðalvalmynd. Only ONE earlier build is kept ("Aðalvalmynd
    2026 (afrit)"): the next `apply` deletes it, so do not apply a second time until the first is accepted. The
-   storefront is not told by `apply`: `curl -X POST https://<storefront>/api/content-refresh` afterwards (it re-reads
-   the menus and marks the pages stale). Rerun `apply` when the catalog changes a lot
-   (it rebuilds the menu, dropping hand edits made to it). Check: every menu link opens a page with products.
+   storefront is told by `apply` and by every menu save (`mos-headless-api.php` pokes `/api/content-refresh`, which
+   re-reads the menus and marks the pages stale); where `MOS_STOREFRONT_URL` is not defined, the menu shows within the
+   minute and `curl -X POST https://<storefront>/api/content-refresh` marks the stored pages. **A first install
+   only:** from then on the menu is the owner's (the page Stillingar → Valmynd, `mos-menu.php`). A menu that was edited by
+   hand, or that no build is recorded for (every menu built before 2026-11-24, production's included), is not
+   replaced: `apply` refuses, and replacing it anyway is `wp mos-nav apply --force`, only when the owner asks for it
+   (the menu it replaces is the one backup). Check: every menu link opens a page with products.
 3d. **Instagram row** (the owner; any time, also after cutover; free). Until it is done the home page ends with a
    "Fylgdu okkur á Instagram" banner instead of the latest posts.
    Meta now offers new apps only "API setup with Unified login", so the key is a **system-user token** of the

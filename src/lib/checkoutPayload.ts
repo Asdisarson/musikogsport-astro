@@ -33,8 +33,8 @@ export function checkoutPayload(raw: unknown, request: { userAgent?: string | nu
   if (!billing || !email.trim()) return null;
 
   const mosIn = isPlainObject(raw.extensions) && isPlainObject(raw.extensions.mos) ? raw.extensions.mos : {};
-  const kennitala = typeof mosIn.kennitala === 'string' ? mosIn.kennitala.replace(/\D/g, '').slice(0, 20) : '';
-  const mos: CheckoutPayload['extensions']['mos'] = { kennitala: kennitala || null, skiptimidi: mosIn.skiptimidi === true };
+  const nationalId = typeof mosIn.kennitala === 'string' ? mosIn.kennitala.replace(/\D/g, '').slice(0, 20) : '';
+  const mos: CheckoutPayload['extensions']['mos'] = { kennitala: nationalId || null, skiptimidi: mosIn.skiptimidi === true };
   if (typeof mosIn.attempt === 'string' && ATTEMPT_ID.test(mosIn.attempt)) mos.attempt = mosIn.attempt;
 
   const payload: CheckoutPayload = {

@@ -1,6 +1,6 @@
 // Product-category tree helpers for live's /voruflokkur/<parent>/<child>/ URLs. Pure.
 import { categoryPath } from './paths';
-import { KYN_PARENT_SLUG, type CategoryTerm } from './liveFilters';
+import { GENDER_PARENT_SLUG, type CategoryTerm } from './liveFilters';
 
 /** Slugs from the root down to `id` ([] if unknown). Guards against parent cycles. */
 export function categoryChain(categories: CategoryTerm[], id: number): string[] {
@@ -25,7 +25,7 @@ export function categoryHref(categories: CategoryTerm[], id: number): string | n
 
 /** Top-level categories that group products by something other than what they are (live's "kyn" gender facets,
  *  WordPress's unsorted buckets). The archive hides them from its filters. */
-export const STRUCTURAL_ROOT_SLUGS: ReadonlySet<string> = new Set([KYN_PARENT_SLUG, 'uncategorized', 'oflokkad', 'unisex']);
+export const STRUCTURAL_ROOT_SLUGS: ReadonlySet<string> = new Set([GENDER_PARENT_SLUG, 'uncategorized', 'oflokkad', 'unisex']);
 
 /** The merchandising bucket a card ranks last: the archive keeps it as a filter, but next to the product type it says
  *  little (the sale badge already says "sale"), so it never takes a slot from a gender facet either. */
@@ -38,7 +38,7 @@ export function relatedScope(productCategoryIds: number[], categories: CategoryT
   const found = productCategoryIds.map((id) => ({ id, chain: categoryChain(categories, id) })).filter((c) => c.chain.length > 0);
   const types = found.filter((c) => !STRUCTURAL_ROOT_SLUGS.has(c.chain[0]) && c.chain[0] !== CARD_SALE_ROOT_SLUG);
   types.sort((a, b) => b.chain.length - a.chain.length || a.id - b.id);
-  const audienceIds = found.filter((c) => c.chain[0] === KYN_PARENT_SLUG && c.chain.length > 1).map((c) => c.id);
+  const audienceIds = found.filter((c) => c.chain[0] === GENDER_PARENT_SLUG && c.chain.length > 1).map((c) => c.id);
   return { categoryId: types[0]?.id, audienceIds };
 }
 

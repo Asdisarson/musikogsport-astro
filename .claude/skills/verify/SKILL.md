@@ -15,7 +15,22 @@ description: How to runtime-verify the musikogsport Astro storefront (live-clone
   `STOREFRONT_URL=http://127.0.0.1:4322`.
 - Confirm it's up: `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:10026/` → 200.
 
+**Since 2026-11-24** the Local site is `musikogsport` (recreated): WordPress is on **http://127.0.0.1:10015**, not
+10025, and nothing auto-starts the storefront: `npx astro dev --port 10026` in app-astro. wp-admin: the local-only
+test login is in `app-astro/.env` (`LOCAL_WP_ADMIN_*`). mu-plugin changes are observed only after copying the file to
+`app/public/wp-content/mu-plugins/`.
+
 ## Flows worth driving
+
+- Front page — wp-admin → Stillingar (`admin.php?page=mos-settings`): click a zone in the front-page copy (orange bar,
+  hero, a row, a banner), change a text in the side panel (the copy follows, the counter counts), "Vista breytingar",
+  then load the storefront up to three times and find the text; put the old text back the same way. Local pictures
+  show broken in wp-admin (uploads are not on disk here); the storefront loads them from live.
+- Owner's menu editor — wp-admin → Stillingar → Valmynd (`admin.php?page=mos-menu`): click a tengill in the header
+  copy and rename it in the side panel, add one with "+ Tengill" (pick from the list), "Vista valmynd", then load the storefront **twice** (the first visit after a change gets the stored page)
+  and find the link in the header; "Afturkalla síðustu vistun" puts the earlier menu back. The browser pane answers
+  `confirm()` with Cancel, so the undo button's form has to be submitted from the console there. Element refs shift
+  after each re-render: `find` the button again right before clicking it.
 
 - Home `/` — campaign bar, header with live's cascading dropdowns (live has no top bar and no mega-menu),
   hero slider, product rows, banners, footer

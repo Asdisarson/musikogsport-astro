@@ -414,7 +414,7 @@ function mos_rest_menu(WP_REST_Request $req) {
 function mos_build_menu_tree(array $items): array {
     $nodes = [];
     foreach ($items as $item) {
-        $link = mos_storefront_href((string) $item->url);
+        $link = mos_menu_item_href((string) $item->type, (string) $item->object, mos_menu_item_slug($item), (string) $item->url);
         $nodes[(int) $item->ID] = [
             'id'       => (int) $item->ID,
             'parent'   => (int) $item->menu_item_parent,
@@ -449,11 +449,91 @@ function mos_strip_parent(array $node, array $all): array {
     return $node;
 }
 
-foreach (['wp_update_nav_menu', 'wp_delete_nav_menu', 'wp_update_nav_menu_item'] as $hook) {
+foreach (['wp_update_nav_menu', 'wp_delete_nav_menu', 'wp_add_nav_menu_item', 'wp_update_nav_menu_item'] as $hook) {
     add_action($hook, static function ($menu_id) {
         delete_transient('mos_menu_' . absint($menu_id));
+        mos_menu_changed();
     });
 }
+// A removed item has no menu hook of its own (the menu screen saves the menu afterwards; a removal from the
+// customizer, WP-CLI or the REST API does not): its menus are read while it still belongs to them.
+add_action('before_delete_post', static function ($post_id) {
+    if (get_post_type($post_id) !== 'nav_menu_item') { return; }
+    $menus = wp_get_object_terms((int) $post_id, 'nav_menu', ['fields' => 'ids']);
+    foreach (is_array($menus) ? $menus : [] as $menu_id) { delete_transient('mos_menu_' . absint($menu_id)); }
+    mos_menu_changed();
+});
+
+/* The owner's menu: what the menu editor (Útlit → Valmyndir) offers, and how a save reaches the storefront. */
+
+/** Attribute taxonomies the menu editor offers besides categories and brands → the storefront filter they link to. */
+const MOS_MENU_FILTER_TAXONOMIES = ['pa_felag-lid' => 'team', 'pa_ithrott' => 'ithrott'];
+/** The menu screen's boxes that are always shown: what a shop menu is built from. */
+const MOS_MENU_SHOP_BOXES = ['add-product_cat', 'add-product_brand', 'add-pa_felag-lid', 'add-pa_ithrott'];
+
+/**
+ * The storefront link of one menu item. A Félag/Lið or Íþrótt term picked in the editor links to the shop's filter
+ * (`/verslun/?team=`, `?ithrott=`: the links mos-nav.php builds), since the storefront has no page per term; every
+ * other item, and a term whose slug is not known, keeps its own address (mos_storefront_href).
+ */
+function mos_menu_item_href(string $type, string $object, string $slug, string $url): array {
+    $filter = $type === 'taxonomy' ? (MOS_MENU_FILTER_TAXONOMIES[$object] ?? '') : '';
+    if ($filter !== '' && $slug !== '') {
+        return ['href' => '/verslun/?' . $filter . '=' . rawurlencode($slug), 'external' => false];
+    }
+    return mos_storefront_href($url);
+}
+
+/** The slug of the term a menu item points at, for the taxonomies that link to a filter; '' for every other item. */
+function mos_menu_item_slug($item): string {
+    if ((string) $item->type !== 'taxonomy' || !isset(MOS_MENU_FILTER_TAXONOMIES[(string) $item->object])) { return ''; }
+    $term = get_term((int) $item->object_id, (string) $item->object);
+    return $term instanceof WP_Term ? (string) $term->slug : '';
+}
+
+/** WooCommerce registers attribute taxonomies without a menu box: Félag/Lið and Íþrótt get one. */
+function mos_menu_taxonomy_args($args, $taxonomy) {
+    if (is_array($args) && isset(MOS_MENU_FILTER_TAXONOMIES[(string) $taxonomy])) { $args['show_in_nav_menus'] = true; }
+    return $args;
+}
+add_filter('register_taxonomy_args', 'mos_menu_taxonomy_args', 10, 2);
+
+/** The boxes a user has hidden on the menu screen, without the shop's own (WordPress hides them for a new user). */
+function mos_menu_shown_boxes($hidden) {
+    return is_array($hidden) ? array_values(array_diff($hidden, MOS_MENU_SHOP_BOXES)) : $hidden;
+}
+add_filter('get_user_option_metaboxhidden_nav-menus', 'mos_menu_shown_boxes');
+
+/**
+ * A menu changed: tell the storefront once, when the request ends (the editor saves each item of a menu, and the
+ * poke carries nothing). The stored pages hold the header too, and the storefront marks them only when the menu
+ * it then reads differs (src/lib/contentRefresh.ts). Without a storefront address the menu shows within the minute.
+ */
+function mos_menu_changed(): void {
+    if (has_action('shutdown', 'mos_menu_poke') !== false) { return; }
+    add_action('shutdown', 'mos_menu_poke', 0);
+}
+
+/** The menu's poke: sent without waiting for the answer, so a slow or down storefront does not hold up the save. */
+function mos_menu_poke(): void {
+    mos_front_page_poke(false);
+}
+
+/** True when a save of the theme's settings moved a menu into or out of a location. */
+function mos_menu_locations_changed($old, $new): bool {
+    if (!is_array($old) || !is_array($new)) { return false; }
+    return ($old['nav_menu_locations'] ?? []) != ($new['nav_menu_locations'] ?? []);
+}
+add_action('after_setup_theme', static function () {
+    $mods = 'theme_mods_' . get_option('stylesheet');
+    add_action('update_option_' . $mods, static function ($old, $new) {
+        if (mos_menu_locations_changed($old, $new)) { mos_menu_changed(); }
+    }, 10, 2);
+    // A theme's first settings are created, not updated.
+    add_action('add_option_' . $mods, static function ($option, $value) {
+        if (mos_menu_locations_changed([], $value)) { mos_menu_changed(); }
+    }, 10, 2);
+}, 20);
 
 function mos_rest_front_page() {
     $page_id = (int) get_option('page_on_front');
@@ -538,18 +618,20 @@ function mos_rest_front_page() {
  * (mos-headless-mode.php), when it did not answer in time (it may wait up to 2 s to space refetches out) or could
  * not read WordPress (502); the page then shows within the minute as before.
  */
-function mos_front_page_poke(): bool {
+function mos_front_page_poke(bool $wait = true): bool {
     $base = function_exists('mos_headless_target_base') ? mos_headless_target_base() : '';
     if ($base === '') { return false; }
-    $res = wp_remote_post($base . '/api/content-refresh', ['timeout' => 5, 'redirection' => 0, 'body' => '']);
-    return !is_wp_error($res) && (int) wp_remote_retrieve_response_code($res) === 204;
+    $res = wp_remote_post($base . '/api/content-refresh', ['blocking' => $wait, 'timeout' => $wait ? 5 : 1, 'redirection' => 0, 'body' => '']);
+    return $wait && !is_wp_error($res) && (int) wp_remote_retrieve_response_code($res) === 204;
 }
 
 /** After ACF saved the front page's fields (the Forsíða edit screen or Stillingar): poke, and keep the outcome for
  *  the screen the save redirects to. */
 function mos_front_page_saved($post_id): void {
     if ((int) $post_id <= 0 || (int) $post_id !== (int) get_option('page_on_front')) { return; }
-    set_transient('mos_front_poke_' . get_current_user_id(), mos_front_page_poke() ? 'ok' : 'late', MINUTE_IN_SECONDS);
+    $result = mos_front_page_poke() ? 'ok' : 'late';
+    set_transient('mos_front_poke_' . get_current_user_id(), $result, MINUTE_IN_SECONDS);
+    error_log(sprintf('[mos-front-page] saved by user %d, storefront poke: %s', get_current_user_id(), $result));
 }
 add_action('acf/save_post', 'mos_front_page_saved', 20);
 

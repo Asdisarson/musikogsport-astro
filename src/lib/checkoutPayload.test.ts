@@ -27,7 +27,7 @@ describe('checkoutPayload (LM-03)', () => {
   it('round-trips the real form body (checkoutFlow.checkoutBody) unchanged', () => {
     const f = { first_name: 'A', last_name: 'B', company: 'C', address_1: 'D 1', address_2: '', postcode: '101', city: 'R', phone: '6123456', email: 'a@b.is' };
     const body = checkoutBody({
-      billing: f, ship: f, notes: 'n', paymentMethod: 'straumur', needsPayment: true, kennitala: '', skiptimidi: false,
+      billing: f, ship: f, notes: 'n', paymentMethod: 'straumur', needsPayment: true, nationalId: '', giftReceipt: false,
       postbox: 'DPO1', attempt: 'b'.repeat(32),
     });
     expect(checkoutPayload(JSON.parse(JSON.stringify(body)))).toEqual(JSON.parse(JSON.stringify(body)));

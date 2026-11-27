@@ -143,8 +143,8 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
   });
   const [shipping, setShipping] = useState<Address>(EMPTY);
   const [shipDiff, setShipDiff] = useState(false);
-  const [kennitala, setKennitala] = useState('');
-  const [skiptimidi, setSkiptimidi] = useState(false);
+  const [nationalId, setNationalId] = useState('');
+  const [giftReceipt, setGiftReceipt] = useState(false);
   const [createAccount, setCreateAccount] = useState(false);
   const [notes, setNotes] = useState('');
   const [terms, setTerms] = useState(false);
@@ -229,7 +229,7 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
       billingFields: [...BILLING_BEFORE_COUNTRY, ...BILLING_AFTER_COUNTRY],
       shipping: shipDiff ? { ...shipping } : null,
       shippingFields: SHIPPING_FIELDS,
-      kennitala,
+      nationalId,
       needsShipping,
       rateChosen: selectedRate !== null,
       needsPostbox,
@@ -263,7 +263,7 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
     setPlacing(true);
     const attempt = newAttemptId();
     const body = checkoutBody({
-      billing, ship, notes, paymentMethod, needsPayment, kennitala, skiptimidi, attempt,
+      billing, ship, notes, paymentMethod, needsPayment, nationalId, giftReceipt, attempt,
       createAccount: !signedIn && createAccount,
       postbox: needsPostbox && $droppoint ? $droppoint.id : null,
       origin: storedOrigin(),
@@ -361,11 +361,11 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
         <div className="checkout-fields">
           {BILLING_BEFORE_COUNTRY.map(billingField)}
           <FloatField
-            id="billing_kennitala"
+            id="billing_national_id"
             def={{ label: 'Kennitala', width: 'first', inputMode: 'numeric' }}
-            value={kennitala}
-            error={problems.get('billing_kennitala')}
-            onChange={setKennitala}
+            value={nationalId}
+            error={problems.get('billing_national_id')}
+            onChange={setNationalId}
           />
           {billingField({ key: 'company', label: 'Nafn fyrirtækis', width: 'last', autoComplete: 'organization' })}
           <CountryField id="billing_country" width="wide" />
@@ -398,7 +398,7 @@ export default function CheckoutForm({ status = '', initialBilling, signedIn = f
           )}
           <p className="form-row form-row-wide form-row-check">
             <label>
-              <input type="checkbox" checked={skiptimidi} onChange={(e) => setSkiptimidi(e.target.checked)} />
+              <input type="checkbox" checked={giftReceipt} onChange={(e) => setGiftReceipt(e.target.checked)} />
               <span>
                 Viltu skiptimiða? Ekki er settur skiptimiði á útsöluvörur.
               </span>

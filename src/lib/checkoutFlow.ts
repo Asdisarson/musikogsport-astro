@@ -43,8 +43,10 @@ export interface CheckoutInput {
   paymentMethod: string;
   /** The cart's needs_payment: false for a free order (a 100 % coupon). */
   needsPayment: boolean;
-  kennitala: string;
-  skiptimidi: boolean;
+  /** The kennitala as typed (sent as `mos.kennitala`). */
+  nationalId: string;
+  /** A gift receipt wanted (sent as `mos.skiptimidi`). */
+  giftReceipt: boolean;
   /** The chosen Pósturinn locker id, when the shipping rate needs one. */
   postbox: string | null;
   attempt: string;
@@ -65,7 +67,7 @@ export function checkoutBody(f: CheckoutInput) {
     ...(f.needsPayment && f.paymentMethod ? { payment_method: f.paymentMethod } : {}),
     payment_data: [] as { key: string; value: string }[],
     extensions: {
-      mos: { kennitala: f.kennitala.replace(/\D/g, '') || null, skiptimidi: f.skiptimidi, attempt: f.attempt },
+      mos: { kennitala: f.nationalId.replace(/\D/g, '') || null, skiptimidi: f.giftReceipt, attempt: f.attempt },
       ...(f.origin ? { 'woocommerce/order-attribution': f.origin } : {}),
     },
     // Pósturinn's own Store API hook reads the locker off the top level of the request.

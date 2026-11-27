@@ -72,12 +72,12 @@ function mos_checkout_fields_apply($order, $request): void {
     }
     $sent = mos_checkout_fields_sent($request);
 
-    $kennitala = preg_replace('/\D/', '', (string) ($data['kennitala'] ?? ''));
-    if ($kennitala !== '') {
-        if (strlen($kennitala) !== 10) {
+    $national_id = preg_replace('/\D/', '', (string) ($data['kennitala'] ?? ''));
+    if ($national_id !== '') {
+        if (strlen($national_id) !== 10) {
             throw new RouteException('mos_invalid_kennitala', 'Kennitala á að vera 10 tölustafir.', 400);
         }
-        $order->update_meta_data('_billing_ssn', $kennitala);
+        $order->update_meta_data('_billing_ssn', $national_id);
     } elseif (array_key_exists('kennitala', $sent)) {
         $order->delete_meta_data('_billing_ssn');
     }

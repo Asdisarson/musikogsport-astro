@@ -1,5 +1,5 @@
 // Draws the /staerdir/ size charts in the browser: the product page's popup (SizeGuide.astro) and the /staerdir/
-// page itself (pages/staerdir.astro) share this, so they look the same. It reads the WordPress content's `<h4>`
+// page itself (routes/sizes.astro) share this, so they look the same. It reads the WordPress content's `<h4>`
 // headings and tables as cell text and rebuilds each table twice: wide (sizes across, the measure names pinned on the
 // left) and sideways (sizes down the side). A chart shows wide where it fits its box and sideways where it doesn't,
 // measured again whenever the box changes size. Several charts get pill tabs (the popup) or are stacked, each under its

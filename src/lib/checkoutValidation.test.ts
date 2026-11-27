@@ -14,7 +14,7 @@ const complete: CheckoutFormState = {
   billingFields: defs,
   shipping: null,
   shippingFields: defs,
-  kennitala: '',
+  nationalId: '',
   needsShipping: true,
   rateChosen: true,
   needsPostbox: false,
@@ -51,11 +51,11 @@ describe('validateCheckout', () => {
   });
 
   it('a malformed e-mail address and a kennitala that is not ten digits are reported at their fields', () => {
-    expect(problems({ ...complete, billing: { ...filled, email: 'anna@b' }, kennitala: '010190-123' })).toEqual({
+    expect(problems({ ...complete, billing: { ...filled, email: 'anna@b' }, nationalId: '010190-123' })).toEqual({
       billing_email: 'Ógilt netfang.',
-      billing_kennitala: 'Kennitala á að vera 10 tölustafir.',
+      billing_national_id: 'Kennitala á að vera 10 tölustafir.',
     });
-    expect(validateCheckout({ ...complete, kennitala: '010190-1239' }).size).toBe(0);
+    expect(validateCheckout({ ...complete, nationalId: '010190-1239' }).size).toBe(0);
   });
 
   it('asks for a shipping method, a postbox, a payment method and the terms, each only when it applies', () => {

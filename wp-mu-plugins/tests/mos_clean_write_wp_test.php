@@ -89,8 +89,8 @@ try {
     $check('and the product no longer needs filling for those fields', array_diff(['brand', 'gender', 'sport', 'team', 'garment'], mos_clean_filled($id)) === []);
 
     // 3. What the owner clears stays cleared.
-    $bolir = get_term_by('slug', 'bolir-efri-likami', 'product_cat');
-    wp_remove_object_terms($id, [(int) $bolir->term_id], 'product_cat');
+    $shirts = get_term_by('slug', 'bolir-efri-likami', 'product_cat');
+    wp_remove_object_terms($id, [(int) $shirts->term_id], 'product_cat');
     $p = wc_get_product($id);
     $attrs = $p->get_attributes();
     unset($attrs['pa_felag-lid']);
@@ -114,8 +114,8 @@ try {
 
     // 5. A product already filed by garment keeps the staff's choice; a team it lacks is still added.
     $id2 = $make(new WC_Product_Simple(), 'Adidas Liverpool Tiro Training Jakki');
-    $peysur = get_term_by('slug', 'peysur-efri-likami', 'product_cat');
-    wp_set_object_terms($id2, [(int) $peysur->term_id], 'product_cat');
+    $sweaters = get_term_by('slug', 'peysur-efri-likami', 'product_cat');
+    wp_set_object_terms($id2, [(int) $sweaters->term_id], 'product_cat');
     $set = $fill($id2);
     $check('filed under Peysur by staff: no Yfirhafnir from "Jakki"', !isset($set['garment']) && $slugs($id2, 'product_cat') === ['peysur-efri-likami'], wp_json_encode($set));
     $check('but the team in its name is filled', ($set['team'] ?? null) === 'liverpool' && $slugs($id2, 'pa_felag-lid') === ['liverpool']);

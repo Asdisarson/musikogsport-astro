@@ -28,7 +28,7 @@ export function adminBarLinks(base: string, productId: number | null): AdminLink
     // The classic order list: WooCommerce forwards it to its own order screen where orders live in its tables.
     { label: 'Pantanir', href: `${admin}edit.php?post_type=shop_order` },
     { label: 'Vörur', href: `${admin}edit.php?post_type=product` },
-    { label: 'Stillingar', href: `${admin}admin.php?page=mos-stillingar` },
+    { label: 'Stillingar', href: `${admin}admin.php?page=mos-settings` },
   ];
   if (productId !== null && Number.isInteger(productId) && productId > 0) {
     links.unshift({ label: 'Breyta vöru', href: `${admin}post.php?post=${productId}&action=edit` });
