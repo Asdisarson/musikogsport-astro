@@ -183,5 +183,24 @@ check('hand edits: a menu no build is recorded for', mos_nav_is_hand_edited(null
 check('hand edits: a record that is not one', mos_nav_is_hand_edited(['menu_id' => '5'], 5, $hash), true);
 check('hand edits: no menu is shown, so there is nothing to lose', mos_nav_is_hand_edited(null, 0, ''), false);
 
+// Pinned garments: Toppar is in Fatnaður for Konur and Börn however it ranks (a column holds MOS_NAV_COLUMN_LINKS),
+// with one product or more; Karlar never get it, and a gender with no such product does not either.
+$top_terms = $terms;
+$top_terms['cat'][14] = ['slug' => 'topp-ur', 'name' => 'Toppar', 'parent' => 11];
+$top_products = array_merge($products, [row([2, 14]), row([3, 14]), row([3, 14]), row([3, 12]), row([3, 12]), row([3, 12]), row([3, 12]), row([3, 12])]);
+$top_index = ['terms' => $top_terms, 'products' => $top_products];
+$clothes = static fn (string $g, array $index): array => array_column(array_values(array_filter(
+    mos_nav_gender_item($index, $g, $g)['children'], static fn ($c) => $c['title'] === 'Fatnaður'))[0]['children'] ?? [], 'title');
+check('pinned garment: listed for women below the minimum', $clothes('konur', $top_index), ['Bolir', 'Peysur', 'Toppar']);
+check('pinned garment: not for men', $clothes('karlar', $top_index), ['Bolir']);
+check('pinned garment: not without a product', $clothes('born', $top_index), []);
+$women = array_values(array_filter(mos_nav_gender_item($top_index, 'konur', 'Konur')['children'], static fn ($c) => $c['title'] === 'Fatnaður'))[0]['children'];
+check('pinned garment: its link and count', [$women[2]['href'], $women[2]['count']], ['/voruflokkur/fatnadur/efri-likami/topp-ur/?kyn=konur', 1]);
+$many = $top_index;
+for ($i = 0; $i < 6; $i++) { $many['products'][] = row([2, 14]); }   // 7 women's tops: ranked on its own
+check('pinned garment: listed once when it ranks', $clothes('konur', $many), ['Toppar', 'Bolir', 'Peysur']);
+check('pinned garment: alphabetical in the built menu', array_column(array_values(array_filter(
+    mos_nav_alphabetical([mos_nav_gender_item($many, 'konur', 'Konur')])[0]['children'], static fn ($c) => $c['title'] === 'Fatnaður'))[0]['children'], 'title'), ['Bolir', 'Peysur', 'Toppar']);
+
 printf("%d passed, %d failed\n", $pass, $fail);
 exit($fail ? 1 : 0);

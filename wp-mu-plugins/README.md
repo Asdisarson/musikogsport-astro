@@ -303,7 +303,8 @@ run and clear are refused and the page says so, and the page reloads while a run
   `wp mos-nav apply` writes it as "Aðalvalmynd 2026" in the primary location (the previous menu is kept for
   rollback). Konur/Karlar/Börn get the same columns (Fatnaður, Skór, Íþróttir, Félagslið, Vörumerki, Úrval); links
   are picked by product count (at most 8 per column, none under 5 products) and listed alphabetically (Icelandic
-  order); sports and clubs link to the filters (`?ithrott=`, `?team=`). The clubs in `MOS_NAV_PINNED_TEAMS`
+  order); sports and clubs link to the filters (`?ithrott=`, `?team=`). Fatnaður also lists
+  `MOS_NAV_PINNED_GARMENTS` (Toppar for Konur and Börn) however they rank. The clubs in `MOS_NAV_PINNED_TEAMS`
   (Félag/Lið slugs) are always listed under Íþróttir › Félagslið, whatever their product count (unless they have
   none). National teams (`MOS_NAV_NATIONAL_TEAMS`) are not clubs: under Íþróttir they have their own column,
   Landslið. The teams in `MOS_NAV_FEATURED_CLUBS` and `MOS_NAV_FEATURED_NATIONAL_TEAMS` lead their columns, in the
