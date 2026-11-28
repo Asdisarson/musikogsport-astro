@@ -32,6 +32,15 @@ test login is in `app-astro/.env` (`LOCAL_WP_ADMIN_*`). mu-plugin changes are ob
   `confirm()` with Cancel, so the undo button's form has to be submitted from the console there. Element refs shift
   after each re-render: `find` the button again right before clicking it.
 
+- Síðugeymsla — wp-admin → Stillingar → Síðugeymsla (`admin.php?page=mos-sidugeymsla`). It needs
+  `MOS_SHELL_POKE_KEY` defined in Local's `wp-config.php` and the same value in the dev server's environment
+  (`runtimeEnv` reads process variables), and `MOS_SHELL_REBUILD_BASE=http://127.0.0.1:10026` (or
+  `MOS_EXTRA_ALLOWED_HOSTS`) there too, or "Keyra núna" answers 409 (`no-base`). Example: `MOS_SHELL_POKE_KEY=…
+  MOS_SHELL_REBUILD_BASE=http://127.0.0.1:10026 npx astro dev --port 10026`. Drive "Keyra núna" with "Síður í einu" at
+  1 and a long pause, then "Stöðva keyrslu" after a few pages. Local has no original photos (uploads are not on disk
+  here), so a photo run ("Myndir líka") counts every photo as failed unless the originals are copied into the Local
+  site's `wp-content/uploads`. Vitest no longer writes into the real temp folders (each test file gets its own, from
+  `src/test/isolateTempFolders.ts`), so a test run leaves nothing on the page.
 - Home `/` — campaign bar, header with live's cascading dropdowns (live has no top bar and no mega-menu),
   hero slider, product rows, banners, footer
   (all edited in wp-admin: Forsíða fields + menus).

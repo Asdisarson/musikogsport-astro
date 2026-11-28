@@ -1,13 +1,22 @@
 // The body and the status of the admin endpoint (src/pages/api/shell-admin.ts), which the WordPress page "Síðugeymsla"
-// (wp-mu-plugins/mos-shell-admin.php) reads and drives. Pure: the clock, the store and the walk are passed in, so the
+// (wp-mu-plugins/mos-shell-admin.php) reads and drives. The run takes optional concurrency, pauseMs and photos for that run
+// only; the status carries the photo cache's count (top level "photos") and each run's photo counts. Pure: the clock, the store and the walk are passed in, so the
 // parsing, the shape of the status and the cache are tested without a server. SERVER-ONLY by use.
 import { parseShellPoke } from './shellPoke';
 import type { FailureEntry, RunView } from './nightlyRebuildState';
 import type { ScheduleWhy } from './nightlyRebuild';
-import { estimateMs, perPage, type NightlySettings, type RunRecord, type SavedSettings, type SettingKey, type SettingSource } from './nightlySettings';
+import { estimateMs, fieldProblem, perPage, type NightlySettings, type RunRecord, type SavedSettings, type SettingKey, type SettingSource } from './nightlySettings';
+
+/** The options of one run ("Keyra núna"): each one is optional, and absent means the saved setting (src/lib/nightlySettings.ts). */
+export interface ShellAdminRunOptions {
+  concurrency?: number;
+  pauseMs?: number;
+  photos?: boolean;
+}
 
 export type ShellAdminAction =
-  | { action: 'run' | 'stop' | 'clear' }
+  | ({ action: 'run' } & ShellAdminRunOptions)
+  | { action: 'stop' | 'clear' | 'clear-photos' }
   | { action: 'refresh'; path: string }
   | { action: 'settings'; settings: unknown };
 
@@ -18,7 +27,17 @@ export function parseShellAdminAction(body: unknown): ShellAdminAction | null {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
   const b = body as Record<string, unknown>;
   const action = b.action;
-  if (action === 'run' || action === 'stop' || action === 'clear') return { action };
+  if (action === 'run') {
+    // Each option is checked with the settings' own rules: present and out of range makes the request invalid, never clamped.
+    const out: Record<string, unknown> = { action: 'run' };
+    for (const key of ['concurrency', 'pauseMs', 'photos'] as const) {
+      if (b[key] === undefined) continue;
+      if (fieldProblem(key, b[key]) !== null) return null;
+      out[key] = b[key];
+    }
+    return out as ShellAdminAction;
+  }
+  if (action === 'stop' || action === 'clear' || action === 'clear-photos') return { action };
   if (action === 'settings') {
     if (!('settings' in b)) return null;
     return { action: 'settings', settings: b.settings === undefined ? null : b.settings };
@@ -77,6 +96,17 @@ export interface ShellAdminInput {
   runs: RunRecord[];
   run: RunView;
   failures: FailureEntry[];
+  /** The photo cache: the count (null until one is made) and the folder kind. */
+  photos: PhotoStatus;
+}
+
+/** The photo cache as the status shows it. */
+export interface PhotoStatus {
+  files: number | null;
+  bytes: number | null;
+  /** The ms epoch of the count, null when none has been made. */
+  at: number | null;
+  folder: 'durable' | 'temp';
 }
 
 /** One finished run, as the status shows it: the tally, the way it ended and the measured per-page time. */
@@ -93,6 +123,11 @@ export interface RunStatus {
   stoppedEarly: boolean;
   stoppedWhy: string | null;
   concurrency: number | null;
+  /** Whether the run prepared photos, and its counts; null for a run from before they were recorded. */
+  photos: boolean | null;
+  photosConverted: number | null;
+  photosKept: number | null;
+  photosFailed: number | null;
   /** Measured average ms per visited page; null when the run visited none or took no time. */
   msPerPage: number | null;
   pagesPerMinute: number | null;
@@ -142,14 +177,19 @@ export interface ShellAdminStatus {
     workers: number | null;
     /** The configured workers (MOS_SHELL_REBUILD_CONCURRENCY); null when no run is going. */
     concurrency: number | null;
+    /** This run prepares photos, and its counts (0 when no run is going or it does none). */
+    photos: boolean;
+    photosConverted: number;
+    photosKept: number;
+    photosFailed: number;
   };
   settings: {
     effective: NightlySettings;
     source: Record<SettingKey, SettingSource>;
     /** The saved copy, or null when none is saved (the WordPress page compares its option with this). */
     saved: SavedSettings | null;
-    /** The estimated duration (ms) of a run of every page at the effective concurrency, from the last run's measured time
-     *  per page; null when there is no last run to measure from. */
+    /** The estimated duration (ms) of a run of every page at the effective concurrency and pause, from the last run's
+     *  measured time per page; null when the last run is not a basis for it (see estimateMs). */
     estimateMs: number | null;
   };
   /** The last run (the newest of recentRuns), or null. */
@@ -157,6 +197,8 @@ export interface ShellAdminStatus {
   /** The last 7 runs, newest first. */
   recentRuns: RunStatus[];
   failures: { path: string; status: number; at: number }[];
+  /** The photo cache: the count and the folder kind. */
+  photos: PhotoStatus;
 }
 
 function runStatus(r: RunRecord): RunStatus {
@@ -174,6 +216,10 @@ function runStatus(r: RunRecord): RunStatus {
     stoppedEarly: r.stoppedEarly,
     stoppedWhy: r.stoppedWhy,
     concurrency: r.concurrency,
+    photos: r.photos ?? null,
+    photosConverted: r.photosConverted ?? null,
+    photosKept: r.photosKept ?? null,
+    photosFailed: r.photosFailed ?? null,
     msPerPage: p.msPerPage,
     pagesPerMinute: p.pagesPerMinute,
   };
@@ -209,7 +255,7 @@ export function buildShellAdminStatus(i: ShellAdminInput): ShellAdminStatus {
       effective: { ...i.settings.effective },
       source: { ...i.settings.source },
       saved: i.settings.saved ? { ...i.settings.saved } : null,
-      estimateMs: estimateMs(i.runs[0] ?? null, i.settings.effective.concurrency),
+      estimateMs: estimateMs(i.runs[0] ?? null, i.settings.effective.concurrency, i.settings.effective.pauseMs),
     },
     run: {
       running: r.running,
@@ -226,7 +272,12 @@ export function buildShellAdminStatus(i: ShellAdminInput): ShellAdminStatus {
       stopRequested: r.stopRequested,
       workers: r.workers,
       concurrency: r.concurrency,
+      photos: r.photos,
+      photosConverted: r.photosConverted,
+      photosKept: r.photosKept,
+      photosFailed: r.photosFailed,
     },
+    photos: { ...i.photos },
     lastRun: i.runs[0] ? runStatus(i.runs[0]) : null,
     recentRuns: i.runs.map(runStatus),
     failures: i.failures.map((f) => ({ path: f.path, status: f.status, at: f.at })),

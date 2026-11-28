@@ -294,6 +294,25 @@ describe('walkStorefront', () => {
     expect(f.calls).toHaveLength(5);
   });
 
+  it('hands the after hook a stop that is true once the walk has halted, for a page still in flight', async () => {
+    const f = fakeIo({ '/vara/bad/': [[500, null]], '/vara/ok/': [[200, 'hit']] });
+    const seen: boolean[] = [];
+    // a third page is left for the halt to skip, so the walk stops early
+    const io: WalkIo = {
+      ...f.io,
+      after: async (path, _last, stop) => {
+        if (path !== '/vara/ok/') return;
+        // this page is in flight while the other one fails and halts the walk
+        await new Promise((r) => setTimeout(r, 5));
+        seen.push(stop());
+      },
+    };
+    const tally = await walkStorefront(['/vara/bad/', '/vara/ok/', '/vara/left/'], { ...OPTS, concurrency: 2, maxFailures: 1 }, io);
+    expect(tally.stoppedEarly).toBe(true);
+    expect(f.calls).not.toContain('/vara/left/');
+    expect(seen).toEqual([true]);
+  });
+
   it('a failure run broken by a good answer does not stop the walk', async () => {
     const script: Record<string, [number, string | null][]> = {};
     const paths = Array.from({ length: 8 }, (_, i) => `/vara/p${i}/`);
@@ -651,6 +670,59 @@ describe('walkStorefront when a worker throws or the walk is halted', () => {
     const tally = await walkStorefront(['/vara/a/', '/vara/b/', '/vara/c/'], { ...WALK_DEFAULTS, concurrency: 2, delayMs: 0, pollMs: 100, maxWaitMs: 90_000, maxFailures: 1 }, io);
     expect(t).toBeLessThan(10_000);
     expect(tally).toMatchObject({ failures: 1, stoppedBy: 'failures' });
+  });
+});
+
+describe('after: the photo hook of a page (the walk counts nothing from it)', () => {
+  it('is called once per settled page, with the page\'s last answer and its body, before the pause', async () => {
+    const f = fakeIo({});
+    const seen: { path: string; status: number; html: unknown }[] = [];
+    const order: string[] = [];
+    const io: WalkIo = {
+      ...f.io,
+      get: async (path) => ({ status: 200, shell: 'miss', html: `<p>${path}</p>` }),
+      after: async (path, last) => {
+        seen.push({ path, status: last.status, html: last.html });
+        order.push(`after ${path}`);
+      },
+      sleep: async (ms) => {
+        order.push(`sleep ${ms}`);
+      },
+    };
+    await walkStorefront(['/vara/a/', '/vara/b/'], OPTS, io);
+    expect(seen).toEqual([
+      { path: '/vara/a/', status: 200, html: '<p>/vara/a/</p>' },
+      { path: '/vara/b/', status: 200, html: '<p>/vara/b/</p>' },
+    ]);
+    expect(order.indexOf('after /vara/a/')).toBeLessThan(order.findIndex((x) => x.startsWith('sleep')));
+  });
+
+  it('photo work never counts as a bad answer: a run of pages whose photos all fail has no failures and runs to the end', async () => {
+    const f = fakeIo({});
+    const tally = await walkStorefront(
+      ['/vara/a/', '/vara/b/', '/vara/c/'],
+      { ...OPTS, maxFailures: 1, concurrency: 2 },
+      {
+        ...f.io,
+        get: async () => ({ status: 200, shell: 'hit', html: '<p></p>' }),
+        // the runtime catches its own photo errors (see nightlyRebuildRuntime); the walk itself only sees the outcome
+        after: async () => undefined,
+      },
+    );
+    expect(tally).toMatchObject({ visited: 3, failures: 0, stoppedEarly: false });
+  });
+
+  it('is not called for a page that stopped or was abandoned', async () => {
+    const f = fakeIo({});
+    let calls = 0;
+    await walkStorefront(['/vara/a/'], OPTS, {
+      ...f.io,
+      stop: () => true,
+      after: async () => {
+        calls += 1;
+      },
+    });
+    expect(calls).toBe(0);
   });
 });
 

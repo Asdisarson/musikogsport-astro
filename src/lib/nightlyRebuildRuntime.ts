@@ -10,6 +10,8 @@
 //   MOS_SHELL_REBUILD_CONCURRENCY=<1..4> default 2: pages walked at once (one while the walk is degraded)
 //   MOS_SHELL_REBUILD_PAUSE_MS=<0..30000> default 100: the base pause between renders
 //   MOS_SHELL=off, or no origin, means nothing is armed.
+// The photos setting ("Myndir líka") has no environment variable: it is saved from the admin page, and it is off until
+// it is. A run may also set its own photos, concurrency and pause (POST action "run"); those last for that run only.
 //
 // The timer lives in the process: a process that is not running at the time runs nothing until a request reaches it
 // (within the catch-up window of the time, or the run is missed for the day; see DEPLOY.md).
@@ -43,8 +45,9 @@ import {
   type SettingKey,
   type SettingSource,
 } from './nightlySettings';
-import { beginRun, endRun, isClearing, isRunning, lastRun, recordStep, requestStop, setRunConcurrency, setRunTotal, stopRequested, type StopWhy } from './nightlyRebuildState';
+import { addRunPhotos, beginRun, endRun, isClearing, isRunning, lastRun, recordStep, requestStop, setRunConcurrency, setRunPhotos, setRunTotal, stopRequested, type StopWhy } from './nightlyRebuildState';
 import { getShell, invalidatePaths, shellDir, shellEnabled } from './shellRuntime';
+import type { WarmTally } from './imgWarm';
 
 /** The origin a run walks, from the environment (MOS_SHELL_REBUILD_BASE, else the first MOS_EXTRA_ALLOWED_HOSTS host). */
 export function rebuildBase(): { origin: string | null; problem: string | null } {
@@ -78,7 +81,14 @@ export interface RunIo {
   readStamp(): Promise<RebuildStamp | null>;
   writeStamp(stamp: RebuildStamp): Promise<void>;
   fetchSitemap(origin: string): Promise<string>;
-  probe(origin: string, path: string): Promise<{ status: number; shell: string | null; refreshing: boolean }>;
+  /** One request on the origin. keepBody true (a run that does photos) keeps a 200 answer's body as html, for the photo step. */
+  probe(origin: string, path: string, keepBody: boolean): Promise<{ status: number; shell: string | null; refreshing: boolean; retryAfter?: string | null; html?: string | null }>;
+  /** Makes the photos one rendered page asks for (src/lib/imgRuntime.ts, through its own queue). Never throws on a photo.
+   *  `stop` is checked before each photo (the walk's halt or stop flag; the stop flag alone when not given). */
+  warmPhotos(html: string, stop?: () => boolean): Promise<WarmTally>;
+  /** True when the photo folder is the page store's folder or inside it, which the store would wipe: the run then makes
+   *  no photos (src/lib/imgRuntime.ts). */
+  photosBlocked(): Promise<boolean>;
   sleep(ms: number): Promise<void>;
   now(): number;
   /** The persisted settings file (the saved settings and the last runs). */
@@ -144,7 +154,7 @@ const defaultIo: RunIo = {
     if (!res.ok) throw new Error(`sitemap answered ${res.status}`);
     return res.text();
   },
-  async probe(origin, path) {
+  async probe(origin, path, keepBody) {
     try {
       // The path only: the origin is the one this run was given, and a redirect is not followed. A probe the walk has
       // given up on may still be rendering on the server beside the next path; PROBE_TIMEOUT_MS keeps that window short.
@@ -153,17 +163,35 @@ const defaultIo: RunIo = {
         headers: { 'User-Agent': 'mos-nightly-rebuild' },
         signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       });
-      await res.arrayBuffer();
+      // The body is read as text only when the photos are wanted, and only from a page that answers 200: nothing else
+      // has photos to find. The rest is drained, as before.
+      let html: string | null = null;
+      if (keepBody && res.status === 200) html = await res.text();
+      else await res.arrayBuffer();
       return {
         status: res.status,
         shell: res.headers.get('x-mos-shell'),
         refreshing: res.headers.get('x-mos-refresh') === 'running',
         // The raw header: a 429 backs the walk off for as long as it asks (nightlyRebuild parseRetryAfter).
         retryAfter: res.headers.get('retry-after'),
+        html,
       };
     } catch {
-      return { status: 0, shell: null, refreshing: false, retryAfter: null };
+      return { status: 0, shell: null, refreshing: false, retryAfter: null, html: null };
     }
+  },
+  async warmPhotos(html, stop) {
+    // Loaded here, not at import: the photo side needs the server's WordPress origin and sharp, which the tests of this
+    // module never touch (they stub this member), as src/lib/imgConvert.ts loads sharp when first needed.
+    const { WP_INTERNAL_URL } = await import('astro:env/server');
+    const { lightRequestsIn } = await import('./imgWarm');
+    const { warmPageHtml } = await import('./imgRuntime');
+    return warmPageHtml(lightRequestsIn(html), WP_INTERNAL_URL, stop ?? stopRequested);
+  },
+  async photosBlocked() {
+    // Loaded here for the same reason as warmPhotos above.
+    const { PHOTO_FOLDER_IN_SHELL } = await import('./imgRuntime');
+    return PHOTO_FOLDER_IN_SHELL;
   },
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now: () => Date.now(),
@@ -222,6 +250,11 @@ export async function nightlySettingsView(): Promise<{
   await loadStored(defaultSettingsIo);
   const e = nightlyEffective();
   return { effective: e.values, source: e.source, saved: persisted?.saved ?? null, runs: (persisted?.runs ?? []).map((r) => ({ ...r })) };
+}
+
+/** The options with the undefined ones dropped, so a key the caller left out keeps the value it would otherwise have. */
+function withoutUndefined<T extends object>(o: T): Partial<T> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
 
 /** The walk's workers and base pause as they are now (saved, else environment, else default). */
@@ -323,7 +356,7 @@ export function lastNightlyEnd(): number | null {
  *  request), stamp the end, and keep the run for the status. Never throws. Returns null when it did not run (another run
  *  is in progress, or the store is not there) or stopped on an error. The concurrency and pause are read when the run
  *  starts: a later save does not change a run going. */
-export async function runNightlyRebuild(origin: string, options: Partial<WalkOptions> = {}, io: Partial<RunIo> = {}): Promise<WalkTally | null> {
+export async function runNightlyRebuild(origin: string, options: Partial<WalkOptions> & { photos?: boolean } = {}, io: Partial<RunIo> = {}): Promise<WalkTally | null> {
   const d: RunIo = { ...defaultIo, ...io };
   const started = d.now();
   // Synchronous up to here: a second call in the same tick is refused, not queued.
@@ -336,12 +369,24 @@ export async function runNightlyRebuild(origin: string, options: Partial<WalkOpt
   let tally: WalkTally | null = null;
   let total: number | null = null;
   let concurrency: number | null = null;
+  // The base pause this run walked with (its own, else the saved or environment value): recorded with the run.
+  let basePause: number | null = null;
+  let photos = false;
+  const photoTotals: WarmTally = { converted: 0, kept: 0, failed: 0 };
   try {
     if (!(await d.storeReady())) {
       log.warn('[rebuild] skipped: the shell store is not available');
       return null;
     }
     await loadStored(d.settings);
+    // The run's own value wins, else the saved setting (the environment's default is off).
+    photos = options.photos ?? nightlyEffective().values.photos;
+    // The photo folder inside the page store's folder would be wiped by the store: no photos are made (imgRuntime logs why at startup).
+    if (photos && (await d.photosBlocked())) {
+      photos = false;
+      log.warn('[rebuild] photos not made: the photo folder is the page store folder or inside it');
+    }
+    setRunPhotos(photos);
     lastStart = started;
     unfinishedStart = null; // this run supersedes an interrupted one: it is in the record once it ends
     begun = true;
@@ -352,12 +397,31 @@ export async function runNightlyRebuild(origin: string, options: Partial<WalkOpt
     setRunTotal(total);
     log.info('[rebuild] sitemap read', { pages: paths.length });
     const env = walkSettings();
-    const walk: WalkOptions = { ...WALK_DEFAULTS, concurrency: env.concurrency, delayMs: env.pauseMs, ...options };
+    // An option the caller left out (undefined) takes the saved value, not an undefined that would overwrite it.
+    const { photos: _photos, ...given } = options;
+    const walk: WalkOptions = { ...WALK_DEFAULTS, concurrency: env.concurrency, delayMs: env.pauseMs, ...withoutUndefined(given) };
     concurrency = walk.concurrency;
+    basePause = walk.delayMs;
     setRunConcurrency(walk.concurrency);
     tally = await walkStorefront(paths, walk, {
       before: (path) => d.invalidatePath(path),
-      get: (path) => d.probe(origin, path),
+      get: (path) => d.probe(origin, path, photos),
+      // A page's photos are made once the page has settled, and never counted as a page's answer.
+      after: photos
+        ? async (_path, last, stop) => {
+            if (last.status !== 200 || !last.html) return;
+            try {
+              // stop is the walk's own: true once it has halted, so a page in flight makes no more photos then
+              const t = await d.warmPhotos(last.html, stop);
+              addRunPhotos(t);
+              photoTotals.converted += t.converted;
+              photoTotals.kept += t.kept;
+              photoTotals.failed += t.failed;
+            } catch (err) {
+              log.warn('[rebuild] photos of a page not made', { err });
+            }
+          }
+        : undefined,
       sleep: d.sleep,
       now: d.now,
       progress: (t) => log.info('[rebuild] progress', { ...t }),
@@ -398,6 +462,11 @@ export async function runNightlyRebuild(origin: string, options: Partial<WalkOpt
         stoppedEarly: tally?.stoppedEarly ?? errored,
         stoppedWhy: why,
         concurrency,
+        pauseMs: basePause,
+        photos,
+        photosConverted: photoTotals.converted,
+        photosKept: photoTotals.kept,
+        photosFailed: photoTotals.failed,
       };
       persisted.runs = [record, ...persisted.runs].slice(0, RUNS_KEPT);
       await persistStored(d.settings);

@@ -4,6 +4,24 @@ import { describe, expect, it } from 'vitest';
 import { buildShellAdminStatus, createTtlCache, parseShellAdminAction, type ShellAdminInput } from './shellAdmin';
 
 describe('parseShellAdminAction', () => {
+  it('takes the run options, each one checked: absent means the saved setting, a bad value is refused, never clamped', () => {
+    expect(parseShellAdminAction({ action: 'run', concurrency: 3, pauseMs: 0, photos: true })).toEqual({ action: 'run', concurrency: 3, pauseMs: 0, photos: true });
+    expect(parseShellAdminAction({ action: 'run', photos: false })).toEqual({ action: 'run', photos: false });
+    expect(parseShellAdminAction({ action: 'run' })).toEqual({ action: 'run' });
+    expect(parseShellAdminAction({ action: 'run', concurrency: 5 })).toBeNull();
+    expect(parseShellAdminAction({ action: 'run', concurrency: 0 })).toBeNull();
+    expect(parseShellAdminAction({ action: 'run', concurrency: 2.5 })).toBeNull();
+    expect(parseShellAdminAction({ action: 'run', concurrency: '2' })).toBeNull();
+    expect(parseShellAdminAction({ action: 'run', concurrency: null })).toBeNull();
+    expect(parseShellAdminAction({ action: 'run', pauseMs: 30_001 })).toBeNull();
+    expect(parseShellAdminAction({ action: 'run', pauseMs: -1 })).toBeNull();
+    expect(parseShellAdminAction({ action: 'run', photos: 'yes' })).toBeNull();
+  });
+
+  it('takes clear-photos', () => {
+    expect(parseShellAdminAction({ action: 'clear-photos' })).toEqual({ action: 'clear-photos' });
+  });
+
   it('takes the four actions, and refresh needs a product or category path', () => {
     expect(parseShellAdminAction({ action: 'run' })).toEqual({ action: 'run' });
     expect(parseShellAdminAction({ action: 'stop' })).toEqual({ action: 'stop' });
@@ -37,15 +55,53 @@ const input = (over: Partial<ShellAdminInput> = {}): ShellAdminInput => ({
     fresh: { productMs: 86_400_000, contentMs: 86_400_000, listingMs: 300_000, filteredMs: 120_000, hardMaxMs: 604_800_000, overrideMs: null },
   },
   scheduler: { why: null, at: '05:00', hasBase: true, nextRunAt: 2_000_000, lastStart: 900_000, lastEnd: 905_000, unfinishedStart: null },
-  run: { running: false, clearing: false, startedAt: null, total: null, visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0, pauseMs: null, lastPath: null, stopRequested: false, workers: null, concurrency: null },
+  run: { running: false, clearing: false, startedAt: null, total: null, visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0, pauseMs: null, lastPath: null, stopRequested: false, workers: null, concurrency: null, photos: false, photosConverted: 0, photosKept: 0, photosFailed: 0 },
+  photos: { files: 4, bytes: 9_000, at: 999_500, folder: 'durable' },
   settings: {
-    effective: { enabled: true, at: '05:00', concurrency: 2, pauseMs: 100, catchUp: true },
-    source: { enabled: 'env/default', at: 'env/default', concurrency: 'env/default', pauseMs: 'env/default', catchUp: 'env/default' },
+    effective: { enabled: true, at: '05:00', concurrency: 2, pauseMs: 100, catchUp: true, photos: false },
+    source: { enabled: 'env/default', at: 'env/default', concurrency: 'env/default', pauseMs: 'env/default', catchUp: 'env/default', photos: 'env/default' },
     saved: null,
   },
   runs: [],
   failures: [],
   ...over,
+});
+
+describe('buildShellAdminStatus: the photo fields', () => {
+  it('shows the photo count, its folder kind and when it was counted, at the top level', () => {
+    const s = buildShellAdminStatus(input());
+    expect(s.photos).toEqual({ files: 4, bytes: 9_000, at: 999_500, folder: 'durable' });
+  });
+
+  it('shows no count (null) before one has been made', () => {
+    const s = buildShellAdminStatus(input({ photos: { files: null, bytes: null, at: null, folder: 'temp' } }));
+    expect(s.photos).toEqual({ files: null, bytes: null, at: null, folder: 'temp' });
+  });
+
+  it('the run says whether it prepares photos and the three counts', () => {
+    const s = buildShellAdminStatus(input({ run: { ...input().run, running: true, photos: true, photosConverted: 3, photosKept: 2, photosFailed: 1 } }));
+    expect(s.run).toMatchObject({ photos: true, photosConverted: 3, photosKept: 2, photosFailed: 1 });
+  });
+
+  it('a run from before the photo fields shows null for them, and an old run in the list too', () => {
+    const old = { startedAt: 1, endedAt: 2, durationMs: 1000, total: 4, visited: 4, hits: 0, rendered: 4, gone: 0, failures: 0, stoppedEarly: false, stoppedWhy: null, concurrency: 2 };
+    const s = buildShellAdminStatus(input({ runs: [old] }));
+    expect(s.lastRun).toMatchObject({ photos: null, photosConverted: null, photosKept: null, photosFailed: null });
+    expect(s.recentRuns[0]).toMatchObject({ photos: null });
+  });
+
+  it('a run that did photos is listed with them, and its per-page estimate is not offered as comparable', () => {
+    const photoRun = { startedAt: 1, endedAt: 2, durationMs: 4000, total: 4, visited: 4, hits: 0, rendered: 4, gone: 0, failures: 0, stoppedEarly: false, stoppedWhy: null, concurrency: 2, photos: true, photosConverted: 5, photosKept: 1, photosFailed: 0 };
+    const s = buildShellAdminStatus(input({ runs: [photoRun] }));
+    expect(s.lastRun).toMatchObject({ photos: true, photosConverted: 5, photosKept: 1, photosFailed: 0 });
+    expect(s.settings.estimateMs).toBeNull();
+  });
+
+  it('the effective settings and their sources carry photos', () => {
+    const s = buildShellAdminStatus(input());
+    expect(s.settings.effective).toMatchObject({ photos: false });
+    expect(s.settings.source).toMatchObject({ photos: 'env/default' });
+  });
 });
 
 describe('buildShellAdminStatus', () => {
@@ -75,16 +131,17 @@ describe('buildShellAdminStatus', () => {
         fresh: { productMs: 86_400_000, contentMs: 86_400_000, listingMs: 300_000, filteredMs: 120_000, hardMaxMs: 604_800_000, overrideMs: null },
       },
       scheduler: { armed: true, why: null, at: '05:00', hasBase: true, nextRunAt: 2_000_000, lastStart: 900_000, lastEnd: 905_000, unfinishedStart: null },
-      run: { running: false, clearing: false, startedAt: null, total: null, visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0, pauseMs: null, lastPath: null, stopRequested: false, workers: null, concurrency: null },
+      run: { running: false, clearing: false, startedAt: null, total: null, visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0, pauseMs: null, lastPath: null, stopRequested: false, workers: null, concurrency: null, photos: false, photosConverted: 0, photosKept: 0, photosFailed: 0 },
       settings: {
-        effective: { enabled: true, at: '05:00', concurrency: 2, pauseMs: 100, catchUp: true },
-        source: { enabled: 'env/default', at: 'env/default', concurrency: 'env/default', pauseMs: 'env/default', catchUp: 'env/default' },
+        effective: { enabled: true, at: '05:00', concurrency: 2, pauseMs: 100, catchUp: true, photos: false },
+        source: { enabled: 'env/default', at: 'env/default', concurrency: 'env/default', pauseMs: 'env/default', catchUp: 'env/default', photos: 'env/default' },
         saved: null,
         estimateMs: null,
       },
       lastRun: null,
       recentRuns: [],
       failures: [],
+      photos: { files: 4, bytes: 9_000, at: 999_500, folder: 'durable' },
     });
   });
 
@@ -107,7 +164,7 @@ describe('buildShellAdminStatus', () => {
         ],
         settings: {
           ...input().settings,
-          effective: { enabled: true, at: '05:00', concurrency: 4, pauseMs: 100, catchUp: true },
+          effective: { enabled: true, at: '05:00', concurrency: 4, pauseMs: 100, catchUp: true, photos: false },
         },
         failures: [{ path: '/vara/a/', status: 500, at: 7 }],
       }),
@@ -117,6 +174,16 @@ describe('buildShellAdminStatus', () => {
     // 10 pages at 800 ms each, measured at 2 workers, estimated at 4 workers: 10 * 800 * 2 / 4 = 4000 ms.
     expect(s.settings.estimateMs).toBe(4000);
     expect(s.failures).toEqual([{ path: '/vara/a/', status: 500, at: 7 }]);
+  });
+
+  it('estimates from the last run only when it had the effective base pause and no photos', () => {
+    const last = { startedAt: 1, endedAt: 4001, durationMs: 4000, total: 10, visited: 5, hits: 2, rendered: 2, gone: 1, failures: 0, stoppedEarly: false, stoppedWhy: null, concurrency: 2 };
+    const at = (pauseMs: number) =>
+      buildShellAdminStatus(input({ runs: [{ ...last, pauseMs: 100 }], settings: { ...input().settings, effective: { ...input().settings.effective, concurrency: 4, pauseMs } } })).settings.estimateMs;
+    expect(at(100)).toBe(4000);
+    expect(at(250)).toBeNull(); // the last run walked with another base pause
+    const withPhotos = buildShellAdminStatus(input({ runs: [{ ...last, photos: true }] })).settings.estimateMs;
+    expect(withPhotos).toBeNull();
   });
 
   it('serialises to JSON without the store path or the key', () => {

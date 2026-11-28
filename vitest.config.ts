@@ -5,6 +5,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['src/**/*.test.{ts,tsx}'],
+    // No test writes into the storefront's real temp folders (see the file).
+    setupFiles: ['src/test/isolateTempFolders.ts'],
     exclude: ['**/node_modules/**', '**/.git/**', '**/.claude/**', 'dist/**'],
   },
 });

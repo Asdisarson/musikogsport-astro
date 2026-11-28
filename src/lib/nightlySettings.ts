@@ -18,9 +18,11 @@ export interface NightlySettings {
   pauseMs: number;
   /** Whether a run missed while no process was up is caught up within CATCH_UP_MS of its time. */
   catchUp: boolean;
+  /** Whether a run also prepares the photos its pages ask for (off: a run renders pages only, as before). */
+  photos: boolean;
 }
 
-export const SETTING_KEYS = ['enabled', 'at', 'concurrency', 'pauseMs', 'catchUp'] as const;
+export const SETTING_KEYS = ['enabled', 'at', 'concurrency', 'pauseMs', 'catchUp', 'photos'] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 export type SavedSettings = Partial<NightlySettings>;
 export type SettingSource = 'saved' | 'env/default';
@@ -32,12 +34,15 @@ export const CONCURRENCY_MAX = 4;
 
 const AT = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+const BOOLEAN_LABEL = { enabled: 'Kveikt', catchUp: 'Bæta upp keyrslu', photos: 'Myndir líka' } as const;
+
 /** The problem with one field's value, as Icelandic text, or null when it is fine. */
 export function fieldProblem(key: SettingKey, value: unknown): string | null {
   switch (key) {
     case 'enabled':
     case 'catchUp':
-      return typeof value === 'boolean' ? null : `${key === 'enabled' ? 'Kveikt' : 'Bæta upp keyrslu'} þarf að vera true eða false.`;
+    case 'photos':
+      return typeof value === 'boolean' ? null : `${BOOLEAN_LABEL[key]} þarf að vera true eða false.`;
     case 'at':
       return typeof value === 'string' && AT.test(value) ? null : 'Tíminn þarf að vera á forminu HH:MM (00:00 til 23:59).';
     case 'concurrency':
@@ -88,6 +93,7 @@ export function envDefaults(env: { at?: string; concurrency?: string; pauseMs?: 
       concurrency: c.value,
       pauseMs: p.value,
       catchUp: true,
+      photos: false,
     },
     problems: [at.problem, c.problem, p.problem].filter((x): x is string => x !== null),
   };
@@ -123,6 +129,14 @@ export interface RunRecord {
   stoppedEarly: boolean;
   stoppedWhy: 'failures' | 'stopped' | 'error' | null;
   concurrency: number | null;
+  /** The base pause the run walked with (absent in a record from before it): a run with its own pause is not a basis for
+   *  another run's estimate. */
+  pauseMs?: number | null;
+  /** Runs before the photo work (absent in a record from before it): whether this run prepared photos, and its counts. */
+  photos?: boolean | null;
+  photosConverted?: number | null;
+  photosKept?: number | null;
+  photosFailed?: number | null;
 }
 
 const COUNT_KEYS = ['visited', 'hits', 'rendered', 'gone', 'failures'] as const;
@@ -139,7 +153,24 @@ export function parseRun(x: unknown): RunRecord | null {
   if (r.concurrency !== null && fieldProblem('concurrency', r.concurrency) !== null) return null;
   if (typeof r.stoppedEarly !== 'boolean') return null;
   if (r.stoppedWhy !== null && r.stoppedWhy !== 'failures' && r.stoppedWhy !== 'stopped' && r.stoppedWhy !== 'error') return null;
+  // The photo fields are optional: a record from before them has none, and keeps none (no key at all).
+  const photo: Partial<RunRecord> = {};
+  for (const k of ['photosConverted', 'photosKept', 'photosFailed'] as const) {
+    if (r[k] === undefined) continue;
+    if (r[k] !== null && !isCount(r[k])) return null;
+    photo[k] = r[k] as number | null;
+  }
+  if (r.photos !== undefined) {
+    if (r.photos !== null && typeof r.photos !== 'boolean') return null;
+    photo.photos = r.photos as boolean | null;
+  }
+  // A manual run's own pause is not checked against the saved range: a record must not be dropped for it.
+  if (r.pauseMs !== undefined) {
+    if (r.pauseMs !== null && !(typeof r.pauseMs === 'number' && Number.isFinite(r.pauseMs) && r.pauseMs >= 0)) return null;
+    photo.pauseMs = r.pauseMs as number | null;
+  }
   return {
+    ...photo,
     startedAt: r.startedAt as number,
     endedAt: r.endedAt as number,
     durationMs: r.durationMs as number,
@@ -185,10 +216,14 @@ export function perPage(run: Pick<RunRecord, 'durationMs' | 'visited'>): { msPer
   return { msPerPage: run.durationMs / run.visited, pagesPerMinute: (run.visited * 60_000) / run.durationMs };
 }
 
-/** The duration (ms) of a run of every page at `concurrency` workers, estimated from the last run's measured time per page.
- *  The last run's workers scale it linearly. Null when the last run has no measure, or it did not record its workers. */
-export function estimateMs(last: RunRecord | null, concurrency: number): number | null {
+/** The duration (ms) of a run of every page at `concurrency` workers and base pause `pauseMs`, estimated from the last run's
+ *  measured time per page. The last run's workers scale it linearly. Null when the last run has no measure, did not record
+ *  its workers, prepared photos, or had a different base pause (its time per page is not this run's). A record from before
+ *  the pause was kept has no pause on record and estimates as before. */
+export function estimateMs(last: RunRecord | null, concurrency: number, pauseMs: number): number | null {
   if (!last || last.concurrency === null) return null;
+  if (last.photos === true) return null;
+  if (last.pauseMs !== undefined && last.pauseMs !== null && last.pauseMs !== pauseMs) return null;
   const { msPerPage } = perPage(last);
   if (msPerPage === null) return null;
   const pages = last.total ?? last.visited;
