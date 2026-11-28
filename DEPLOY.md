@@ -51,7 +51,7 @@ proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
 | `MOS_SHELL_REBUILD_BASE` | runtime | Optional, an `https://` (or `http://`, for a local run) origin: the one the nightly walk requests (only its origin is used). Default: `https://` plus the first host of `MOS_EXTRA_ALLOWED_HOSTS`, read from the run-time environment or, when that is unset, from the build-time value (so the build-time value is enough). Never the apex, which is behind the CDN cache. With neither, the nightly rebuild does nothing (the development server does nothing too). |
 | `MOS_SHELL_REBUILD_CONCURRENCY` | runtime | Optional, default `2`: how many pages the nightly walk renders at once, an integer `1` to `4`. Anything else gives `2` and a log line. Drops to `1` by itself while WordPress answers badly (see "Nightly rebuild"). |
 | `MOS_SHELL_REBUILD_PAUSE_MS` | runtime | Optional, default `100`: the base pause in milliseconds between renders, an integer `0` to `30000`. Anything else gives `100` and a log line. The pause doubles on each bad answer (from at least 100 ms, so a base of `0` still backs off to 200 ms, 400 ms and so on, up to 30 s) and halves back towards this value. |
-| `MOS_IMG_CACHE_DIR` | runtime | Optional. The folder the converted `/img/` files (AVIF and WebP) are kept in. Default: `mos-img` in the system temp directory (a reboot clears it; the files are made again on the next request). |
+| `MOS_IMG_CACHE_DIR` | runtime | Optional. The folder the converted `/img/` files (AVIF and WebP) are kept in. Default: `mos-img` in the system temp directory (a reboot empties it; the files are made again on the next request). **Set a durable folder before the first photo run** ("Myndir líka", see "Photos in a run" below), because the default temp folder is emptied on a reboot. It must not be `MOS_SHELL_DIR` or inside it: the page store removes every other folder under its own folder when it opens, so photos kept there would be lost, and a run then makes no photos (its log line says why). |
 | `MOS_SHELL_BASE` | `npm run shells` only | Optional, default `http://127.0.0.1:10026`: the origin the pre-build script visits. The server does not read it. On the server, pass `--base` instead (see "Pre-building pages"). |
 | `MOS_SHELL_POKE_KEY` | runtime | Optional. A shared secret for `POST /api/shell-refresh` and for the admin endpoint `/api/shell-admin` (where, without it, every request is refused: 403). Set the same value as the WordPress constant `MOS_SHELL_POKE_KEY` (in `wp-config.php`): WordPress then sends it as `X-Mos-Shell-Key`, and any other caller is refused (403) before it counts against a limit. Unset: the route stays open but bounded by the path budgets (see Rate limits). **Set it in production**: until it is set, any address can spend that budget. No secret is shared by WordPress and the storefront today (the only credential both hold is the WooCommerce key pair, which this route does not use), so generate a new one, for example `openssl rand -hex 32`, and put it in both places. Changing it needs a restart only. |
 
@@ -421,12 +421,15 @@ only the path of each sitemap URL is taken, and redirects are not followed). Two
 take paths from one shared queue; each worker waits for its page's refresh to end before it takes the next, so at most two renders run at once.
 The pause between renders is `MOS_SHELL_REBUILD_PAUSE_MS` (100 ms by default) per worker.
 
-**Settings and precedence.** The four `MOS_SHELL_REBUILD_*` variables above are the defaults. The WordPress page "Síðugeymsla"
-(card "Stillingar næturkeyrslu") saves five settings, which win over them: `enabled` (on or off), `at` (`HH:MM`, Reykjavík),
-`concurrency` (1 to 4), `pauseMs` (0 to 30000 milliseconds) and `catchUp` (whether a run missed while no process was up is
-caught up within three hours; off leaves only a five-minute grace after the time). The precedence, per field: a saved value;
-else the environment (an unset `MOS_SHELL_REBUILD_AT`, or `off`, is `enabled` false, with the time 05:00; a time in it is `enabled` true; a value that is neither a time nor `off` is `enabled` false too, with a log line); else the default. A field that is
-not saved falls back the same way. Out-of-range values are refused with a line of text, never clamped.
+**Settings and precedence.** The four `MOS_SHELL_REBUILD_*` variables above are the defaults. The WordPress page
+"Síðugeymsla" (card "Stillingar næturkeyrslu") saves six settings, which win over them: `enabled` (on or off), `at`
+(`HH:MM`, Reykjavík), `concurrency` (1 to 4), `pauseMs` (0 to 30000 milliseconds), `catchUp` (whether a run missed
+while no process was up is caught up within three hours; off leaves only a five-minute grace after the time), and
+`photos` (whether a run also prepares the photos its pages ask for, see "Photos in a run"). `photos` is off by default
+and has no environment variable, so it stays off until it is saved. The precedence, per field: a saved value; else the
+environment (an unset `MOS_SHELL_REBUILD_AT`, or `off`, is `enabled` false, with the time 05:00; a time in it is
+`enabled` true; a value that is neither a time nor `off` is `enabled` false too, with a log line); else the default. A
+field that is not saved falls back the same way. Out-of-range values are refused with a line of text, never clamped.
 The copy on the storefront is kept in `nightly-settings.json` beside the stamp file (in `MOS_SHELL_DIR`, or the temp folder), with
 the last seven runs, written whole and atomically. A save takes effect at once: a new time moves the next run, but a save never starts
 one. Switching the run off does not stop a walk already going; use "Stöðva keyrslu" for that.
@@ -454,11 +457,31 @@ The expected duration is about 4,100 pages, two at a time, at about 1 s per roun
 unmeasured estimate; the first real run's end line gives the true figure. It is longer when WordPress is slow, and the walk falls back to one
 page at a time while it is. Run it at the hour the shop is quietest and watch WordPress's response times for the first night after a change.
 
+**Photos in a run.** A run with "Myndir líka" on (for that run under "Keyra núna", or as the nightly setting) also
+makes the photos its pages ask for: every `/img/` address a rendered page names, in every width and both formats (AVIF
+and WebP) of the current version. This happens once the page has settled and before the pause, so it counts against
+"Síður í einu" and against the run's time. A photo that is kept already is skipped (checked by its file, not read). A
+photo that fails (its original is missing from WordPress, the conversion times out, or the queue is full) is counted
+as failed, never fails the page, and is not counted as a bad answer. A stop ("Stöðva keyrslu") takes effect between
+photos. The first full run is long and CPU-heavy: start it at a quiet hour with "Síður í einu" at 1, and watch
+WordPress's response times. A run has its own conversion queue, so visitors' conversions are not queued behind it. The
+photos are kept in `MOS_IMG_CACHE_DIR` (see Environment above); if that folder is the page-store folder or inside it,
+the run makes no photos.
+
+Deploy the storefront first, then `mos-shell-admin.php`. The photo controls appear only once the storefront reports
+photos. Against an older storefront the page hides the "Myndir líka" ticks and the photo card (the card says "Vefurinn
+kann ekki myndir enn: uppfærðu hann."), and it leaves photos out of what it sends. It still sends the pages at a time
+and the pause of "Keyra núna", which an older storefront ignores without an error, so that run then uses the saved
+values. Update the storefront before using those choices.
+
 **Admin endpoint and the "Síðugeymsla" page.** `GET /api/shell-admin` returns the store's and the nightly rebuild's status as
 JSON (`no-store`). `POST /api/shell-admin` takes `{"action": …}`:
 
-- `run`: starts the walk now (202). 409 with `error` `no-base` (no `MOS_SHELL_REBUILD_BASE` nor `MOS_EXTRA_ALLOWED_HOSTS`),
-  `store-off`, `running` (never a second run) or `clearing` (a clear is going). Works whether or not the nightly time is set.
+- `run`: starts the walk now (202). Optional `concurrency` (1 to 4), `pauseMs` (0 to 30000) and `photos` (`true` or
+  `false`) apply to this run only: a value left out takes the saved setting, and the saved settings are not changed. A
+  value out of range is 400, never clamped. 409 with `error` `no-base` (no `MOS_SHELL_REBUILD_BASE` nor
+  `MOS_EXTRA_ALLOWED_HOSTS`), `store-off`, `running` (never a second run) or `clearing` (a clear is going). Works
+  whether or not the nightly time is set.
 - `stop`: asks the walk to stop before its next page (202; the pause after the current page still runs first). 409 `not-running`.
 - `refresh` with `"path"`: marks one stored page stale, so the next visit renders it (200). The path must be a storefront
   product or category path (`/vara/nafn/`, `/verslun/flokkur/nafn/`); anything else, a full URL included, is 400.
@@ -466,31 +489,52 @@ JSON (`no-store`). `POST /api/shell-admin` takes `{"action": …}`:
   could not be removed; above zero, some may still be served, and the page warns. A clear holds the run slot, so a walk
   cannot start meanwhile. 409 `running` while a walk goes, `clearing` while another clear goes, `store-off` when the store
   is off.
+- `clear-photos`: removes the kept photos of this version, the files in the current version's folder under
+  `MOS_IMG_CACHE_DIR` (an older version's folder is left alone), and answers 200 with `removed` and `failed` (a file
+  already gone is not a failure; above zero, some may still be served). 409 `running` while a walk holds the run slot,
+  `clearing` while a clear goes. It works with the store off. The page offers it to administrators only.
 - `settings` with `"settings": {…}`: saves the nightly settings (200, with `settings` (the effective values), `source` (`saved` or
   `env/default` per field), `saved` and `persisted`). Any field may be left out (it then falls back to the environment); an unknown
   field, or a value out of range, is 400 with `problems` (one line of Icelandic text each) and nothing changes. `"settings": null`
   drops the saved copy. The body is the same JSON as the other actions.
 
-Without `MOS_SHELL_POKE_KEY` on the storefront every request answers 403, the GET and the POST alike. With it, WordPress sends the
-same value as `X-Mos-Shell-Key`. 120 keyed requests a minute per process (429 beyond); a body over 16 KB is refused (413).
-Disk counts are taken at most once a minute. The status fields: `store` (`on`, `build` (8 characters), `folder` (`durable` when
-`MOS_SHELL_DIR` is set, else `temp`; never the path), `pagesInMemory`, `pagesOnDisk`, `diskBytes`, `diskAt`, `fresh`),
-`scheduler` (`armed`, `why` (null when armed; else `store-off`, `off` (saved or environment), `no-base` or `waiting` for a first
-request), `at` (null when off), `hasBase`, `nextRunAt`, `lastStart`, `lastEnd`, `unfinishedStart` (the start of a run that never
-ended, null when none)), `settings` (`effective`: `enabled`, `at`,
-`concurrency`, `pauseMs`, `catchUp`; `source`: per field `saved` or `env/default`; `saved`: the saved copy or null; `estimateMs`:
-the estimated duration of a run of every page at the effective concurrency, from the last run's measured time per page, or null),
-`run` (`running`, `startedAt`, `total`, `visited`, `hits`, `rendered`, `gone`, `failures`, `pauseMs`, `lastPath`, `stopRequested`,
-`workers`, `concurrency`, `clearing` (true while a clear holds the slot)), `lastRun` (the newest of `recentRuns`, or null: `startedAt`, `endedAt`, `durationMs`, `total`, `visited`,
-`hits`, `rendered`, `gone`, `failures`, `stoppedEarly`, `stoppedWhy`, `concurrency`, `msPerPage`, `pagesPerMinute`), `recentRuns` (the
-last seven runs, newest first, the same fields) and `failures` (the last 20 bad answers, newest first: `path`, `status`, `at`).
+Without `MOS_SHELL_POKE_KEY` on the storefront every request answers 403, the GET and the POST alike. With it,
+WordPress sends the same value as `X-Mos-Shell-Key`. 120 keyed requests a minute per process (429 beyond); a body over
+16 KB is refused (413). Disk counts are taken at most once a minute. The status fields: `store` (`on`, `build` (8
+characters), `folder` (`durable` when `MOS_SHELL_DIR` is set, else `temp`; never the path), `pagesInMemory`,
+`pagesOnDisk`, `diskBytes`, `diskAt`, `fresh`), `scheduler` (`armed`, `why` (null when armed; else `store-off`, `off`
+(saved or environment), `no-base` or `waiting` for a first request), `at` (null when off), `hasBase`, `nextRunAt`,
+`lastStart`, `lastEnd`, `unfinishedStart` (the start of a run that never ended, null when none)), `settings`
+(`effective`: `enabled`, `at`, `concurrency`, `pauseMs`, `catchUp`, `photos`; `source`: per field `saved` or
+`env/default`; `saved`: the saved copy or null; `estimateMs`: the estimated duration of a run of every page at the
+effective concurrency, from the last run's measured time per page, or null, and also null when the last run prepared
+photos), `run` (`running`, `startedAt`, `total`, `visited`, `hits`, `rendered`, `gone`, `failures`, `pauseMs`,
+`lastPath`, `stopRequested`, `workers`, `concurrency`, `clearing` (true while a clear holds the slot), `photos` (this
+run prepares photos), `photosConverted`, `photosKept` and `photosFailed` (0 when no run is going or it prepares
+none)), `lastRun` (the newest of `recentRuns`, or null: `startedAt`, `endedAt`, `durationMs`, `total`, `visited`,
+`hits`, `rendered`, `gone`, `failures`, `stoppedEarly`, `stoppedWhy`, `concurrency`, `msPerPage`, `pagesPerMinute`,
+`photos`, `photosConverted`, `photosKept`, `photosFailed` (the last four null for a run recorded before photos)),
+`recentRuns` (the last seven runs, newest first, the same fields) and `failures` (the last 20 bad answers, newest
+first: `path`, `status`, `at`), and `photos` (the photo cache: `files` and `bytes`, null until the first count; `at`,
+when it was counted; `folder`, `durable` when `MOS_IMG_CACHE_DIR` is set, else `temp`; the count covers the current
+version only, skips files still being written, and is taken at most once a minute).
 
-The WordPress page "Síðugeymsla" (`wp-mu-plugins/mos-shell-admin.php`, a subpage of Stillingar, for those who may edit pages)
-reads that status with a 5 s timeout and sends the four actions through admin-post with nonces. It needs
-`MOS_SHELL_POKE_KEY` in `wp-config.php` (the same value as the storefront's) and `MOS_STOREFRONT_URL`. When the key is missing,
-the storefront does not answer, or it answers 403, the page explains what to set instead of the cards. The status is kept
-for 10 seconds in WordPress, and the page reloads itself every 15 seconds only while a run or a clear is going. Run now and clear need
-`manage_options` (administrators); stop and rebuild one page stay with editors.
+The WordPress page "Síðugeymsla" (`wp-mu-plugins/mos-shell-admin.php`, a subpage of Stillingar, for those who may edit
+pages) reads that status with a 5 s timeout and sends its actions through admin-post with nonces: run now (with that
+run's choices), stop, rebuild one page, clear the pages, clear the photos, and the nightly settings. It needs
+`MOS_SHELL_POKE_KEY` in `wp-config.php` (the same value as the storefront's) and `MOS_STOREFRONT_URL`. When the key is
+missing, the storefront does not answer, or it answers 403, the page explains what to set instead of the cards. The
+status is kept for 10 seconds in WordPress, and the page reloads itself every 15 seconds only while a run or a clear
+is going. Run now, clear the pages and clear the photos need `manage_options` (administrators); stop and rebuild one
+page stay with editors.
+
+The "Keyra núna" group takes that run's pages at a time (1 to 4), its pause in milliseconds and, when the storefront
+has photos, "Myndir líka". A value out of range is refused by the page and nothing is sent. The values start from the
+saved nightly settings and never change them. The "Myndir" card shows the photos the storefront keeps (files, disk use
+and folder, and while a run prepares photos, that run's converted, kept and failed counts) and "Tæma myndir", which
+needs its confirm tick and `manage_options`. A storefront that predates photos has no photo block in its status: the
+page then hides the photo controls, shows "Vefurinn kann ekki myndir enn: uppfærðu hann." in the photo card, and
+leaves `photos` out of what it sends.
 
 Cache-Control by response:
 
@@ -644,8 +688,11 @@ On the WordPress host, in this order. Each step has its check; stop at the first
    `mos-headless-mode.php`; without it the storefront is not told when a product is saved, and its pages stay stale
    until their lifetime ends. `mos-headless-mode.php` does nothing until `MOS_STOREFRONT_URL` is defined (step 4), so uploading
    it before cutover is safe; the others act at once but only add routes, fields and the wp-admin "Stillingar" page.
-   `mos-shell-poke.php` and `mos-shell-admin.php` changed in the latest round (a scheduled product going live pokes, and
-   the Síðugeymsla page reports a clear that left files behind): copy them again where a copy is already installed.
+   `mos-shell-poke.php` and `mos-shell-admin.php` changed in the round before the photo round (a scheduled product
+   going live pokes, and the Síðugeymsla page reports a clear that left files behind): copy them again where a copy is
+   already installed. `mos-shell-admin.php` changed again in the photo round (per-run choices on "Keyra núna", the
+   "Myndir líka" setting, the photo card with "Tæma myndir", a new look): copy it again where a copy is already
+   installed, after the storefront (see "Photos in a run" under Production hardening).
    `mos-catalog-clean.php` and `mos-shell-poke.php` changed again on 2026-11-20 (team, garment and brand from the
    product name; the fill now runs before the poke): copy both, together, and deploy the storefront first (it reloads
    the filter's term lists on a poke and sends old `?team=hsi` links on).

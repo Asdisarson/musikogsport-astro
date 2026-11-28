@@ -8,12 +8,15 @@
  *  with the shared key MOS_SHELL_POKE_KEY (X-Mos-Shell-Key). Without the key, or when the storefront does not answer or
  *  refuses it, the page explains what to set instead of the cards.
  *
- *  The nightly rebuild's settings (on or off, time, pages at a time, pause, catch-up) are saved here, in the option
+ *  The nightly rebuild's settings (on or off, time, pages at a time, pause, catch-up, photos) are saved here, in the option
  *  mos_shell_settings (never autoloaded), and sent to the storefront; the page re-sends them when the storefront has lost
- *  its copy (see mos_shell_admin_heal).
+ *  its copy (see mos_shell_admin_heal). "Keyra núna" takes its own pages-at-a-time, pause and photos for that one run
+ *  (prefilled from the saved values, never saved). The photo card shows the converted images the storefront keeps and
+ *  can clear them. A storefront that predates photos is detected by its status having no "photos" block: the photo
+ *  controls are then hidden and "photos" is left out of what is sent to it.
  *
  * Author: Músík og Sport
- * Version: 1.1.0
+ * Version: 1.2.0
  */
 
 declare(strict_types=1);
@@ -27,6 +30,7 @@ const MOS_SHELL_ADMIN_FAILURES = 20;
 const MOS_SHELL_ADMIN_WHY = ['store-off', 'off', 'no-base', 'waiting'];
 const MOS_SHELL_ADMIN_STOPPED = ['failures', 'stopped', 'error'];
 const MOS_SHELL_ADMIN_FOLDERS = ['durable', 'temp'];
+
 /** The status is read at most this often (seconds), whatever the number of open tabs: the storefront's limiter counts it. */
 const MOS_SHELL_ADMIN_TTL = 10;
 /** The page reloads itself this often (ms) while a run is going. */
@@ -41,7 +45,9 @@ const MOS_SHELL_ADMIN_PUSH_WAIT = 60;
  *  is removing (seconds; the reset clears it when done). */
 const MOS_SHELL_ADMIN_RESETTING = 'mos_shell_settings_resetting';
 const MOS_SHELL_ADMIN_RESET_HOLD = 60;
-const MOS_SHELL_ADMIN_SETTING_KEYS = ['enabled', 'at', 'concurrency', 'pauseMs', 'catchUp'];
+const MOS_SHELL_ADMIN_SETTING_KEYS = ['enabled', 'at', 'concurrency', 'pauseMs', 'catchUp', 'photos'];
+/** The settings every storefront takes. "photos" came later: a saved option without it counts as photos off. */
+const MOS_SHELL_ADMIN_SETTING_REQUIRED = ['enabled', 'at', 'concurrency', 'pauseMs', 'catchUp'];
 /** The finished runs the storefront keeps and the page lists (the same bound as src/lib/nightlySettings.ts RUNS_KEPT). */
 const MOS_SHELL_ADMIN_RUNS = 7;
 /** The bounds of the settings (the same as src/lib/nightlySettings.ts). */
@@ -106,6 +112,8 @@ function mos_shell_settings_problem(string $key, $v): ?string {
         case 'enabled':
         case 'catchUp':
             return is_bool($v) ? null : ($key === 'enabled' ? 'Kveikt' : 'Bæta upp keyrslu') . ' þarf að vera true eða false.';
+        case 'photos':
+            return is_bool($v) ? null : 'Myndir þurfa að vera true eða false.';
         case 'at':
             return is_string($v) && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $v) === 1 ? null : 'Tíminn þarf að vera á forminu HH:MM (00:00 til 23:59).';
         case 'concurrency':
@@ -127,6 +135,7 @@ function mos_shell_settings_from_form(array $post): array {
         'concurrency' => preg_match('/^\d+$/', $cRaw) === 1 ? (int) $cRaw : null,
         'pauseMs' => preg_match('/^\d{1,6}$/', $pRaw) === 1 ? (int) $pRaw : null,
         'catchUp' => (string) ($post['catchUp'] ?? '') === '1',
+        'photos' => (string) ($post['photos'] ?? '') === '1',
     ];
     $problems = [];
     foreach (MOS_SHELL_ADMIN_SETTING_KEYS as $key) {
@@ -140,6 +149,8 @@ function mos_shell_settings_from_form(array $post): array {
 function mos_shell_settings_canon(array $s): array {
     $out = [];
     foreach (MOS_SHELL_ADMIN_SETTING_KEYS as $key) {
+        // Photos are always present in the result: missing (an option from before photos) or not a bool means off.
+        if ($key === 'photos') { $out[$key] = ($s['photos'] ?? false) === true; continue; }
         if (array_key_exists($key, $s) && mos_shell_settings_problem($key, $s[$key]) === null) { $out[$key] = $s[$key]; }
     }
     return $out;
@@ -149,7 +160,10 @@ function mos_shell_settings_canon(array $s): array {
 function mos_shell_settings_full($v): ?array {
     if (!is_array($v)) { return null; }
     $c = mos_shell_settings_canon($v);
-    return count($c) === count(MOS_SHELL_ADMIN_SETTING_KEYS) ? $c : null;
+    foreach (MOS_SHELL_ADMIN_SETTING_REQUIRED as $key) {
+        if (!array_key_exists($key, $c)) { return null; }
+    }
+    return $c;
 }
 
 /** Whether the storefront's copy differs from the saved option. No option means nothing to send: false. A missing copy
@@ -171,6 +185,14 @@ function mos_shell_settings_should_push(?array $option, ?array $remote, ?int $fa
 /** The request that sends the saved settings, or clears the storefront's copy (null). Pure. */
 function mos_shell_settings_body(?array $values): array {
     return ['action' => 'settings', 'settings' => $values];
+}
+
+/** The settings as one storefront takes them: a storefront that predates photos refuses an unknown key and would reject the
+ *  whole save, so "photos" is left out for it. Null stays null (the copy is cleared). Pure. */
+function mos_shell_settings_for_storefront(?array $values, bool $hasPhotos): ?array {
+    if ($values === null || $hasPhotos) { return $values; }
+    unset($values['photos']);
+    return $values;
 }
 
 /** The notice key for a settings save or a reset, from the storefront's code and whether it kept the copy on disk (null when
@@ -219,7 +241,130 @@ function mos_shell_admin_run($l): ?array {
         'concurrency' => mos_shell_admin_int($l['concurrency'] ?? null),
         'msPerPage' => $num($l['msPerPage'] ?? null),
         'pagesPerMinute' => $num($l['pagesPerMinute'] ?? null),
+        'photos' => is_bool($l['photos'] ?? null) ? $l['photos'] : null,
+        'photosConverted' => mos_shell_admin_int($l['photosConverted'] ?? null),
+        'photosKept' => mos_shell_admin_int($l['photosKept'] ?? null),
+        'photosFailed' => mos_shell_admin_int($l['photosFailed'] ?? null),
     ];
+}
+
+/** The photo block of the status (store-side image cache), or null when the storefront does not report one (an older
+ *  storefront). The folder is durable or temp, nothing else. Pure. */
+function mos_shell_admin_photos_block($json): ?array {
+    $p = is_array($json) ? ($json['photos'] ?? null) : null;
+    if (!is_array($p)) { return null; }
+    $folder = $p['folder'] ?? null;
+    return [
+        'files' => mos_shell_admin_int($p['files'] ?? null),
+        'bytes' => mos_shell_admin_int($p['bytes'] ?? null),
+        'at' => mos_shell_admin_int($p['at'] ?? null),
+        'folder' => in_array($folder, MOS_SHELL_ADMIN_FOLDERS, true) ? $folder : null,
+    ];
+}
+
+/** The photo counts of a run as Icelandic text, or null when the run did not prepare photos (or the record predates them). Pure. */
+function mos_shell_admin_photos_text(?bool $on, ?int $converted, ?int $kept, ?int $failed): ?string {
+    if ($on !== true) { return null; }
+    return 'breytt: ' . ($converted ?? 0) . ', þegar í geymslu: ' . ($kept ?? 0) . ', mistókst: ' . ($failed ?? 0);
+}
+
+/** The folder the photos are kept in, as the photo card says it. Pure. */
+function mos_shell_admin_photo_folder_text(?string $folder): string {
+    return ['durable' => 'Varanleg mappa (MOS_IMG_CACHE_DIR)', 'temp' => 'Tímabundin mappa: tæmist við endurræsingu'][$folder ?? ''] ?? '–';
+}
+
+/** The one line the photo card shows for a storefront that does not know photos yet. Pure. */
+function mos_shell_admin_photos_old_text(): string {
+    return 'Vefurinn kann ekki myndir enn: uppfærðu hann.';
+}
+
+/** The warning under "Tæma myndir". Pure. */
+function mos_shell_admin_photos_warn(): string {
+    return 'Myndirnar verða umbreyttar aftur þegar gestir biðja um þær. Þangað til fá gestir upprunalegu, þyngri myndirnar.';
+}
+
+/** The photo card's rows: the stored photos, then the live run's counts while a run prepares photos (or that it does
+ *  not). An older storefront (no photo block) has none. Pure. */
+function mos_shell_admin_photo_rows(?array $p, bool $running, bool $runPhotos, ?int $converted, ?int $kept, ?int $failed): array {
+    if ($p === null) { return []; }
+    $rows = [
+        ['Geymdar myndir', $p['files'] === null ? '–' : (string) $p['files']],
+        ['Stærð á diski', $p['bytes'] === null ? '–' : mos_shell_admin_bytes($p['bytes'])],
+        ['Mappa', mos_shell_admin_photo_folder_text($p['folder'])],
+    ];
+    if ($running && $runPhotos) { $rows[] = ['Keyrsla núna', (string) mos_shell_admin_photos_text(true, $converted, $kept, $failed)]; }
+    elseif ($running) { $rows[] = ['Keyrsla núna', 'Þessi keyrsla undirbýr ekki myndir.']; }
+    return $rows;
+}
+
+/** The photo card's dot is busy while a run prepares photos or a clear goes. Pure. */
+function mos_shell_admin_photos_busy(bool $running, bool $runPhotos, bool $clearing): bool {
+    return ($running && $runPhotos) || $clearing;
+}
+
+/** The photo card's dot is on when the storefront keeps photos. Pure. */
+function mos_shell_admin_photos_ok(?array $p): bool {
+    return ($p['files'] ?? 0) > 0;
+}
+
+/** Whether the storefront has photos, from its fetched status: true (the status has a photo block), false (a status
+ *  without one: an older storefront), or null when there is no status to read (the call failed, or the answer was not a
+ *  status). Pure. */
+function mos_shell_admin_has_photos(?array $json): ?bool {
+    if (mos_shell_admin_parse($json) === null) { return null; }
+    return mos_shell_admin_photos_block($json) !== null;
+}
+
+/** The settings a save stores and sends, by the storefront's photo state. Null when the storefront could not be asked (the
+ *  save is refused and nothing is changed). An older storefront keeps the saved photos value, since the tick is not shown
+ *  to it. Pure. */
+function mos_shell_admin_settings_for_save(array $form, ?array $before, ?bool $hasPhotos): ?array {
+    if ($hasPhotos === null) { return null; }
+    if ($hasPhotos) { return $form; }
+    $form['photos'] = $before !== null ? mos_shell_settings_canon($before)['photos'] : false;
+    return $form;
+}
+
+/** The choices a run sends, by the storefront's photo state: none for an older storefront (it ignores them, so they would be
+ *  dropped without a word), all of them for one with photos, and null when the storefront could not be asked (the run is
+ *  refused). The values are the run form's as posted. Pure. */
+function mos_shell_admin_run_choices(?bool $hasPhotos, array $posted): ?array {
+    if ($hasPhotos === null) { return null; }
+    if (!$hasPhotos) { return []; }
+    $run = [];
+    foreach (['concurrency' => 'run_concurrency', 'pauseMs' => 'run_pauseMs'] as $key => $field) {
+        if (is_string($posted[$field] ?? null)) { $run[$key] = $posted[$field]; }
+    }
+    $run['photos'] = ($posted['run_photos'] ?? null) === '1';
+    return $run;
+}
+
+/** Whether the run form shows its own choices (pages at a time, pause, photos): only to a storefront that takes them. Pure. */
+function mos_shell_admin_run_shows_choices(bool $hasPhotos): bool {
+    return $hasPhotos;
+}
+
+/** The one line the run form shows in place of its choices, for a storefront that cannot take them. Pure. */
+function mos_shell_admin_run_old_text(): string {
+    return 'Vefurinn kann ekki val fyrir staka keyrslu enn: uppfærðu hann. Keyrslan notar vistuðu stillingarnar.';
+}
+
+/** The status dot's state: busy while a walk or a clear goes, else ok when on, else off. Pure. */
+function mos_shell_admin_dot_class(bool $ok, bool $busy): string {
+    if ($busy) { return 'busy'; }
+    return $ok ? 'ok' : 'off';
+}
+
+/** The two sentences under the page's title. Pure. */
+function mos_shell_admin_intro_text(): string {
+    return 'Hér sést hvaða síður vefsins eru geymdar tilbúnar og hvernig næturkeyrslan endurbyggir þær. '
+        . 'Hér keyrir þú hana núna, stillir hana fyrir nóttina eða tæmir geymsluna.';
+}
+
+/** The run form's starting values: the saved nightly values when there are some, else the storefront's effective ones. Pure. */
+function mos_shell_admin_run_defaults(?array $option, array $effective): array {
+    $v = $option !== null ? array_replace($effective, mos_shell_settings_canon($option)) : $effective;
+    return ['concurrency' => (int) $v['concurrency'], 'pauseMs' => (int) $v['pauseMs'], 'photos' => ($v['photos'] ?? false) === true];
 }
 
 /** The storefront's status JSON, checked and narrowed to the values the page uses. Anything that is not of the expected
@@ -252,7 +397,8 @@ function mos_shell_admin_parse($json): ?array {
         $src = is_array($set['source'] ?? null) ? $set['source'] : [];
         $source = [];
         foreach (MOS_SHELL_ADMIN_SETTING_KEYS as $key) { $source[$key] = ($src[$key] ?? null) === 'saved' ? 'saved' : 'env/default'; }
-        $saved = is_array($set['saved'] ?? null) ? mos_shell_settings_canon($set['saved']) : [];
+        // The saved copy as the storefront holds it; null when it holds none (only photos, which defaults, would be left).
+        $savedCanon = is_array($set['saved'] ?? null) ? mos_shell_settings_canon($set['saved']) : [];
         $settings = [
             'effective' => [
                 'enabled' => ($eff['enabled'] ?? false) === true,
@@ -260,9 +406,10 @@ function mos_shell_admin_parse($json): ?array {
                 'concurrency' => mos_shell_admin_int($eff['concurrency'] ?? null) ?? 2,
                 'pauseMs' => mos_shell_admin_int($eff['pauseMs'] ?? null) ?? 100,
                 'catchUp' => ($eff['catchUp'] ?? true) === true,
+                'photos' => ($eff['photos'] ?? false) === true,
             ],
             'source' => $source,
-            'saved' => $saved === [] ? null : $saved,
+            'saved' => array_diff_key($savedCanon, ['photos' => true]) === [] ? null : $savedCanon,
             'estimateMs' => mos_shell_admin_int($set['estimateMs'] ?? null),
         ];
     }
@@ -299,6 +446,12 @@ function mos_shell_admin_parse($json): ?array {
         'lastStart' => mos_shell_admin_int($sch['lastStart'] ?? null),
         'lastEnd' => mos_shell_admin_int($sch['lastEnd'] ?? null),
         'unfinishedStart' => mos_shell_admin_int($sch['unfinishedStart'] ?? null),
+        // The photo block (null from an older storefront) and what the live run does with photos.
+        'photos' => mos_shell_admin_photos_block($json),
+        'runPhotos' => ($run['photos'] ?? false) === true,
+        'runPhotosConverted' => mos_shell_admin_int($run['photosConverted'] ?? null),
+        'runPhotosKept' => mos_shell_admin_int($run['photosKept'] ?? null),
+        'runPhotosFailed' => mos_shell_admin_int($run['photosFailed'] ?? null),
         'running' => ($run['running'] ?? false) === true,
         'clearing' => ($run['clearing'] ?? false) === true,
         'startedAt' => mos_shell_admin_int($run['startedAt'] ?? null),
@@ -352,6 +505,11 @@ function mos_shell_admin_outcome(string $do, int $code, ?array $json = null): st
     }
     if ($do === 'stop') { return $code === 202 ? 'stop-sent' : ($code === 409 ? 'stop-refused' : 'failed'); }
     if ($do === 'refresh') { return $code === 200 ? 'refresh-done' : ($code === 409 ? 'refresh-refused' : 'failed'); }
+    if ($do === 'clearphotos') {
+        if ($code === 200) { return mos_shell_admin_int($json['failed'] ?? null) > 0 ? 'clearphotos-partial' : 'clearphotos-done'; }
+        if ($code !== 409) { return 'clearphotos-failed'; }
+        return $error === 'clearing' ? 'clearphotos-clearing' : 'clearphotos-running';
+    }
     if ($do === 'clear') {
         // A clear that left page files behind is a warning, not a success (the storefront answers the count).
         if ($code === 200) { return mos_shell_admin_int($json['failed'] ?? null) > 0 ? 'clear-partial' : 'clear-done'; }
@@ -432,6 +590,8 @@ function mos_shell_admin_last_run_rows(?array $lastRun, ?int $unfinishedStart, ?
             ['Síðasta keyrsla', mos_shell_admin_when($lastRun['startedAt']) . ', tók ' . mos_shell_admin_duration($lastRun['durationMs'])],
             ['Niðurstaða', $tally],
         ];
+        $photos = mos_shell_admin_photos_text($lastRun['photos'], $lastRun['photosConverted'], $lastRun['photosKept'], $lastRun['photosFailed']);
+        if ($photos !== null) { $rows[] = ['Myndir', $photos]; }
         $per = mos_shell_admin_per_page($lastRun['msPerPage'], $lastRun['pagesPerMinute']);
         if ($per !== null) { $rows[] = ['Mælt', $per]; }
         return $rows;
@@ -443,18 +603,19 @@ function mos_shell_admin_last_run_rows(?array $lastRun, ?int $unfinishedStart, ?
 /** Whether the user may send an action. Run and clear are for administrators (they walk every page, or empty the
  *  store); stop and a single page refresh stay with editors. Pure. */
 function mos_shell_admin_allowed(string $do, bool $manage): bool {
-    if ($do === 'run' || $do === 'clear' || $do === 'settings' || $do === 'defaults') { return $manage; }
+    if ($do === 'run' || $do === 'clear' || $do === 'clearphotos' || $do === 'settings' || $do === 'defaults') { return $manage; }
     return in_array($do, ['stop', 'refresh'], true);
 }
 
 /** The HTTP timeout (seconds) for a storefront call: a clear removes every page file, so it gets longer. Pure. */
 function mos_shell_admin_timeout(string $action): int {
-    return $action === 'clear' ? 30 : 5;
+    return in_array($action, ['clear', 'clear-photos'], true) ? 30 : 5;
 }
 
 /** The storefront request for a form's action: ['body' => …] to send, or ['notice' => key] when nothing is sent. Pure. */
-function mos_shell_admin_request(string $do, string $path, bool $confirmed): array {
-    if ($do === 'run' || $do === 'stop') { return ['body' => ['action' => $do]]; }
+function mos_shell_admin_request(string $do, string $path, bool $confirmed, array $run = []): array {
+    if ($do === 'run') { return mos_shell_admin_run_request($run); }
+    if ($do === 'stop') { return ['body' => ['action' => 'stop']]; }
     if ($do === 'refresh') {
         $p = mos_shell_admin_path($path);
         return $p === null ? ['notice' => 'refresh-bad-path'] : ['body' => ['action' => 'refresh', 'path' => $p]];
@@ -462,7 +623,35 @@ function mos_shell_admin_request(string $do, string $path, bool $confirmed): arr
     if ($do === 'clear') {
         return $confirmed ? ['body' => ['action' => 'clear']] : ['notice' => 'clear-unconfirmed'];
     }
+    if ($do === 'clearphotos') {
+        return $confirmed ? ['body' => ['action' => 'clear-photos']] : ['notice' => 'clearphotos-unconfirmed'];
+    }
     return ['notice' => 'unknown'];
+}
+
+/** The run request with this run's choices. A key is sent only when given (absent = the saved setting); a value that is not
+ *  in the storefront's bounds is refused as a notice, never clamped. Pure. */
+function mos_shell_admin_run_request(array $run): array {
+    $body = ['action' => 'run'];
+    if (($run['concurrency'] ?? null) !== null) {
+        $n = mos_shell_admin_number($run['concurrency']);
+        if (mos_shell_settings_problem('concurrency', $n) !== null) { return ['notice' => 'run-invalid']; }
+        $body['concurrency'] = $n;
+    }
+    if (($run['pauseMs'] ?? null) !== null) {
+        $n = mos_shell_admin_number($run['pauseMs']);
+        if (mos_shell_settings_problem('pauseMs', $n) !== null) { return ['notice' => 'run-invalid']; }
+        $body['pauseMs'] = $n;
+    }
+    if (($run['photos'] ?? null) !== null) { $body['photos'] = $run['photos'] === true; }
+    return ['body' => $body];
+}
+
+/** An int from a request value: an int, or a string of digits; anything else is null. Pure. */
+function mos_shell_admin_number($v): ?int {
+    if (is_int($v)) { return $v; }
+    if (is_string($v) && preg_match('/^\d{1,6}$/', $v) === 1) { return (int) $v; }
+    return null;
 }
 
 /** The text and the notice type ('success', 'warning' or 'error') for a notice key, or null. Pure. */
@@ -483,6 +672,14 @@ function mos_shell_admin_text(string $key): ?array {
         'settings-defaults-failed' => ['warning', 'Ekki tókst að eyða stillingunum á vefnum. Vistuðu stillingarnar gilda enn hér.'],
         'settings-resent' => ['info', 'Vefurinn hafði ekki vistuðu stillingarnar, svo þær voru sendar aftur.'],
         'refresh-refused' => ['warning', 'Ekki var hægt að merkja síðuna: geymslan er slökkt.'],
+        'storefront-unknown' => ['error', 'Vefurinn svaraði ekki, svo ekkert var sent. Prófaðu aftur.'],
+        'run-invalid' => ['error', 'Ekki var hægt að keyra: athugaðu gildin fyrir síður í einu og hlé (hlé 0 til 30000 ms). Ekkert var sent.'],
+        'clearphotos-done' => ['success', 'Myndirnar voru tæmdar. Þær verða umbreyttar aftur þegar gestir biðja um þær.'],
+        'clearphotos-partial' => ['warning', 'Myndirnar voru tæmdar, en ekki tókst að fjarlægja allar. Athugaðu villuskrá vefsins og reyndu aftur.'],
+        'clearphotos-running' => ['warning', 'Ekki var hægt að tæma myndir: keyrsla er í gangi. Bíddu þar til henni lýkur.'],
+        'clearphotos-clearing' => ['warning', 'Ekki var hægt að tæma myndir: tæming er þegar í gangi. Bíddu eftir henni.'],
+        'clearphotos-unconfirmed' => ['warning', 'Staðfestu að tæma myndirnar með gátreitnum.'],
+        'clearphotos-failed' => ['error', 'Ekki tókst að tæma myndirnar. Sjá villuskrá vefsins.'],
         'refresh-bad-path' => ['warning', 'Slóðin er ekki vörusíða eða flokkssíða vefsins, til dæmis /vara/nafn/ eða /verslun/flokkur/nafn/.'],
         'clear-done' => ['success', 'Geymslan var tæmd. Síðurnar endurbyggjast við heimsóknir.'],
         'clear-partial' => ['warning', 'Geymslan var tæmd, en ekki tókst að fjarlægja allar síður. Síður sem eftir eru gætu birst áfram þar til þær endurbyggjast. Athugaðu villuskrá vefsins og reyndu aftur.'],
@@ -540,23 +737,43 @@ function mos_shell_admin_register(): void {
 }
 
 function mos_shell_admin_css(): string {
-    return '
-.mos-sg { max-width: 1100px; }
-.mos-sg__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
-.mos-sg__card { background: #fff; border: 1px solid #dcdcde; border-radius: 4px; padding: 16px 20px; }
-.mos-sg__card h2 { margin: 0 0 12px; font-size: 16px; }
-.mos-sg__rows { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
-.mos-sg__rows dt { color: #646970; }
-.mos-sg__rows dd { margin: 0; }
-.mos-sg__meta { color: #646970; font-size: 12px; }
-.mos-sg progress { width: 100%; height: 14px; }
+    return <<<'CSS'
+.mos-sg { --mos-sg-line: #dcdcde; --mos-sg-ink: #1d2327; --mos-sg-meta: #646970; --mos-sg-warn: #8a2424; --mos-sg-accent: #2271b1; --mos-sg-ok: #00a32a; --mos-sg-busy: #dba617; --mos-sg-off: #a7aaad; max-width: 1164px; color: var(--mos-sg-ink); }
+.mos-sg__intro { max-width: 1164px; margin: 12px 0 16px; padding: 12px 16px; border-left: 4px solid var(--mos-sg-accent); background: #fff; font-size: 14px; }
+.mos-sg__cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (min-width: 1100px) { .mos-sg__cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.mos-sg__card { min-width: 0; padding: 16px 20px; border: 1px solid var(--mos-sg-line); border-radius: 8px; background: #fff; }
+.mos-sg__card h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--mos-sg-meta); }
+.mos-sg__card h3 { margin: 16px 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--mos-sg-meta); }
+.mos-sg__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--mos-sg-off); }
+.mos-sg__dot--ok { background: var(--mos-sg-ok); }
+.mos-sg__dot--busy { background: var(--mos-sg-busy); }
+.mos-sg__dot--off { background: var(--mos-sg-off); }
+.mos-sg__rows { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; }
+.mos-sg__rows dt { color: var(--mos-sg-meta); }
+.mos-sg__rows dd { margin: 0; overflow-wrap: anywhere; }
+.mos-sg__meta { margin: 6px 0 0; color: var(--mos-sg-meta); font-size: 12px; max-width: 72ch; }
+.mos-sg__warn { margin: 6px 0; color: var(--mos-sg-warn); }
+.mos-sg__group { margin: 0 0 16px; padding-top: 12px; border-top: 1px solid #f0f0f1; }
+.mos-sg__group:first-of-type { padding-top: 0; border-top: 0; }
+.mos-sg__group .button { margin: 0 6px 6px 0; }
+.mos-sg progress { width: 100%; height: 14px; margin: 8px 0 4px; }
+.mos-sg__scroll { max-width: 100%; overflow-x: auto; }
 .mos-sg table { width: 100%; border-collapse: collapse; }
-.mos-sg td, .mos-sg th { text-align: left; padding: 4px 6px; border-bottom: 1px solid #f0f0f1; vertical-align: top; }
-.mos-sg__warn { color: #8a2424; }
-.mos-sg form { margin: 0 0 12px; }
+.mos-sg td, .mos-sg th { padding: 4px 6px; text-align: left; font-size: 13px; vertical-align: top; border-bottom: 1px solid #f0f0f1; }
+.mos-sg form { margin: 0 0 14px; }
 .mos-sg__field { margin: 0 0 14px; }
-.mos-sg__field .mos-sg__meta { margin: 4px 0 0; }
-';
+.mos-sg__field .mos-sg__meta { margin-top: 4px; }
+.mos-sg input.regular-text { width: 100%; max-width: 100%; box-sizing: border-box; }
+.mos-sg__group input.regular-text { margin: 4px 0 8px; }
+.mos-sg input[type=number].small-text { width: 7em; max-width: 100%; }
+.mos-sg select, .mos-sg input[type=time] { max-width: 100%; }
+@media (max-width: 480px) {
+    .mos-sg__card { padding: 14px 14px; }
+    .mos-sg__rows { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    .mos-sg__rows dd { margin-bottom: 6px; }
+}
+CSS;
 }
 
 /** The page's state: the status, or the problem to explain instead of it. */
@@ -582,7 +799,8 @@ function mos_shell_admin_fetch(): array {
  *  is not pushed to. */
 function mos_shell_admin_heal(array &$status): bool {
     if ($status['settings'] === null) { return false; }
-    $option = mos_shell_settings_full(get_option(MOS_SHELL_ADMIN_SETTINGS, null));
+    $hasPhotos = $status['photos'] !== null;
+    $option = mos_shell_settings_for_storefront(mos_shell_settings_full(get_option(MOS_SHELL_ADMIN_SETTINGS, null)), $hasPhotos);
     $failed = get_transient(MOS_SHELL_ADMIN_PUSH_FAILED);
     $held = get_transient(MOS_SHELL_ADMIN_RESETTING) !== false;
     if (!mos_shell_settings_should_push($option, $status['settings']['saved'], is_int($failed) ? $failed : null, time(), $held)) { return false; }
@@ -596,6 +814,15 @@ function mos_shell_admin_heal(array &$status): bool {
     return false;
 }
 
+/** Whether the storefront has photos (its status has the "photos" block): true, false, or null when it could not be asked.
+ *  Read from the cached status when there is one (a cached status is always a real read), else asked now. */
+function mos_shell_admin_storefront_has_photos(): ?bool {
+    $cached = get_transient(MOS_SHELL_ADMIN_CACHE);
+    if (is_array($cached)) { return ($cached['photos'] ?? null) !== null; }
+    $res = mos_shell_admin_call('GET');
+    return mos_shell_admin_has_photos($res['code'] === 200 ? $res['json'] : null);
+}
+
 function mos_shell_admin_notice_html(string $type, string $text): string {
     return '<div class="notice notice-' . esc_attr($type) . ' inline"><p>' . esc_html($text) . '</p></div>';
 }
@@ -603,7 +830,7 @@ function mos_shell_admin_notice_html(string $type, string $text): string {
 function mos_shell_admin_render(): void {
     if (!current_user_can('edit_pages')) { wp_die('Þú hefur ekki heimild til þessa.', 'Síðugeymsla', ['response' => 403]); }
     $key = isset($_GET['mos_notice']) ? sanitize_key((string) wp_unslash($_GET['mos_notice'])) : '';
-    echo '<div class="wrap mos-sg"><h1>Síðugeymsla</h1><style>' . mos_shell_admin_css() . '</style>';
+    echo '<div class="wrap mos-sg"><h1>Síðugeymsla</h1><p class="mos-sg__intro">' . esc_html(mos_shell_admin_intro_text()) . '</p><style>' . mos_shell_admin_css() . '</style>';
     $notice = mos_shell_admin_text($key);
     if ($notice !== null) { echo mos_shell_admin_notice_html($notice[0], $notice[1]); }
 
@@ -624,6 +851,7 @@ function mos_shell_admin_render(): void {
     mos_shell_admin_card_nightly($s);
     mos_shell_admin_card_settings($s, current_user_can('manage_options'));
     mos_shell_admin_card_actions($s);
+    mos_shell_admin_card_photos($s);
     echo '</div>';
     if (mos_shell_admin_reloads($s['running'], $s['clearing'])) {
         // Auto-refresh while a walk or a clear goes, on the clean page address (no notice to show twice); the guard
@@ -631,6 +859,12 @@ function mos_shell_admin_render(): void {
         echo mos_shell_admin_reload_script(admin_url('admin.php?page=' . MOS_SHELL_ADMIN_SLUG), MOS_SHELL_ADMIN_RELOAD_MS);
     }
     echo '</div>';
+}
+
+/** The status dot before a card's heading: green when on, yellow while something goes, grey when off. Its meaning is in the
+ *  rows beside it, so it is hidden from screen readers. */
+function mos_shell_admin_dot(bool $ok, bool $busy): string {
+    return '<span class="mos-sg__dot mos-sg__dot--' . esc_attr(mos_shell_admin_dot_class($ok, $busy)) . '" aria-hidden="true"></span>';
 }
 
 function mos_shell_admin_row(string $label, string $value): string {
@@ -643,7 +877,8 @@ function mos_shell_admin_card_overview(array $s): void {
     $life = 'Vörusíður ' . mos_shell_admin_duration($fresh['productMs']) . ', listar ' . mos_shell_admin_duration($fresh['listingMs'])
         . ', síur ' . mos_shell_admin_duration($fresh['filteredMs']) . ', hámark ' . mos_shell_admin_duration($fresh['hardMaxMs']);
     if ($fresh['overrideMs'] !== null) { $life .= '. MOS_SHELL_FRESH_MS yfirskrifar: ' . mos_shell_admin_duration($fresh['overrideMs']); }
-    echo '<section class="mos-sg__card"><h2>Yfirlit</h2><dl class="mos-sg__rows">';
+    $busy = $s['running'] || $s['clearing'];
+    echo '<section class="mos-sg__card"><h2>' . mos_shell_admin_dot($s['on'], $busy) . 'Yfirlit</h2><dl class="mos-sg__rows">';
     echo mos_shell_admin_row('Geymsla', $s['on'] ? 'Kveikt' : 'Slökkt');
     echo mos_shell_admin_row('Síður í minni', (string) $s['pagesInMemory']);
     echo mos_shell_admin_row('Síður á diski', $s['pagesOnDisk'] === null ? '–' : (string) $s['pagesOnDisk']);
@@ -657,7 +892,8 @@ function mos_shell_admin_card_overview(array $s): void {
 }
 
 function mos_shell_admin_card_nightly(array $s): void {
-    echo '<section class="mos-sg__card"><h2>Næturkeyrsla' . ($s['at'] !== null ? ' (' . esc_html($s['at']) . ')' : '') . '</h2>';
+    echo '<section class="mos-sg__card"><h2>' . mos_shell_admin_dot($s['armed'], $s['running'] || $s['clearing'])
+        . 'Næturkeyrsla' . ($s['at'] !== null ? ' (' . esc_html($s['at']) . ')' : '') . '</h2>';
     $source = $s['settings']['source']['enabled'] ?? 'env/default';
     $state = $s['armed'] ? 'Virk.' : (mos_shell_admin_why_text($s['why'], $source) ?? 'Óvirk.');
     echo '<p>' . esc_html($state) . '</p><dl class="mos-sg__rows">';
@@ -668,29 +904,30 @@ function mos_shell_admin_card_nightly(array $s): void {
     echo '</dl>';
     if ($s['running']) { mos_shell_admin_progress($s); }
     if ($s['runs'] !== []) {
-        echo '<h3>Síðustu keyrslur</h3><table><thead><tr><th>Byrjun</th><th>Tími</th><th>Síður</th><th>Endurbyggðar</th><th>Villur</th><th>Stöðvun</th></tr></thead><tbody>';
+        echo '<h3>Síðustu keyrslur</h3><div class="mos-sg__scroll"><table><thead><tr><th>Byrjun</th><th>Tími</th><th>Síður</th><th>Endurbyggðar</th><th>Villur</th><th>Stöðvun</th><th>Myndir</th></tr></thead><tbody>';
         foreach ($s['runs'] as $r) {
             $stop = mos_shell_admin_stop_text($r['stoppedEarly'], $r['stoppedWhy']);
             echo '<tr><td>' . esc_html(mos_shell_admin_when($r['startedAt'])) . '</td><td>' . esc_html(mos_shell_admin_duration($r['durationMs'])) . '</td>'
                 . '<td>' . esc_html((string) $r['visited']) . '</td><td>' . esc_html((string) $r['rendered']) . '</td>'
-                . '<td>' . esc_html((string) $r['failures']) . '</td><td>' . esc_html($stop) . '</td></tr>';
+                . '<td>' . esc_html((string) $r['failures']) . '</td><td>' . esc_html($stop) . '</td>'
+                . '<td>' . esc_html(mos_shell_admin_photos_text($r['photos'], $r['photosConverted'], $r['photosKept'], $r['photosFailed']) ?? '–') . '</td></tr>';
         }
-        echo '</tbody></table>';
+        echo '</tbody></table></div>';
     }
     if ($s['failureList'] !== []) {
-        echo '<h3>Nýlegar villur</h3><table><thead><tr><th>Slóð</th><th>Svar</th><th>Tími</th></tr></thead><tbody>';
+        echo '<h3>Nýlegar villur</h3><div class="mos-sg__scroll"><table><thead><tr><th>Slóð</th><th>Svar</th><th>Tími</th></tr></thead><tbody>';
         foreach ($s['failureList'] as $f) {
             $answer = $f['status'] === 0 ? 'ekkert svar' : (string) $f['status'];
             $when = $f['at'] === null ? '–' : mos_shell_admin_when($f['at']);
             echo '<tr><td>' . esc_html($f['path']) . '</td><td>' . esc_html($answer) . '</td><td>' . esc_html($when) . '</td></tr>';
         }
-        echo '</tbody></table>';
+        echo '</tbody></table></div>';
     }
     echo '</section>';
 }
 
 function mos_shell_admin_why_text(?string $why, string $source = 'env/default'): ?string {
-    $off = $source === 'saved' ? 'Slökkt í stillingunum hér að neðan.' : 'Slökkt (sjálfgefið). Kveiktu á henni í stillingunum hér til hliðar.';
+    $off = $source === 'saved' ? 'Slökkt í stillingunum hér á síðunni.' : 'Slökkt (sjálfgefið). Kveiktu á henni í stillingunum hér á síðunni.';
     return [
         'store-off' => 'Geymslan er slökkt, svo næturkeyrslan gerir ekkert.',
         'off' => $off,
@@ -720,6 +957,12 @@ function mos_shell_admin_progress(array $s): void {
     if ($s['pauseMs'] !== null) { echo 'Hlé: ' . esc_html(mos_shell_admin_pause($s['pauseMs'])) . '. '; }
     if ($s['stopRequested']) { echo '<span class="mos-sg__warn">Stöðvun beðin: stöðvast eftir núverandi síðu.</span>'; }
     echo '</p>';
+    // A storefront that predates photos says nothing about them here.
+    if ($s['photos'] !== null) {
+        echo '<p class="mos-sg__meta">' . ($s['runPhotos']
+            ? 'Myndir: já, þessi keyrsla undirbýr þær (' . esc_html((string) mos_shell_admin_photos_text(true, $s['runPhotosConverted'], $s['runPhotosKept'], $s['runPhotosFailed'])) . ').'
+            : 'Myndir: nei, þessi keyrsla undirbýr ekki myndir.') . '</p>';
+    }
 }
 
 /** One settings control with its one-sentence explanation under it. */
@@ -765,6 +1008,12 @@ function mos_shell_admin_card_settings(array $s, bool $manage): void {
         '<label><input type="checkbox" name="catchUp" value="1"' . ($v['catchUp'] ? ' checked' : '') . $dis . '> Bæta upp keyrslu sem missist</label>',
         'Ef enginn vefþjónn var uppi um tímann keyrir hann næturkeyrsluna þegar hann vaknar, innan þriggja klukkustunda. Slökkt: aðeins fimm mínútur eftir tímann.'
     );
+    if ($s['photos'] !== null) {
+        echo mos_shell_admin_field(
+            '<label><input type="checkbox" name="photos" value="1"' . ($v['photos'] ? ' checked' : '') . $dis . '> Myndir líka</label>',
+            'Næturkeyrslan endurbyggir líka myndirnar sem síðurnar biðja um, allar stærðir og bæði snið. Slökkt sjálfgefið: myndir eru þá umbreyttar fyrst þegar gestir biðja um þær.'
+        );
+    }
     $est = $s['settings']['estimateMs'];
     if ($est !== null) {
         echo '<p class="mos-sg__meta">Áætluð lengd keyrslu: ' . esc_html(mos_shell_admin_duration($est))
@@ -784,30 +1033,96 @@ function mos_shell_admin_card_actions(array $s): void {
     $manage = current_user_can('manage_options');
     $can_run = mos_shell_admin_may_run($s['on'], $s['hasBase'], $s['running'], $s['clearing'], $manage);
     $may_clear = mos_shell_admin_may_clear($manage, $s['clearing']);
+    $dis = $can_run ? '' : ' disabled';
+    // The run form starts from the saved nightly values, or the storefront's when none are saved. It sends them for this run only.
+    $effective = $s['settings']['effective'] ?? ['enabled' => false, 'at' => '05:00', 'concurrency' => 2, 'pauseMs' => 100, 'catchUp' => true, 'photos' => false];
+    $run = mos_shell_admin_run_defaults(mos_shell_settings_full(get_option(MOS_SHELL_ADMIN_SETTINGS, null)), $effective);
     echo '<section class="mos-sg__card"><h2>Aðgerðir</h2>';
     if (!$manage) { echo '<p class="mos-sg__meta">Keyrsla og tæming eru fyrir stjórnendur.</p>'; }
     $clearing = mos_shell_admin_clearing_notice($s['clearing']);
     if ($clearing !== null) { echo '<p class="mos-sg__warn">' . esc_html($clearing) . '</p>'; }
+
+    // Keyra núna: this run's pages at a time, pause and photos (the saved settings are not changed).
+    $options = '';
+    for ($n = 1; $n <= MOS_SHELL_ADMIN_CONCURRENCY_MAX; $n++) {
+        $options .= '<option value="' . $n . '"' . ($run['concurrency'] === $n ? ' selected' : '') . '>' . $n . '</option>';
+    }
+    echo '<div class="mos-sg__group"><h3>Keyra núna</h3>';
     echo '<form method="post" action="' . $url . '">' . $nonce
-        . '<input type="hidden" name="action" value="mos_shell_admin_do"><input type="hidden" name="do" value="run">'
-        . '<button type="submit" class="button button-primary"' . ($can_run ? '' : ' disabled') . '>Keyra núna</button></form>';
+        . '<input type="hidden" name="action" value="mos_shell_admin_do"><input type="hidden" name="do" value="run">';
+    // A storefront that predates photos ignores the run's own choices, so they are not offered to it.
+    if (mos_shell_admin_run_shows_choices($s['photos'] !== null)) {
+        echo mos_shell_admin_field(
+            '<label for="mos-sg-run-concurrency">Síður í einu</label> <select id="mos-sg-run-concurrency" name="run_concurrency"' . $dis . '>' . $options . '</select>',
+            'Gildir aðeins fyrir þessa keyrslu. Vistuðu næturstillingunum er ekki breytt.'
+        );
+        echo mos_shell_admin_field(
+            '<label for="mos-sg-run-pause">Hlé milli síðna (ms)</label> <input type="number" id="mos-sg-run-pause" name="run_pauseMs" min="0" max="' . MOS_SHELL_ADMIN_PAUSE_MAX
+            . '" step="1" value="' . (int) $run['pauseMs'] . '" class="small-text" required' . $dis . '>',
+            'Í millisekúndum, 0 til ' . MOS_SHELL_ADMIN_PAUSE_MAX . '.'
+        );
+        echo mos_shell_admin_field(
+            '<label><input type="checkbox" name="run_photos" value="1"' . ($run['photos'] ? ' checked' : '') . $dis . '> Myndir líka</label>',
+            'Undirbýr líka myndirnar sem síðurnar biðja um. Tekur lengri tíma og notar meiri örgjörva.'
+        );
+    } else {
+        echo '<p class="mos-sg__meta">' . esc_html(mos_shell_admin_run_old_text()) . '</p>';
+    }
+    echo '<button type="submit" class="button button-primary"' . $dis . '>Keyra núna</button></form>';
     if (mos_shell_admin_may_stop($s['running'], $s['clearing'])) {
         echo '<form method="post" action="' . $url . '">' . $nonce
             . '<input type="hidden" name="action" value="mos_shell_admin_do"><input type="hidden" name="do" value="stop">'
             . '<button type="submit" class="button">Stöðva keyrslu</button></form>';
     }
+    echo '</div>';
+
+    // One page.
+    echo '<div class="mos-sg__group"><h3>Ein síða</h3>';
     echo '<form method="post" action="' . $url . '">' . $nonce
         . '<input type="hidden" name="action" value="mos_shell_admin_do"><input type="hidden" name="do" value="refresh">'
         . '<label for="mos-sg-path">Slóð síðu</label> <input type="text" id="mos-sg-path" name="path" class="regular-text" '
         . 'placeholder="/vara/nafn-vorunnar/" maxlength="' . MOS_SHELL_ADMIN_PATH_MAX . '"> '
         . '<button type="submit" class="button">Endurbyggja síðu</button>'
         . '<p class="mos-sg__meta">Síðan er endurbyggð við næstu heimsókn. Slóð úr vefslóð (https://…) gengur líka.</p></form>';
+    echo '</div>';
+
+    // Clear the store (pages). Photos have their own card.
+    echo '<div class="mos-sg__group"><h3>Tæma geymslu</h3>';
     echo '<form method="post" action="' . $url . '">' . $nonce
         . '<input type="hidden" name="action" value="mos_shell_admin_do"><input type="hidden" name="do" value="clear">'
         . '<p class="mos-sg__warn">Tæmir allar geymdar síður. Hver síða verður þá endurbyggð við sína heimsókn, og vefurinn '
         . 'verður hægari meðan það gerist. Þetta verður ekki afturkallað.</p>'
-        . '<label><input type="checkbox" name="confirm" value="1"' . ($may_clear ? ' required' : ' disabled') . '> Ég vil tæma geymsluna</label><br>'
-        . '<button type="submit" class="button button-secondary" style="margin-top:8px"' . ($may_clear ? '' : ' disabled') . '>Tæma geymslu</button></form>';
+        . '<label><input type="checkbox" name="confirm" value="1"' . ($may_clear ? ' required' : ' disabled') . '> Ég vil tæma geymsluna</label>'
+        . '<p><button type="submit" class="button button-secondary"' . ($may_clear ? '' : ' disabled') . '>Tæma geymslu</button></p></form>';
+    echo '</div>';
+    echo '</section>';
+}
+
+/** The photo card: the converted images the storefront keeps, their disk use and folder, and the clear for them. A
+ *  storefront that predates photos gets one line instead. */
+function mos_shell_admin_card_photos(array $s): void {
+    $p = $s['photos'];
+    $busy = mos_shell_admin_photos_busy($s['running'], $s['runPhotos'], $s['clearing']);
+    echo '<section class="mos-sg__card"><h2>' . mos_shell_admin_dot(mos_shell_admin_photos_ok($p), $busy) . 'Myndir</h2>';
+    if ($p === null) {
+        echo '<p class="mos-sg__meta">' . esc_html(mos_shell_admin_photos_old_text()) . '</p></section>';
+        return;
+    }
+    $manage = current_user_can('manage_options');
+    $url = esc_url(admin_url('admin-post.php'));
+    $nonce = wp_nonce_field('mos_shell_admin_do', '_wpnonce', true, false);
+    $may_clear = mos_shell_admin_may_clear($manage, $s['clearing']);
+    echo '<dl class="mos-sg__rows">';
+    foreach (mos_shell_admin_photo_rows($p, $s['running'], $s['runPhotos'], $s['runPhotosConverted'], $s['runPhotosKept'], $s['runPhotosFailed']) as [$label, $value]) {
+        echo mos_shell_admin_row($label, $value);
+    }
+    echo '</dl>';
+    if ($p['at'] !== null) { echo '<p class="mos-sg__meta">Talning frá ' . esc_html(mos_shell_admin_when($p['at'])) . ', uppfærð einu sinni á mínútu.</p>'; }
+    echo '<div class="mos-sg__group"><form method="post" action="' . $url . '">' . $nonce
+        . '<input type="hidden" name="action" value="mos_shell_admin_do"><input type="hidden" name="do" value="clearphotos">'
+        . '<p class="mos-sg__warn">' . esc_html(mos_shell_admin_photos_warn()) . '</p>'
+        . '<label><input type="checkbox" name="confirm" value="1"' . ($may_clear ? ' required' : ' disabled') . '> Ég vil tæma myndirnar</label>'
+        . '<p><button type="submit" class="button button-secondary"' . ($may_clear ? '' : ' disabled') . '>Tæma myndir</button></p></form></div>';
     echo '</section>';
 }
 
@@ -816,8 +1131,13 @@ function mos_shell_admin_card_actions(array $s): void {
 function mos_shell_admin_save_settings(): string {
     $form = mos_shell_settings_from_form(wp_unslash($_POST));
     if ($form['problems'] !== []) { return 'settings-invalid'; }
-    update_option(MOS_SHELL_ADMIN_SETTINGS, $form['values'], false);
-    $res = mos_shell_admin_call('POST', mos_shell_settings_body($form['values']));
+    $hasPhotos = mos_shell_admin_storefront_has_photos();
+    $before = get_option(MOS_SHELL_ADMIN_SETTINGS, null);
+    $values = mos_shell_admin_settings_for_save($form['values'], is_array($before) ? $before : null, $hasPhotos);
+    // The storefront could not be asked, so it is not known whether it takes photos: nothing is changed or sent.
+    if ($values === null) { return 'storefront-unknown'; }
+    update_option(MOS_SHELL_ADMIN_SETTINGS, $values, false);
+    $res = mos_shell_admin_call('POST', mos_shell_settings_body(mos_shell_settings_for_storefront($values, $hasPhotos === true)));
     if ($res['code'] === 200) { delete_transient(MOS_SHELL_ADMIN_PUSH_FAILED); }
     else { set_transient(MOS_SHELL_ADMIN_PUSH_FAILED, time(), MOS_SHELL_ADMIN_PUSH_WAIT); }
     delete_transient(MOS_SHELL_ADMIN_CACHE);
@@ -849,13 +1169,18 @@ function mos_shell_admin_handle(): void {
     $do = isset($_POST['do']) ? sanitize_key((string) wp_unslash($_POST['do'])) : '';
     $path = isset($_POST['path']) ? (string) wp_unslash($_POST['path']) : '';
     $confirmed = isset($_POST['confirm']) && (string) wp_unslash($_POST['confirm']) === '1';
-    $req = mos_shell_admin_request($do, $path, $confirmed);
+    // This run's choices, by what the storefront takes (the run form's own field names, so they never meet the settings
+    // form's). Null when the storefront could not be asked: the run is refused.
+    $run = $do === 'run' ? mos_shell_admin_run_choices(mos_shell_admin_storefront_has_photos(), wp_unslash($_POST)) : [];
+    $req = mos_shell_admin_request($do, $path, $confirmed, $run ?? []);
     if (!mos_shell_admin_allowed($do, current_user_can('manage_options'))) {
         $key = 'not-allowed';
     } elseif ($do === 'settings') {
         $key = mos_shell_admin_save_settings();
     } elseif ($do === 'defaults') {
         $key = mos_shell_admin_reset_settings();
+    } elseif ($run === null) {
+        $key = 'storefront-unknown';
     } elseif (isset($req['notice'])) {
         $key = $req['notice'];
     } else {

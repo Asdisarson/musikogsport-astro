@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { RUNS_KEPT, envDefaults, estimateMs, mergeSettings, parseRun, parseStored, perPage, validateSettings, type NightlySettings, type RunRecord } from './nightlySettings';
 
-const DEFAULTS: NightlySettings = { enabled: true, at: '05:00', concurrency: 2, pauseMs: 100, catchUp: true };
+const DEFAULTS: NightlySettings = { enabled: true, at: '05:00', concurrency: 2, pauseMs: 100, catchUp: true, photos: false };
 
 const run = (over: Partial<RunRecord> = {}): RunRecord => ({
   startedAt: 1,
@@ -144,14 +144,78 @@ describe('perPage and estimateMs', () => {
   });
 
   it('estimates from the last run, scaled by the workers: pages x ms per page x workers then / workers now', () => {
-    expect(estimateMs(run(), 2)).toBe(8000);
-    expect(estimateMs(run(), 4)).toBe(4000);
-    expect(estimateMs(run({ total: null }), 2)).toBe(4000); // 5 visited pages, no sitemap count on record
+    expect(estimateMs(run(), 2, 100)).toBe(8000);
+    expect(estimateMs(run(), 4, 100)).toBe(4000);
+    expect(estimateMs(run({ total: null }), 2, 100)).toBe(4000); // 5 visited pages, no sitemap count on record
   });
 
   it('is null with no last run, no workers on record, or nothing measured', () => {
-    expect(estimateMs(null, 2)).toBeNull();
-    expect(estimateMs(run({ concurrency: null }), 2)).toBeNull();
-    expect(estimateMs(run({ visited: 0 }), 2)).toBeNull();
+    expect(estimateMs(null, 2, 100)).toBeNull();
+    expect(estimateMs(run({ concurrency: null }), 2, 100)).toBeNull();
+    expect(estimateMs(run({ visited: 0 }), 2, 100)).toBeNull();
+  });
+
+  it('is null when the last run had its own base pause: the measured time per page includes that pause', () => {
+    expect(estimateMs(run({ pauseMs: 100 }), 2, 100)).toBe(8000);
+    expect(estimateMs(run({ pauseMs: 0 }), 2, 100)).toBeNull();
+    expect(estimateMs(run({ pauseMs: 5000 }), 2, 100)).toBeNull();
+  });
+
+  it('is null when the last run had photos: its time per page includes the photo work', () => {
+    expect(estimateMs(run({ photos: true }), 2, 100)).toBeNull();
+    expect(estimateMs(run({ photos: false }), 2, 100)).toBe(8000);
+  });
+
+  it('a record from before the pause was kept still estimates, as it did', () => {
+    expect(estimateMs(run(), 2, 250)).toBe(8000);
   });
 });
+
+describe('photos: the nightly walk prepares the photos only when it is asked to', () => {
+  it('is off by default, with no environment value for it', () => {
+    expect(envDefaults({}).values.photos).toBe(false);
+  });
+
+  it('takes a real boolean only: a string or a number is refused with an Icelandic line', () => {
+    expect(validateSettings({ photos: true })).toEqual({ ok: true, value: { photos: true } });
+    expect(validateSettings({ photos: false })).toEqual({ ok: true, value: { photos: false } });
+    const bad = validateSettings({ photos: 'yes' });
+    expect(bad.ok).toBe(false);
+    expect(validateSettings({ photos: 1 }).ok).toBe(false);
+  });
+
+  it('a saved copy from before the setting existed has no photos: the default applies, and nothing is dropped', () => {
+    const p = parseStored({ settings: { at: '06:15' } });
+    expect(p.saved).toEqual({ at: '06:15' });
+    expect(p.problems).toEqual([]);
+    expect(mergeSettings(envDefaults({}).values, p.saved).values.photos).toBe(false);
+  });
+
+  it('a saved photos value wins over the default, and is reported as saved', () => {
+    const m = mergeSettings(envDefaults({}).values, { photos: true });
+    expect(m.values.photos).toBe(true);
+    expect(m.source.photos).toBe('saved');
+  });
+
+  it('a run record from before the photo fields still parses, with those fields absent', () => {
+    const r = parseRun(run());
+    expect(r).not.toBeNull();
+    expect(r).not.toHaveProperty('photos');
+  });
+
+  it('keeps the base pause of a run record that has it, and refuses one that is not a time', () => {
+    expect(parseRun({ ...run(), pauseMs: 250 })).toMatchObject({ pauseMs: 250 });
+    expect(parseRun({ ...run(), pauseMs: null })).toMatchObject({ pauseMs: null });
+    expect(parseRun(run())).not.toHaveProperty('pauseMs');
+    expect(parseRun({ ...run(), pauseMs: -1 })).toBeNull();
+    expect(parseRun({ ...run(), pauseMs: '100' })).toBeNull();
+  });
+
+  it('keeps the photo fields of a run record that has them, and refuses a count that is not one', () => {
+    const r = parseRun({ ...run(), photos: true, photosConverted: 4, photosKept: 2, photosFailed: 1 });
+    expect(r).toMatchObject({ photos: true, photosConverted: 4, photosKept: 2, photosFailed: 1 });
+    expect(parseRun({ ...run(), photos: 'yes' })).toBeNull();
+    expect(parseRun({ ...run(), photosConverted: -1 })).toBeNull();
+  });
+});
+

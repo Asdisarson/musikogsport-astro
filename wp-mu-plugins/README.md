@@ -94,22 +94,29 @@ resend also fails, the failure is logged and those pages stay as they were until
   path cap, one-time captures, visibility changes). **Deploy by hand:** copy the file to
   `app/public/wp-content/mu-plugins/` (this repo is not loaded from here), and copy it again after each change: the live
   copy must match this one.
-- **mos-shell-admin.php** — the "Síðugeymsla" subpage under Stillingar (capability: edit pages; run now and clear need administrators): an overview of the
-  storefront's rendered-page store (on or off, pages kept, disk use, build, freshness), the nightly rebuild card (next run, last
-  run with its tally and duration, progress while it runs, recent failures) and four actions: run now, stop, rebuild one page
-  (a URL or a path), clear the store (with a confirm box). A clear that leaves page files behind shows a warning, not success; while a clear goes,
-run and clear are refused and the page says so, and the page reloads while a run or a clear goes. It reads and drives the storefront's `/api/shell-admin` with the
-  shared key `MOS_SHELL_POKE_KEY` (define it in `wp-config.php`, the same value as on the storefront) and
-  `mos_headless_target_base()` (`MOS_STOREFRONT_URL`). Without the key, or when the storefront does not answer or answers 403, the
-  page explains what to set instead. Everything the storefront sends is checked before it is shown and escaped. The page reloads
-  every 15 seconds only while a run is going.
-  The card "Stillingar næturkeyrslu" saves the nightly settings (on or off, time, pages at a time, pause in milliseconds, catch-up)
-  in the option `mos_shell_settings` (autoload off; administrators only, others see the values read-only) and sends them to the
-  storefront at once; "Nota sjálfgefin gildi" removes the option and the storefront's copy. The page checks on each fresh status
-  read that the storefront holds the saved copy, and re-sends it when it does not (at most once per read, and not again within a
-  minute of a failed push), then says so. Any page viewer can trigger that re-send, because it only repeats the administrator's
-  saved option. The overview shows the last run's time per page and pages per minute, and the list of the last seven runs. Tests: `php tests/mos_shell_admin_test.php` (sizes, durations, the path rule, the
-  status narrowing, outcomes and notices). Endpoint contract: DEPLOY.md, "Admin endpoint".
+- **mos-shell-admin.php** — the "Síðugeymsla" subpage under Stillingar (capability: edit pages; run now and clear
+  need administrators): an overview of the storefront's rendered-page store (on or off, pages kept, disk use, build,
+  freshness), the nightly rebuild card (next run, last run with its tally and duration, progress while it runs, recent
+  failures) and these actions: run now (with that run's pages at a time, pause and "Myndir líka", none of them saved),
+  stop, rebuild one page (a URL or a path), clear the store and clear the photos (each with a confirm box). A clear
+  that leaves page files behind shows a warning, not success; while a clear goes, run and clear are refused and the
+  page says so, and the page reloads while a run or a clear goes. It reads and drives the storefront's
+  `/api/shell-admin` with the shared key `MOS_SHELL_POKE_KEY` (define it in `wp-config.php`, the same value as on the
+  storefront) and `mos_headless_target_base()` (`MOS_STOREFRONT_URL`). Without the key, or when the storefront does
+  not answer or answers 403, the page explains what to set instead. Everything the storefront sends is checked before
+  it is shown and escaped. The page reloads every 15 seconds only while a run is going. The photo card "Myndir" shows
+  the photos the storefront keeps (files, disk use and folder; while a run prepares photos, that run's converted, kept
+  and failed counts) and clears them with "Tæma myndir" (administrators only). A storefront that predates photos gets
+  one line in place of the photo controls. The card "Stillingar næturkeyrslu" saves the nightly settings (on or off,
+  time, pages at a time, pause in milliseconds, catch-up, photos) in the option `mos_shell_settings` (autoload off;
+  administrators only, others see the values read-only) and sends them to the storefront at once; "Nota sjálfgefin
+  gildi" removes the option and the storefront's copy. The page checks on each fresh status read that the storefront
+  holds the saved copy, and re-sends it when it does not (at most once per read, and not again within a minute of a
+  failed push), then says so. Any page viewer can trigger that re-send, because it only repeats the administrator's
+  saved option. The overview shows the last run's time per page and pages per minute, and the list of the last seven
+  runs. Tests: `php tests/mos_shell_admin_test.php` (sizes, durations, the path rule, the status narrowing, outcomes
+  and notices, the run's choices, the photo block and the settings sent to an older storefront). Endpoint contract:
+  DEPLOY.md, "Admin endpoint".
 - **mos-search.php** — the product search behind the storefront's `/?s=` page and the live results in its search
   sheet. It swaps the search clause of the Store API's `search` (and WordPress's `s`) for its own: every word has to
   match, in the title, the SKU or a term name (category, brand, tag, attribute); words match by their stem
@@ -413,9 +420,10 @@ Deploy: copy `mos-posturinn-droppoints.php`, `headless-bridge.php`, `mos-headles
 `mos-headless-mode.php`, `mos-account-api.php`, `mos-checkout-fields.php`, `mos-size-index.php`,
 `mos-catalog-clean.php`, `mos-nav.php`, `mos-menu.php`, `mos-settings.php`, `mos-instagram.php`, `mos-newsletter.php`, `mos-waitlist.php`, `mos-search.php`,
 `mos-staff-flag.php`, `mos-shell-poke.php` and `mos-shell-admin.php` to `wp-content/mu-plugins/` on the WP host (never the `-local` shim;
-the same eighteen files as DEPLOY.md's checklist, step 2). `mos-headless-api.php`, `mos-nav.php`, `mos-instagram.php` and `mos-shell-admin.php` changed in the latest round,
+the same eighteen files as DEPLOY.md's checklist, step 2). `mos-headless-api.php`, `mos-nav.php`, `mos-instagram.php` and `mos-shell-admin.php` changed in the owner-menu round,
 `mos-menu.php` is new, and `mos-stillingar.php` is now `mos-settings.php`: copy them again where a copy is installed, and
-**delete the old `mos-stillingar.php`** (otherwise there are two Stillingar pages). Then run
+**delete the old `mos-stillingar.php`** (otherwise there are two Stillingar pages). `mos-shell-admin.php` changed again in the photo round: deploy the storefront first,
+then copy it (DEPLOY.md, "Photos in a run"). Then run
 `wp mos-size reindex` once, and `wp db export` → `wp mos-clean preview` → `wp mos-clean apply` (keep the journal) → `wp mos-nav apply` (a first install only: afterwards the menu is the owner's, and `apply` refuses to replace it without `--force`). Requires ACF (free) for the Forsíða fields. In `wp-config.php` define
 `MOS_STOREFRONT_URL` (the storefront's origin) and `MOS_HEADLESS_REDIRECT_STATUS` (`301`), and `MOS_SHELL_POKE_KEY` (the same value as the storefront's `MOS_SHELL_POKE_KEY`): without
 `MOS_STOREFRONT_URL` headless mode does nothing, and card-payment returns, which WooCommerce builds on

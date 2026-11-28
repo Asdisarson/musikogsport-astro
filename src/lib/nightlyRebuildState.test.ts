@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   FAILURE_RING,
+  addRunPhotos,
   beginClear,
   beginRun,
   endClear,
@@ -16,6 +17,7 @@ import {
   resetRunStateForTests,
   runView,
   setRunConcurrency,
+  setRunPhotos,
   setRunTotal,
   stopRequested,
 } from './nightlyRebuildState';
@@ -25,6 +27,15 @@ const zero = { visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0 };
 beforeEach(() => resetRunStateForTests());
 
 describe('nightly run state', () => {
+  it('keeps the photo counts in the finished run, and the run view is idle again after the run ends', () => {
+    beginRun(1000);
+    setRunPhotos(true);
+    addRunPhotos({ converted: 2, kept: 1, failed: 1 });
+    endRun({ endedAt: 2000, record: true, tally: { ...zero, visited: 4 } });
+    expect(lastRun()).toMatchObject({ photos: true, photosConverted: 2, photosKept: 1, photosFailed: 1 });
+    expect(runView()).toMatchObject({ running: false, photos: false, photosConverted: 0, photosKept: 0, photosFailed: 0 });
+  });
+
   it('starts one run at a time', () => {
     expect(beginRun(1000)).toBe(true);
     expect(isRunning()).toBe(true);

@@ -39,6 +39,12 @@ export interface RunView extends RunTally {
   workers: number | null;
   /** The configured number of workers (MOS_SHELL_REBUILD_CONCURRENCY); null when no run is going. */
   concurrency: number | null;
+  /** This run prepares the photos its pages ask for (false when none is going: see photosConverted). */
+  photos: boolean;
+  /** The photos this run made, kept already, and could not make (0 when the run does no photos). */
+  photosConverted: number;
+  photosKept: number;
+  photosFailed: number;
 }
 
 export interface FinishedRun extends RunTally {
@@ -47,6 +53,11 @@ export interface FinishedRun extends RunTally {
   durationMs: number;
   stoppedEarly: boolean;
   stoppedWhy: StopWhy | null;
+  /** The run prepared its photos, and the counts it made (0 when it did none). */
+  photos: boolean;
+  photosConverted: number;
+  photosKept: number;
+  photosFailed: number;
 }
 
 const ZERO: RunTally = { visited: 0, hits: 0, rendered: 0, gone: 0, failures: 0 };
@@ -62,6 +73,10 @@ const state = {
   stopRequested: false,
   workers: null as number | null,
   concurrency: null as number | null,
+  photos: false,
+  photosConverted: 0,
+  photosKept: 0,
+  photosFailed: 0,
   last: null as FinishedRun | null,
   /** Oldest first; at most FAILURE_RING entries. */
   failures: [] as FailureEntry[],
@@ -79,6 +94,10 @@ export function beginRun(startedAt: number): boolean {
   state.stopRequested = false;
   state.workers = null;
   state.concurrency = null;
+  state.photos = false;
+  state.photosConverted = 0;
+  state.photosKept = 0;
+  state.photosFailed = 0;
   return true;
 }
 
@@ -104,6 +123,19 @@ export function setRunConcurrency(n: number): void {
   if (!state.running) return;
   state.concurrency = n;
   state.workers = n;
+}
+
+/** Whether the run going now prepares the photos (decided when it starts, from the run's own value or the saved setting). */
+export function setRunPhotos(on: boolean): void {
+  if (state.running) state.photos = on;
+}
+
+/** Adds the photos one page's warm-up made. */
+export function addRunPhotos(t: { converted: number; kept: number; failed: number }): void {
+  if (!state.running) return;
+  state.photosConverted += t.converted;
+  state.photosKept += t.kept;
+  state.photosFailed += t.failed;
 }
 
 export function setRunTotal(total: number): void {
@@ -137,6 +169,7 @@ export function stopRequested(): boolean {
 /** Ends the run. `record` false (the run never really started, e.g. the store was not there) keeps the last run as it was. */
 export function endRun(e: { endedAt: number; record: boolean; tally?: RunTally; stoppedEarly?: boolean; stoppedWhy?: StopWhy | null }): void {
   if (!state.running) return;
+  // The record is built first, with this run's photo counts; the photo fields are reset after it (runView is idle).
   if (e.record && state.startedAt !== null) {
     const t = e.tally ?? state.tally;
     state.last = {
@@ -146,6 +179,10 @@ export function endRun(e: { endedAt: number; record: boolean; tally?: RunTally; 
       durationMs: Math.max(0, e.endedAt - state.startedAt),
       stoppedEarly: e.stoppedEarly ?? false,
       stoppedWhy: e.stoppedWhy ?? null,
+      photos: state.photos,
+      photosConverted: state.photosConverted,
+      photosKept: state.photosKept,
+      photosFailed: state.photosFailed,
     };
   }
   state.running = false;
@@ -153,6 +190,10 @@ export function endRun(e: { endedAt: number; record: boolean; tally?: RunTally; 
   state.pauseMs = null;
   state.workers = null;
   state.concurrency = null;
+  state.photos = false;
+  state.photosConverted = 0;
+  state.photosKept = 0;
+  state.photosFailed = 0;
 }
 
 export function isRunning(): boolean {
@@ -171,6 +212,10 @@ export function runView(): RunView {
     stopRequested: state.stopRequested,
     workers: state.workers,
     concurrency: state.concurrency,
+    photos: state.photos,
+    photosConverted: state.photosConverted,
+    photosKept: state.photosKept,
+    photosFailed: state.photosFailed,
   };
 }
 
@@ -195,6 +240,10 @@ export function resetRunStateForTests(): void {
   state.stopRequested = false;
   state.workers = null;
   state.concurrency = null;
+  state.photos = false;
+  state.photosConverted = 0;
+  state.photosKept = 0;
+  state.photosFailed = 0;
   state.last = null;
   state.failures = [];
 }

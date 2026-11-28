@@ -9,21 +9,17 @@
 // (public/img-fallback.js) when a picture cannot be shown.
 import type { APIRoute } from 'astro';
 import { WP_INTERNAL_URL } from 'astro:env/server';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { CONCURRENCY, MAX_WAITING, answerMiss, cachePathFor, createGate, makeLight, parseLightRequest, readCached } from '../../../../lib/imgConvert';
+import { answerMiss, cachePathFor, makeLight, parseLightRequest, readCached } from '../../../../lib/imgConvert';
 import { LIGHT_VERSION } from '../../../../lib/img';
+import { IMG_DIR, visitorGate } from '../../../../lib/imgRuntime';
 import { createLimiter } from '../../../../lib/rateLimit';
-import { runtimeEnv, log } from '../../../../lib/logger';
+import { log } from '../../../../lib/logger';
 import { visitorKey } from '../../../../lib/visitor';
 
 export const prerender = false;
 
-// Converted files: MOS_IMG_CACHE_DIR when set, else a folder in the system temp directory (lost on a reboot: the
-// next request converts again).
-// One folder per LIGHT_VERSION, so pictures made the old way are never served under a new URL.
-const DIR = join(runtimeEnv('MOS_IMG_CACHE_DIR') || join(tmpdir(), 'mos-img'), LIGHT_VERSION);
-const gate = createGate(CONCURRENCY, MAX_WAITING);
+// The cache folder and the visitors' conversion gate are process-wide (src/lib/imgRuntime.ts), shared with the nightly warm-up's
+// own gate; see there for MOS_IMG_CACHE_DIR.
 // Only cache misses count: a kept file costs nothing to serve. 60 conversions a minute per visitor.
 const misses = createLimiter(60, 60_000);
 
@@ -40,13 +36,13 @@ export const GET: APIRoute = async (ctx) => {
   if (!req) return refuse(404);
   const headers = { 'Content-Type': TYPE[req.format], 'Cache-Control': 'public, max-age=31536000, immutable' };
 
-  const kept = await readCached(cachePathFor(DIR, req.width, req.format, req.rel, req.crop));
+  const kept = await readCached(cachePathFor(IMG_DIR, req.width, req.format, req.rel, req.crop));
   if (kept) return new Response(new Uint8Array(kept), { headers });
 
   // A miss does not wait for the conversion: see answerMiss.
   return answerMiss(req, {
     allowConvert: misses.take(visitorKey(ctx)),
-    convert: () => makeLight(req, { origin: WP_INTERNAL_URL, dir: DIR, gate }),
+    convert: () => makeLight(req, { origin: WP_INTERNAL_URL, dir: IMG_DIR, gate: visitorGate }),
     warn: (status, err) => log.warn('image not converted', { path: ctx.url.pathname, status, err }),
   });
 };

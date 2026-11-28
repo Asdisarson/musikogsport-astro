@@ -16,7 +16,8 @@
 // is never asked again. A bad answer drops the walk to one worker (see walkStorefront). An answer is "bad" as the prebuild
 // script counts it (isBad): a timeout, anything but a success, a redirect or a gone page (so a 5xx, a 429 or a 403), or
 // over slowMs. Slowness is read from the first answer only: a stale page answers at once and its refresh is the wait,
-// which maxWaitMs bounds. A refresh past maxWaitMs, or one that ends stale, is bad too.
+// which maxWaitMs bounds. A refresh past maxWaitMs, or one that ends stale, is bad too. The optional `after` hook runs once a
+// page has settled (the photo step of a run, src/lib/imgWarm.ts): its work is not an answer and is never counted as one.
 import { isBad, MAX_PAUSE_MS, nextPause, sitemapPathsFrom } from '../../scripts/prebuild_shells.mjs';
 
 const MIN_MS = 60_000;
@@ -211,6 +212,12 @@ export interface WalkIo {
   stop?(): boolean;
   /** Called after each path is counted (the admin page's last path, pause and failure list). */
   step?(s: WalkStep): void;
+  /** Called once the page has settled, inside its unit (so it holds its worker, and comes before the pause), with the
+   *  last answer, whose html is the body when the runtime kept it. It is not a page's answer: nothing it does is counted
+   *  in the tally, and it is not checked for bad answers (the photos of a page, see src/lib/imgWarm.ts). `stop` is true
+   *  once the walk has halted (failures, the stop flag, an error) or a stop was asked for: a page in flight checks it
+   *  before each of its photos. */
+  after?(path: string, last: Answer, stop: () => boolean): Promise<void>;
 }
 
 /** The schedule's state for the admin page: why the nightly rebuild is not armed, or null when it is. Pure. */
@@ -222,7 +229,7 @@ export function scheduleWhy(p: { storeOn: boolean; atOff: boolean; hasBase: bool
   return p.armed ? null : 'waiting';
 }
 
-type Answer = { status: number; shell: string | null; refreshing?: boolean; retryAfter?: string | null };
+type Answer = { status: number; shell: string | null; refreshing?: boolean; retryAfter?: string | null; html?: string | null };
 type Unit = { first: Answer; last: Answer; firstMs: number; timedOut: boolean; stuck: boolean } | 'stopped' | 'abandoned';
 
 /** Walks the paths with `opts.concurrency` workers sharing one queue (see the header). A bad answer drops the walk to one
@@ -282,6 +289,7 @@ export async function walkStorefront(paths: string[], opts: WalkOptions, io: Wal
         last = await io.get(path);
       }
     }
+    if (io.after) await io.after(path, last, () => halted || (io.stop?.() ?? false));
     return { first, last, firstMs, timedOut, stuck };
   }
 

@@ -14,7 +14,9 @@ const m = vi.hoisted(() => ({
   clearBusy: false,
   clearing: false,
   cleared: { removed: 3, failed: 0 } as { removed: number; failed: number } | null,
+  photosCleared: { removed: 7, failed: 1 } as { removed: number; failed: number } | 'running' | 'clearing',
   calls: [] as string[],
+  options: [] as unknown[],
 }));
 
 vi.mock('../lib/shellRuntime', () => ({ shellEnabled: () => m.enabled }));
@@ -22,7 +24,10 @@ vi.mock('../lib/nightlyRebuildRuntime', () => ({
   nightlyRunning: () => m.running,
   nightlyClearing: () => m.clearing,
   rebuildBase: () => ({ origin: m.base, problem: null }),
-  runNightlyRebuild: async (origin: string) => void m.calls.push(`run:${origin}`),
+  runNightlyRebuild: async (origin: string, options: unknown) => {
+    m.calls.push(`run:${origin}`);
+    m.options.push(options);
+  },
   stopNightlyRebuild: () => {
     m.calls.push('stop');
     return m.stopOk;
@@ -53,6 +58,10 @@ vi.mock('../lib/shellAdminRuntime', () => ({
     return m.cleared;
   },
   storeOpens: async () => m.storeOk,
+  clearPhotos: async () => {
+    m.calls.push('clear-photos');
+    return m.photosCleared;
+  },
 }));
 
 const KEY = 'test-key-not-real';
@@ -240,3 +249,42 @@ describe('POST settings', () => {
     expect(m.calls).toEqual([]);
   });
 });
+
+describe('run options and the photo clear', () => {
+  it('a run takes its options to the walk, renamed to the walk\'s own names; absent options are left out', async () => {
+    m.options = [];
+    expect((await post({ action: 'run', concurrency: 3, pauseMs: 0, photos: true })).status).toBe(202);
+    expect(m.options[0]).toEqual({ concurrency: 3, delayMs: 0, photos: true });
+    expect((await post({ action: 'run' })).status).toBe(202);
+    expect(m.options[1]).toEqual({});
+  });
+
+  it('a run with a value out of range is refused as a bad request, and nothing starts', async () => {
+    m.calls = [];
+    m.options = [];
+    expect((await post({ action: 'run', concurrency: 5 })).status).toBe(400);
+    expect((await post({ action: 'run', pauseMs: 30_001 })).status).toBe(400);
+    expect((await post({ action: 'run', photos: 'yes' })).status).toBe(400);
+    expect(m.calls).toEqual([]);
+    expect(m.options).toEqual([]);
+  });
+
+  it('clear-photos answers the removed and failed counts; 409 running or clearing while a run or a clear goes', async () => {
+    m.photosCleared = { removed: 7, failed: 1 };
+    const ok = await post({ action: 'clear-photos' });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ ok: true, removed: 7, failed: 1 });
+
+    m.photosCleared = 'running';
+    const busy = await post({ action: 'clear-photos' });
+    expect(busy.status).toBe(409);
+    expect((await busy.json()).error).toBe('running');
+
+    m.photosCleared = 'clearing';
+    const clearing = await post({ action: 'clear-photos' });
+    expect(clearing.status).toBe(409);
+    expect((await clearing.json()).error).toBe('clearing');
+    m.photosCleared = { removed: 7, failed: 1 };
+  });
+});
+
