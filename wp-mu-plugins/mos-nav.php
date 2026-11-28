@@ -12,7 +12,9 @@
  *  rebuild keeps the menu it replaces, hand edits included, as "Aðalvalmynd 2026 (afrit)": one backup, in Útlit → Valmyndir.
  *  Konur / Karlar / Börn get the same columns (Fatnaður, Skór, Íþróttir, Félagslið, Vörumerki, Úrval); every
  *  column takes the links with the most products (none with fewer than MOS_NAV_MIN_PRODUCTS), lists them in
- *  alphabetical order (Icelandic), and is dropped when empty. The featured clubs (MOS_NAV_FEATURED_CLUBS) lead every
+ *  alphabetical order (Icelandic), and is dropped when empty. Fatnaður also lists MOS_NAV_PINNED_GARMENTS (Toppar for
+ *  Konur and Börn), which rank too low to make the column on their own. The featured clubs
+ *  (MOS_NAV_FEATURED_CLUBS) lead every
  *  Félagslið column they are in, and the featured national teams (MOS_NAV_FEATURED_NATIONAL_TEAMS) lead Landslið, in
  *  the order of those lists. Sports and clubs link to the storefront's filters (?ithrott=, ?team=), not to
  *  categories. The clubs in MOS_NAV_FEATURED_CLUBS and MOS_NAV_PINNED_TEAMS are listed under Íþróttir › Félagslið
@@ -35,6 +37,9 @@ const MOS_NAV_MIN_PRODUCTS = 5;   // a link must lead to at least this many prod
 const MOS_NAV_COLUMN_LINKS = 8;   // links per column
 const MOS_NAV_GENDERS = ['konur' => 'Konur', 'karlar' => 'Karlar', 'born' => 'Börn'];   // Kyn category slug → title
 const MOS_NAV_CLUBS_CATEGORY = 'lidafatnadur-fatnadur-2';
+// Fatnaður categories a gender's column lists however they rank, with one product or more (the owner's decision,
+// 2026-11-28: Toppar is too small to make the column's eight on its own). Gender slug → category slugs.
+const MOS_NAV_PINNED_GARMENTS = ['konur' => ['topp-ur'], 'born' => ['topp-ur']];
 // Félag/Lið slugs listed under Íþróttir › Félagslið besides the ranked clubs, however few products they have (not none).
 const MOS_NAV_PINNED_TEAMS = ['paris-saint-germain', 'inter-milan', 'barcelona'];
 // Félag/Lið slugs that lead every Félagslið column they are in, in this order (the rest of the column is
@@ -226,6 +231,29 @@ function mos_nav_ranked_leaves(array $index, int $root, array $within, string $q
     return mos_nav_top($rows, $max);
 }
 
+/**
+ * $ranked followed by the categories of $slugs it lacks: no MOS_NAV_MIN_PRODUCTS, no maximum. A slug the catalog has
+ * no category for, or with no product within $within (the link would list nothing), is skipped.
+ *
+ * @param list<array{title:string,href:string,children:array,count:int}> $ranked
+ * @param list<string> $slugs
+ * @return list<array{title:string,href:string,children:array,count:int}>
+ */
+function mos_nav_with_pinned_categories(array $index, array $ranked, array $slugs, array $within, string $query): array {
+    $cats = $index['terms']['cat'];
+    $listed = array_flip(array_column($ranked, 'href'));
+    foreach ($slugs as $slug) {
+        $id = mos_nav_id($cats, $slug);
+        if ($id === null) { continue; }
+        $link = mos_nav_category_path($cats, $id) . $query;
+        $count = mos_nav_count($index, $within, ['cat' => [$id]]);
+        if (isset($listed[$link]) || $count === 0) { continue; }
+        $listed[$link] = true;
+        $ranked[] = ['title' => $cats[$id]['name'], 'href' => $link, 'children' => [], 'count' => $count];
+    }
+    return $ranked;
+}
+
 /** A menu item. @param list<array> $children */
 function mos_nav_item(string $title, string $href, array $children = []): array {
     return ['title' => $title, 'href' => $href, 'children' => array_values($children)];
@@ -242,7 +270,10 @@ function mos_nav_gender_item(array $index, string $slug, string $title): ?array 
     $columns = [];
     foreach (['fatnadur' => 'Fatnaður', 'skor' => 'Skór'] as $root_slug => $col) {
         $root = mos_nav_id($cats, $root_slug);
-        if ($root !== null) { $columns[] = mos_nav_item($col, mos_nav_category_path($cats, $root) . $q, mos_nav_ranked_leaves($index, $root, $within, $q, $max)); }
+        if ($root === null) { continue; }
+        $links = mos_nav_ranked_leaves($index, $root, $within, $q, $max);
+        if ($root_slug === 'fatnadur') { $links = mos_nav_with_pinned_categories($index, $links, MOS_NAV_PINNED_GARMENTS[$slug] ?? [], $within, $q); }
+        $columns[] = mos_nav_item($col, mos_nav_category_path($cats, $root) . $q, $links);
     }
     $columns[] = mos_nav_item('Íþróttir', "/verslun/$q", mos_nav_ranked($index, 'sport', $within, static fn ($s) => "/verslun/$q&ithrott=$s", $max));
     $clubs = mos_nav_id($cats, MOS_NAV_CLUBS_CATEGORY);
